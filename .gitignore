@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+.envrypt
+
+# User config (contains RPC URL, wallet key, API keys)
+user-config.json
+
+# GMGN fee-source config (contains API key)
+gmgn-config.json
+
+# Stray Claude Code worktrees
+.claude/worktrees/
+
+# Runtime state (position tracking, lessons — user-specific)
+state.json
+lessons.json
+smart-wallets.json
+pool-memory.json
+token-blacklist.json
+strategy-library.json
+decision-log.json
+hivemind-cache.json
+signal-weights.json
+
+# Telegram screenshots (saved locally for Hermes vision)
+uploads/*.jpg
+uploads/*.png
+uploads/*.webp
+notes/telegram_image_pending.json
+
+# Logs
+logs/
+monitor.log
+*.log
+
+# Pause flags / local runtime
+.telegram_alerts_paused
+
+# Stray config backups
+user-config.json.orig
+user-config.json.rej
+
+# Local swap experiments
+swap_env/
+
+# OS
+.DS_Store
+
+# Dev context
+context.md
+CONTEXT.md
+dev-blocklist.json
+docs/
+
+# Discord listener queue
+discord-signals.json
+
+# Playwright MCP browser logs
+.playwright-mcp/
+
+# Claude Code runtime lock
+.claude/scheduled_tasks.lock
