@@ -71,6 +71,10 @@ function isFeeGeneratingDeploy(deploy) {
 
 function setPoolCooldown(entry, hours, reason) {
   const cooldownUntil = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  const existing = entry.cooldown_until ? new Date(entry.cooldown_until) : null;
+  if (existing && existing > new Date(cooldownUntil)) {
+    return entry.cooldown_until;
+  }
   entry.cooldown_until = cooldownUntil;
   entry.cooldown_reason = reason;
   return cooldownUntil;

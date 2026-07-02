@@ -16,10 +16,11 @@ const DEFAULT_CONSECUTIVE_THRESHOLD = 2;
 const DEFAULT_MAX_RELAXATIONS = 8;
 const RELAX_FACTOR = 0.85;
 
+// Quality bar keys are owned by evolveThresholds() — never auto-relax them.
+const EVOLVE_OWNED_KEYS = new Set(["minOrganic", "minQuoteOrganic", "minFeeActiveTvlRatio"]);
+
 const STATIC_FLOORS = {
   minMcap: 150_000,
-  minOrganic: 45,
-  minQuoteOrganic: 45,
   minHolders: 200,
   minTokenFeesSolPer100kMcap: 6,
   minTokenFeesSol: 5,
@@ -32,12 +33,11 @@ export function getFloorsForConfig(userConfig = {}) {
   return {
     ...STATIC_FLOORS,
     minVolume: Math.max(250, Math.round(scaled.minVolume * 0.5)),
-    minFeeActiveTvlRatio: Math.max(0.005, Number((scaled.minFeeActiveTvlRatio * 0.4).toFixed(3))),
   };
 }
 
 function getRelaxKeys(floors) {
-  return Object.keys(floors);
+  return Object.keys(floors).filter((key) => !EVOLVE_OWNED_KEYS.has(key));
 }
 
 function loadState() {

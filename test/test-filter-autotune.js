@@ -42,14 +42,15 @@ function main() {
   assert(r1, "should produce relaxation for strict config");
   assert(r1.changes.minVolume < strict.minVolume, "minVolume should drop");
   assert(r1.changes.minVolume >= 300_000, "minVolume should respect floor");
-  assert(r1.changes.minOrganic < strict.minOrganic, "minOrganic should drop");
+  assert(!("minOrganic" in r1.changes), "minOrganic is evolve-owned — must not relax");
+  assert(!("minFeeActiveTvlRatio" in r1.changes), "minFeeActiveTvlRatio is evolve-owned — must not relax");
 
   const floors1h = getFloorsForConfig({ timeframe: "1h" });
   assert(floors1h.minVolume === 5000, `1h minVolume floor should be 5000, got ${floors1h.minVolume}`);
   const floors5m = getFloorsForConfig({ timeframe: "5m" });
   assert(floors5m.minVolume === 250, `5m minVolume floor should be 250, got ${floors5m.minVolume}`);
 
-  const atFloor = { timeframe: "1h", ...strict, minVolume: floors1h.minVolume, minMcap: 150_000, minOrganic: 45, minQuoteOrganic: 45, minHolders: 200, minFeeActiveTvlRatio: floors1h.minFeeActiveTvlRatio, minTokenFeesSolPer100kMcap: 6, minTokenFeesSol: 5 };
+  const atFloor = { timeframe: "1h", ...strict, minVolume: floors1h.minVolume, minMcap: 150_000, minOrganic: 45, minQuoteOrganic: 45, minHolders: 200, minFeeActiveTvlRatio: 0.04, minTokenFeesSolPer100kMcap: 6, minTokenFeesSol: 5 };
   const r2 = computeRelaxation(atFloor);
   assert(r2 === null, "at-floor config should not relax further");
 
