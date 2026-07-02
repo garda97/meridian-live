@@ -1,0 +1,10 @@
+{
+  "_note": "Optional. GMGN OpenAPI powers fee accuracy and holder/security audit (top10, bundler tags, renounced flags). Copy to gmgn-config.json and fill apiKey, or set GMGN_API_KEY in .env / gmgnApiKey in user-config.json. Meridian also falls back to ~/.config/gmgn/.env when present.",
+  "apiKey": "",
+  "baseUrl": "https://openapi.gmgn.ai",
+  "requestDelayMs": 2500,
+  "maxRetries": 2,
+  "feeSource": "gmgn",
+  "holderAudit": true,
+  "maxBundlerTop100Pct": null
+}

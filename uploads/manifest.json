@@ -1,0 +1,128 @@
+{
+  "latest": "uploads/tg_20260702_151608_1186.jpg",
+  "items": [
+    {
+      "path": "uploads/tg_20260702_151608_1186.jpg",
+      "filename": "tg_20260702_151608_1186.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260702_151608_1186.jpg",
+      "saved_at": "2026-07-02T15:16:08.570Z",
+      "message_id": 1186,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 107064,
+      "telegram_file_path": "photos/file_19.jpg"
+    },
+    {
+      "path": "uploads/tg_20260702_151606_1185.jpg",
+      "filename": "tg_20260702_151606_1185.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260702_151606_1185.jpg",
+      "saved_at": "2026-07-02T15:16:06.710Z",
+      "message_id": 1185,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 160567,
+      "telegram_file_path": "photos/file_18.jpg"
+    },
+    {
+      "path": "uploads/tg_20260702_100122_1069.jpg",
+      "filename": "tg_20260702_100122_1069.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260702_100122_1069.jpg",
+      "saved_at": "2026-07-02T10:01:22.647Z",
+      "message_id": 1069,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 4038558,
+      "telegram_file_path": "documents/file_17.jpg"
+    },
+    {
+      "path": "uploads/tg_20260702_063313_1020.jpg",
+      "filename": "tg_20260702_063313_1020.jpg",
+      "saved_at": "2026-07-02T06:33:13.699708+00:00",
+      "message_id": 1020,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 74020
+    },
+    {
+      "path": "uploads/tg_20260702_061856_1017.jpg",
+      "filename": "tg_20260702_061856_1017.jpg",
+      "saved_at": "2026-07-02T06:18:56.412972+00:00",
+      "message_id": 1017,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 74903
+    },
+    {
+      "path": "uploads/tg_20260702_061328_1014.jpg",
+      "filename": "tg_20260702_061328_1014.jpg",
+      "saved_at": "2026-07-02T06:13:28.262734+00:00",
+      "message_id": 1014,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 92549
+    },
+    {
+      "path": "uploads/tg_20260702_060643_1012.jpg",
+      "filename": "tg_20260702_060643_1012.jpg",
+      "saved_at": "2026-07-02T06:06:43.704110+00:00",
+      "message_id": 1012,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 71174
+    },
+    {
+      "path": "uploads/tg_20260702_052517_1003.jpg",
+      "filename": "tg_20260702_052517_1003.jpg",
+      "saved_at": "2026-07-02T05:25:17.565940+00:00",
+      "message_id": 1003,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 92284
+    },
+    {
+      "path": "uploads/tg_20260702_031312_972.jpg",
+      "filename": "tg_20260702_031312_972.jpg",
+      "saved_at": "2026-07-02T03:13:12.674299+00:00",
+      "message_id": 972,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 96491
+    },
+    {
+      "path": "uploads/tg_20260702_030346_970.jpg",
+      "filename": "tg_20260702_030346_970.jpg",
+      "saved_at": "2026-07-02T03:03:46.378273+00:00",
+      "message_id": 970,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 99059
+    },
+    {
+      "path": "uploads/tg_20260702_025322_966.jpg",
+      "filename": "tg_20260702_025322_966.jpg",
+      "saved_at": "2026-07-02T02:53:22.997315+00:00",
+      "message_id": 966,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 110138
+    },
+    {
+      "path": "uploads/tg_20260701_024747_620.jpg",
+      "filename": "tg_20260701_024747_620.jpg",
+      "saved_at": "2026-07-01T02:47:47.961024+00:00",
+      "message_id": 620,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 56307
+    },
+    {
+      "path": "uploads/tg_20260701_024746_619.jpg",
+      "filename": "tg_20260701_024746_619.jpg",
+      "saved_at": "2026-07-01T02:47:46.873084+00:00",
+      "message_id": 619,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 55755
+    }
+  ]
+}
