@@ -61,6 +61,8 @@ docs/
 
 # Discord listener queue
 discord-signals.json
+filter-autotune-state.json
+venv_yt/
 
 # Playwright MCP browser logs
 .playwright-mcp/

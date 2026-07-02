@@ -51,6 +51,14 @@ function isAdjustedWinRateExcludedReason(reason) {
     text.includes("oor");
 }
 
+function isLossClose(deploy) {
+  const pnlPct = Number(deploy.pnl_pct);
+  const pnlUsd = Number(deploy.pnl_usd);
+  if (Number.isFinite(pnlPct) && pnlPct < 0) return true;
+  if (Number.isFinite(pnlUsd) && pnlUsd < 0) return true;
+  return false;
+}
+
 function isFeeGeneratingDeploy(deploy) {
   const minFeeEarnedPct = Number(config.management.repeatDeployCooldownMinFeeEarnedPct ?? 0);
   const feeEarnedPct = Number(deploy.fee_earned_pct ?? 0);
@@ -193,6 +201,20 @@ export function recordPoolDeploy(poolAddress, deployData) {
     }
   }
 
+  if (config.management.lossRedeployBlockEnabled !== false && isLossClose(deploy)) {
+    const cooldownHours = Math.max(1, Number(config.management.lossRedeployCooldownHours ?? 24));
+    const pnlLabel = deploy.pnl_pct != null ? `${deploy.pnl_pct}%` : `${deploy.pnl_usd ?? "?"} USD`;
+    const reason = `loss close (PnL ${pnlLabel})`;
+    const poolCooldownUntil = setPoolCooldown(entry, cooldownHours, reason);
+    log("pool-memory", `Loss cooldown set for pool ${entry.name} until ${poolCooldownUntil} (${reason})`);
+    if (entry.base_mint) {
+      const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, cooldownHours, reason);
+      if (mintCooldownUntil) {
+        log("pool-memory", `Loss cooldown set for token ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
+      }
+    }
+  }
+
   if (config.management.repeatDeployCooldownEnabled) {
     const triggerCount = Math.max(1, Number(config.management.repeatDeployCooldownTriggerCount ?? 3));
     const cooldownHours = Math.max(0, Number(config.management.repeatDeployCooldownHours ?? 12));
@@ -223,23 +245,45 @@ export function recordPoolDeploy(poolAddress, deployData) {
   log("pool-memory", `Recorded deploy for ${entry.name} (${poolAddress.slice(0, 8)}): PnL ${deploy.pnl_pct}%`);
 }
 
+function getPoolCooldownInfo(poolAddress) {
+  if (!poolAddress) return null;
+  const entry = load()[poolAddress];
+  if (!entry?.cooldown_until || new Date(entry.cooldown_until) <= new Date()) return null;
+  return { until: entry.cooldown_until, reason: entry.cooldown_reason || "pool cooldown" };
+}
+
+function getBaseMintCooldownInfo(baseMint) {
+  if (!baseMint) return null;
+  const now = new Date();
+  for (const entry of Object.values(load())) {
+    if (
+      entry?.base_mint === baseMint &&
+      entry?.base_mint_cooldown_until &&
+      new Date(entry.base_mint_cooldown_until) > now
+    ) {
+      return {
+        until: entry.base_mint_cooldown_until,
+        reason: entry.base_mint_cooldown_reason || "token cooldown",
+      };
+    }
+  }
+  return null;
+}
+
 export function isPoolOnCooldown(poolAddress) {
-  if (!poolAddress) return false;
-  const db = load();
-  const entry = db[poolAddress];
-  if (!entry?.cooldown_until) return false;
-  return new Date(entry.cooldown_until) > new Date();
+  return getPoolCooldownInfo(poolAddress) != null;
 }
 
 export function isBaseMintOnCooldown(baseMint) {
-  if (!baseMint) return false;
-  const db = load();
-  const now = new Date();
-  return Object.values(db).some((entry) =>
-    entry?.base_mint === baseMint &&
-    entry?.base_mint_cooldown_until &&
-    new Date(entry.base_mint_cooldown_until) > now
-  );
+  return getBaseMintCooldownInfo(baseMint) != null;
+}
+
+export function getPoolCooldownReason(poolAddress) {
+  return getPoolCooldownInfo(poolAddress)?.reason ?? null;
+}
+
+export function getBaseMintCooldownReason(baseMint) {
+  return getBaseMintCooldownInfo(baseMint)?.reason ?? null;
 }
 
 // ─── Read ──────────────────────────────────────────────────────

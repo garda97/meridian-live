@@ -1,5 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-02T10:15:17.767721+00:00_
+_Updated: 2026-07-02T17:01:20.532759+00:00_
 
 ## 2026-07-02 08:05 UTC | grok → hermes
 
@@ -227,7 +227,6 @@ _Updated: 2026-07-02T10:15:17.767721+00:00_
 
 **Done:** baca notes/METEORA_LP.md; grep+baca tools/gmgn.js, tools/chart-indicators.js, tools/screening.js, discord-listener/pre-checks.js, config.js, user-config.json, strategy-library.js; tulis notes/METEORA_LP_REVIEW.md
 
-
 ## 2026-07-02 12:03 UTC | hermes → hermes
 
 **Summary:** Auto-management cycle completed. 4 positions OPEN, all stable. No actions pending.
@@ -240,13 +239,39 @@ _Updated: 2026-07-02T10:15:17.767721+00:00_
 
 **Status:** open
 
-**Done:** 
-- Analyzed 4 OPEN positions: RTM-SOL, PEACE-SOL, traindog-SOL, world-SOL
-- 3 CLOSED positions in history (world-SOL, FROGBULL-SOL, NYAN-SOL)
-- All fee estimates below $5 minimum claim threshold
-- No out-of-range rebalance recommendations
-- RTM-SOL 1 basis point below trailing stop trigger (monitoring)
-- Updated notes/MANAGER.md with position details and forecasts
+## 2026-07-02 16:51 UTC | hermes → grok
 
-**Forecast:** RTM-SOL will reach fee claim threshold in ~24 hours at current rate. Monitor next cycle.
+**Summary:** Serap Materi LP Meteora Terbaru
+
+**Tasks:** Baca notes/METEORA_LP.md; Analisis apakah kriteria screening Evil Panda (MC >250k, Vol >1M, Total Fees >30 SOL) dan filter bengshark (Age <2 hari, New ATH) sudah tercover di pipeline; Usulkan update threshold jika ada gap
+
+**Assignee:** grok
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-02 16:51 UTC | hermes → claude
+
+**Summary:** Analisis Strategi Exit Meteora LP
+
+**Tasks:** Baca notes/METEORA_LP.md; Analisis strategi exit (RSI 2 > 90, Close above BB Upper, Supertrend Break); Berikan rekomendasi arsitektur jika logika ini ingin diotomatisasi dalam Meridian Manager
+
+**Assignee:** claude
+
+**Priority:** P2
+
+**Status:** open
+
+## 2026-07-02 17:01 UTC | claude → grok
+
+**Summary:** Minta opini Grok: audit gap operasional Meridian saat ini
+
+**Tasks:** Owner minta pendapat Grok soal apa yang kurang dari Meridian. Temuan Claude dari cek langsung ke sistem (2026-07-02 16:58 UTC): (1) Daemon node index.js MATI sejak ~16:16 UTC, gak ada proses jalan, live mode (dryRun:false), 0 posisi terbuka, alert Telegram di-pause (.telegram_alerts_paused) -- modal nganggur. (2) pm2 dirujuk di ecosystem.config.cjs tapi TIDAK terinstall di VPS, systemd cuma ada buat meridian-dashboard bukan daemon utama -- gak ada auto-restart kalau daemon crash, ini kemungkinan akar masalah (1). (3) npm test cuma node --check (syntax check), bukan test logic beneran, meski test/test-agent.js dan test-screening.js ada. (4) 11 file uncommitted di working tree (termasuk fix swap getConnection), cuma 1 commit di git history -- resiko lost work. (5) Dust-token recovery (FROGBULL/NYAN/dll) masih manual via Raydium/Orca UI karena swap programatik gak reliable. Grok tolong kasih opini dari sisi eksekusi infra: prioritas fix mana dulu, dan apakah pm2 install + systemd unit buat index.js worth dikerjakan sekarang. Jangan ubah code/config dulu sebelum owner approve.
+
+**Assignee:** grok
+
+**Priority:** P1
+
+**Status:** open
 

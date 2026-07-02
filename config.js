@@ -100,7 +100,9 @@ export const config = {
     maxBinStep:        u.maxBinStep        ?? 125,
     timeframe:         u.timeframe         ?? "5m",
     category:          u.category          ?? "trending",
-    minTokenFeesSol:   u.minTokenFeesSol   ?? 30,  // global fees paid (priority+jito tips). below = bundled/scam
+    minTokenFeesSol:   u.minTokenFeesSol   ?? 10,  // floor (SOL); use with mcapScaledTokenFees
+    mcapScaledTokenFees: u.mcapScaledTokenFees ?? true, // MeteoraFR rule: 10 SOL per $100k mcap
+    minTokenFeesSolPer100kMcap: u.minTokenFeesSolPer100kMcap ?? 10,
     useDiscordSignals: u.useDiscordSignals ?? false,
     discordSignalMode: u.discordSignalMode ?? "merge", // merge | only
     avoidPvpSymbols:   u.avoidPvpSymbols   ?? true, // avoid exact-symbol rivals with real active pools
@@ -130,6 +132,8 @@ export const config = {
     repeatDeployCooldownHours: u.repeatDeployCooldownHours ?? 12,
     repeatDeployCooldownScope: u.repeatDeployCooldownScope ?? "token", // pool | token | both
     repeatDeployCooldownMinFeeEarnedPct: u.repeatDeployCooldownMinFeeEarnedPct ?? u.repeatDeployCooldownMinFeeYieldPct ?? 0,
+    lossRedeployBlockEnabled: u.lossRedeployBlockEnabled !== false,
+    lossRedeployCooldownHours: u.lossRedeployCooldownHours ?? 24,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
@@ -277,6 +281,8 @@ export const config = {
     maxBins: Math.max(69, Number(u.autoStrategyMaxBins ?? 200)),
     spotRatioBelow: Number(u.autoStrategySpotRatioBelow ?? 0.75),
     requireEntryConfirm: u.autoStrategyRequireEntryConfirm ?? false,
+    preferSpotHighFee: u.autoStrategyPreferSpotHighFee !== false,
+    spotFeeTvlMin: Number(u.autoStrategySpotFeeTvlMin ?? 2),
   },
 
   indicators: {
@@ -318,6 +324,20 @@ export function computeDeployAmount(walletSol) {
 }
 
 /**
+ * Minimum global token fees (SOL) — floor or mcap-scaled (MeteoraFR: 10 SOL per $100k mcap).
+ * @param {number} mcap — token market cap USD
+ * @param {object} [screening] — defaults to config.screening
+ */
+export function minTokenFeesSolForMcap(mcap, screening = config.screening) {
+  const floor = Number(screening.minTokenFeesSol ?? 10);
+  if (screening.mcapScaledTokenFees === false) return floor;
+  const m = Number(mcap);
+  if (!Number.isFinite(m) || m <= 0) return floor;
+  const per100k = Number(screening.minTokenFeesSolPer100kMcap ?? 10);
+  return Math.max(floor, Math.ceil((m / 100_000) * per100k));
+}
+
+/**
  * Reload user-config.json and apply updated screening thresholds to the
  * in-memory config object. Called after threshold evolution so the next
  * agent cycle uses the evolved values without a restart.
@@ -329,6 +349,8 @@ export function reloadScreeningThresholds() {
     const s = config.screening;
     if (fresh.minFeeActiveTvlRatio != null) s.minFeeActiveTvlRatio = fresh.minFeeActiveTvlRatio;
     if (fresh.minTokenFeesSol  != null) s.minTokenFeesSol  = fresh.minTokenFeesSol;
+    if (fresh.mcapScaledTokenFees !== undefined) s.mcapScaledTokenFees = fresh.mcapScaledTokenFees;
+    if (fresh.minTokenFeesSolPer100kMcap != null) s.minTokenFeesSolPer100kMcap = fresh.minTokenFeesSolPer100kMcap;
     if (fresh.maxTop10Pct      != null) s.maxTop10Pct      = fresh.maxTop10Pct;
     if (fresh.useDiscordSignals !== undefined) s.useDiscordSignals = fresh.useDiscordSignals;
     if (fresh.discordSignalMode != null) s.discordSignalMode = fresh.discordSignalMode;

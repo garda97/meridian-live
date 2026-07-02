@@ -8,8 +8,10 @@ import { log } from "./logger.js";
 import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates, degenScore } from "./tools/screening.js";
-import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
+import { checkPositionChartExit } from "./tools/chart-indicators.js";
+import { config, reloadScreeningThresholds, computeDeployAmount, minTokenFeesSolForMcap } from "./config.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
+import { recordScreeningOutcome } from "./filter-autotune.js";
 import { executeTool, registerCronRestarter } from "./tools/executor.js";
 import {
   startPolling,
@@ -258,14 +260,17 @@ export async function runManagementCycle({ silent = false } = {}) {
     // (confirmTicks=1) and act on detected exits directly. Real-time 2-tick
     // confirmation lives in the fast 3s poller below.
     const exitMap = new Map();
-    for (const p of positionData) {
+    await Promise.all(positionData.map(async (p) => {
       confirmPeak(p.position, p.pnl_pct, 1);
-      const exit = updatePnlAndCheckExits(p.position, p, config.management);
+      let exit = updatePnlAndCheckExits(p.position, p, config.management);
+      if (!exit) {
+        exit = await checkPositionChartExit(p).catch(() => null);
+      }
       if (exit) {
         exitMap.set(p.position, exit.reason);
         log("state", `Exit alert for ${p.pair}: ${exit.reason}`);
       }
-    }
+    }));
 
     // ── Deterministic rule checks (no LLM) ──────────────────────────
     // action: CLOSE | CLAIM | STAY | INSTRUCTION (needs LLM)
@@ -371,50 +376,55 @@ export async function runScreeningCycle({ silent = false } = {}) {
   _screeningBusy = true; // set immediately — prevents TOCTOU race with concurrent callers
   _screeningLastTriggered = Date.now();
 
-  // Hard guards — don't even run the agent if preconditions aren't met
   let prePositions, preBalance;
   let liveMessage = null;
   let screenReport = null;
+  let deploySucceeded = false;
+  const outcome = { executed: false, deployed: false, skipped: false };
+
   try {
-    [prePositions, preBalance] = await Promise.all([getMyPositions({ force: true }), getWalletBalances()]);
-    if (prePositions.total_positions >= config.risk.maxPositions) {
-      log("cron", `Screening skipped — max positions reached (${prePositions.total_positions}/${config.risk.maxPositions})`);
-      screenReport = `Screening skipped — max positions reached (${prePositions.total_positions}/${config.risk.maxPositions}).`;
-      appendDecision({
-        type: "skip",
-        actor: "SCREENER",
-        summary: "Screening skipped",
-        reason: `Max positions reached (${prePositions.total_positions}/${config.risk.maxPositions})`,
-      });
-      _screeningBusy = false;
+    // Hard guards — don't even run the agent if preconditions aren't met
+    try {
+      [prePositions, preBalance] = await Promise.all([getMyPositions({ force: true }), getWalletBalances()]);
+      if (prePositions.total_positions >= config.risk.maxPositions) {
+        log("cron", `Screening skipped — max positions reached (${prePositions.total_positions}/${config.risk.maxPositions})`);
+        screenReport = `Screening skipped — max positions reached (${prePositions.total_positions}/${config.risk.maxPositions}).`;
+        outcome.skipped = true;
+        appendDecision({
+          type: "skip",
+          actor: "SCREENER",
+          summary: "Screening skipped",
+          reason: `Max positions reached (${prePositions.total_positions}/${config.risk.maxPositions})`,
+        });
+        return screenReport;
+      }
+      const minRequired = config.management.deployAmountSol + config.management.gasReserve;
+      const isDryRun = process.env.DRY_RUN === "true";
+      if (!isDryRun && preBalance.sol < minRequired) {
+        log("cron", `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas)`);
+        screenReport = `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas).`;
+        outcome.skipped = true;
+        appendDecision({
+          type: "skip",
+          actor: "SCREENER",
+          summary: "Screening skipped",
+          reason: `Insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired})`,
+        });
+        return screenReport;
+      }
+    } catch (e) {
+      log("cron_error", `Screening pre-check failed: ${e.message}`);
+      screenReport = `Screening pre-check failed: ${e.message}`;
+      outcome.skipped = true;
       return screenReport;
     }
-    const minRequired = config.management.deployAmountSol + config.management.gasReserve;
-    const isDryRun = process.env.DRY_RUN === "true";
-    if (!isDryRun && preBalance.sol < minRequired) {
-      log("cron", `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas)`);
-      screenReport = `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas).`;
-      appendDecision({
-        type: "skip",
-        actor: "SCREENER",
-        summary: "Screening skipped",
-        reason: `Insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired})`,
-      });
-      _screeningBusy = false;
-      return screenReport;
+
+    outcome.executed = true;
+    if (!silent && telegramEnabled()) {
+      liveMessage = await createLiveMessage("🔍 Screening Cycle", "Scanning candidates...");
     }
-  } catch (e) {
-    log("cron_error", `Screening pre-check failed: ${e.message}`);
-    screenReport = `Screening pre-check failed: ${e.message}`;
-    _screeningBusy = false;
-    return screenReport;
-  }
-  if (!silent && telegramEnabled()) {
-    liveMessage = await createLiveMessage("🔍 Screening Cycle", "Scanning candidates...");
-  }
-  timers.screeningLastRun = Date.now();
-  log("cron", `Starting screening cycle [model: ${config.llm.screeningModel}]`);
-  try {
+    timers.screeningLastRun = Date.now();
+    log("cron", `Starting screening cycle [model: ${config.llm.screeningModel}]`);
     // Reuse pre-fetched balance — no extra RPC call needed
     const currentBalance = preBalance;
     const deployAmount = computeDeployAmount(currentBalance.sol);
@@ -633,7 +643,6 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const weightsSummary = config.darwin?.enabled ? getWeightsSummary() : null;
 
     let deployAttempted = false;
-    let deploySucceeded = false;
     const { content } = await agentLoop(`
 SCREENING CYCLE
 ${strategyBlock}
@@ -730,11 +739,22 @@ IMPORTANT:
         reason: stripThink(content).slice(0, 500),
       }, content));
     }
+    outcome.deployed = deploySucceeded;
   } catch (error) {
     log("cron_error", `Screening cycle failed: ${error.message}`);
     screenReport = `Screening cycle failed: ${error.message}`;
   } finally {
     _screeningBusy = false;
+    try {
+      const autotune = recordScreeningOutcome(outcome, config);
+      if (autotune?.relaxed && autotune.changes) {
+        const relaxedSummary = Object.entries(autotune.changes).map(([k, v]) => `${k}=${v}`).join(", ");
+        const note = `\n\n🔧 Filter autotune: relaxed — ${relaxedSummary}`;
+        screenReport = screenReport ? `${screenReport}${note}` : `🔧 Filter autotune: relaxed — ${relaxedSummary}`;
+      }
+    } catch (e) {
+      log("config_warn", `Filter autotune failed: ${e.message}`);
+    }
     if (!silent && telegramEnabled()) {
       if (screenReport) {
         if (liveMessage) await liveMessage.finalize(stripThink(screenReport)).catch(() => {});
@@ -802,7 +822,10 @@ Summarize the current portfolio health, total fees earned, and performance of al
         confirmPeak(p.position, p.pnl_pct, confirmTicks);
 
         // Detect an exit signal this tick (rule-based exits, then deterministic close rules).
-        const exit = updatePnlAndCheckExits(p.position, p, config.management);
+        let exit = updatePnlAndCheckExits(p.position, p, config.management);
+        if (!exit) {
+          exit = await checkPositionChartExit(p).catch(() => null);
+        }
         const closeRule = exit ? null : getDeterministicCloseRule(p, config.management);
         let signal = null, reason = null, rule = "exit";
         if (exit) { signal = exit.action; reason = exit.reason; }
@@ -1784,8 +1807,10 @@ function getLoneCandidateSkipReason({ pool, sw, n, ti } = {}, gmgnHolderStatsByM
   const maxBundlerTop100Pct = config.gmgn?.maxBundlerTop100Pct;
 
   // Hard fundamental gates — no override.
-  if (Number.isFinite(globalFeesSol) && globalFeesSol < config.screening.minTokenFeesSol) {
-    return `token fees ${globalFeesSol} SOL below minimum ${config.screening.minTokenFeesSol} SOL`;
+  const mcap = Number(tokenInfo.mcap ?? pool.base?.mcap ?? pool.mcap);
+  const minFeesSol = minTokenFeesSolForMcap(mcap);
+  if (Number.isFinite(globalFeesSol) && globalFeesSol < minFeesSol) {
+    return `token fees ${globalFeesSol} SOL below minimum ${minFeesSol} SOL${Number.isFinite(mcap) ? ` (mcap $${Math.round(mcap).toLocaleString()})` : ""}`;
   }
   if (Number.isFinite(top10Pct) && top10Pct > config.screening.maxTop10Pct) {
     return `top10 concentration ${top10Pct}% above maximum ${config.screening.maxTop10Pct}%`;

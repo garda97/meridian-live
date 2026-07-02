@@ -224,6 +224,32 @@ export async function fetchChartIndicatorsForMint(
   });
 }
 
+const EXIT_CHECK_TTL_MS = 45_000;
+const exitCheckCache = new Map();
+
+/**
+ * Chart-based exit for open positions (bb_plus_rsi, supertrend, etc.).
+ * Cached per mint to avoid hammering the indicator API on the 3s PnL poller.
+ */
+export async function checkPositionChartExit(position = {}) {
+  const mint = position.base_mint || position.base?.mint;
+  if (!config.indicators.enabled || !mint) return null;
+
+  const cached = exitCheckCache.get(mint);
+  if (cached && Date.now() - cached.at < EXIT_CHECK_TTL_MS) return cached.result;
+
+  const result = await confirmIndicatorPreset({ mint, side: "exit", refresh: false });
+  let exit = null;
+  if (result.enabled && result.confirmed && !result.skipped) {
+    exit = {
+      action: "CHART_EXIT",
+      reason: `Chart exit (${result.preset}): ${result.reason}`,
+    };
+  }
+  exitCheckCache.set(mint, { at: Date.now(), result: exit });
+  return exit;
+}
+
 export async function confirmIndicatorPreset({
   mint,
   side,
