@@ -90,8 +90,11 @@ function shouldPreferSpotForHighFee(pool) {
   return Number.isFinite(feeTvl) && feeTvl >= minFee;
 }
 
-function applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot }) {
+const SPOT_BIAS_VIEWS = new Set(["sideways", "flat", "retracement"]);
+
+function applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot, view }) {
   if (!allowSpot || !shouldPreferSpotForHighFee(pool) || !plan.entry_allowed) return plan;
+  if (!SPOT_BIAS_VIEWS.has(view)) return plan;
   const feeTvl = Number(pool.fee_active_tvl_ratio);
   const total = clampInt(Math.max(baseBins, config.strategy.minBinsBelow), config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
   const binsBelow = clampInt(total * spotBelowRatio, Math.ceil(config.strategy.minBinsBelow * 0.6), total);
@@ -229,7 +232,9 @@ function buildDeployPlan({ pool, classification, signal, fibHint }) {
     wide_range: binsBelow + binsAbove > 69,
   };
 
-  return applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot });
+  const biased = applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot, view });
+  biased.wide_range = biased.bins_below + biased.bins_above > 69;
+  return biased;
 }
 
 export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}) {
