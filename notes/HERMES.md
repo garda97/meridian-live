@@ -121,6 +121,93 @@ Contoh prompt:
 
 API key: https://www.getxapi.com/dashboard → simpan di `~/.meridian/secrets/getxapi.key`
 
+## Menyimpan ilmu baru — WAJIB ikut hierarki ini
+
+Jangan campur aduk. Pilih **satu** lokasi sesuai jenis ilmu:
+
+### 1. Workflow / prosedur yang berulang → **Hermes Skill**
+Lokasi: `~/.hermes/skills/meridian/<nama-skill>/`
+
+```
+~/.hermes/skills/meridian/
+├── meridian-strategy-optimization/SKILL.md   # tuning config + lessons
+├── meridian-dlmm-position-management/SKILL.md
+├── meridian-api-fixes/SKILL.md
+├── meridian-gmgn-audit/                      # (root skills/)
+└── meridian-telegram-vision/
+```
+
+- **SKILL.md** = instruksi utama (kapan dipakai, langkah, command)
+- **references/** = detail panjang, contoh session, edge case
+- **scripts/** = helper Python/Bash yang dipanggil skill
+
+Buat skill baru kalau: pola kerja baru, audit flow baru, integrasi tool baru.
+Jangan taruh diary harian di skill — itu untuk `notes/`.
+
+### 2. Lesson operasional (agent Meridian belajar) → **lessons.json**
+Lokasi: `/root/meridian/lessons.json` (gitignored — runtime)
+
+Hermes **tidak edit manual** kecuali owner minta. Meridian daemon auto-evolve dari close PnL.
+Kalau owner approve rule manual:
+```bash
+node cli.js lessons add --rule "Organic <60 sering rugi di sideways" --tags screening
+```
+
+### 3. Catatan per pool / token → **pool-memory.json**
+Lokasi: `/root/meridian/pool-memory.json` (gitignored)
+
+Contoh: "RTM-SOL OOR 3x", "CHANCE low yield", cooldown deploy.
+```bash
+node cli.js pool-memory --pool <pool_address>   # baca
+# atau tool add_pool_note lewat agent
+```
+
+### 4. Strategi LP dari tweet/X/owner → **strategy-library.json**
+Lokasi: `/root/meridian/strategy-library.json` (gitignored)
+
+Untuk strategi baru (spot ratio, re-seed bid-ask, fee compounding).
+Bukan untuk fix bug atau threshold angka.
+
+### 5. Sesi / optimasi config → **notes/**
+Lokasi: `/root/meridian/notes/`
+
+| File | Isi |
+|------|-----|
+| `STRATEGY_v<N>.md` | Ringkasan sesi + perubahan threshold |
+| `CONFIG_HISTORY.md` | Audit trail config (append) |
+| `METEORA_LP.md` | Cheat sheet LP / materi X |
+| `METEORA_LP_REVIEW.md` | Gap analysis notes vs kode |
+| `MANAGER.md` / `MONITOR.md` | Log auto-manage / alert |
+| `SWAP_FIX_REPORT.md` | Post-mortem fix teknis |
+| `CURRENT.md` | Fase project (learning / live) |
+
+### 6. Keputusan agent (read-only untuk Hermes) → **decision-log.json**
+Otomatis dari daemon — Hermes **baca**, jangan edit manual.
+
+### 7. Task antar agent → **HANDOFF.md + BRIDGE**
+```bash
+python3 scripts/hermes_bridge.py dispatch --assignee grok --priority P1 --summary "..." --tasks "..."
+```
+Update `notes/BRIDGE.md` setelah dispatch.
+
+### 8. Kode / config production → **repo GitHub**
+`garda97/meridian-live` — cuma lewat **Grok** setelah owner approve.
+Hermes: propose di notes, jangan commit sendiri.
+
+---
+
+**Decision tree cepat:**
+
+| Ilmu baru tentang… | Taruh di |
+|--------------------|----------|
+| Cara kerja / SOP Hermes | `~/.hermes/skills/meridian/.../SKILL.md` |
+| Pool X jelek/bagus | `pool-memory.json` / `add_pool_note` |
+| Threshold angka baru | `notes/STRATEGY_v*.md` → dispatch Grok → `user-config.json` |
+| Materi LP dari X/thread | `notes/METEORA_LP.md` |
+| Bug + fix pattern | `~/.hermes/skills/meridian/meridian-api-fixes/references/` |
+| Strategi shape LP baru | `strategy-library.json` |
+| Lesson agent screening | `lessons.json` (via cli atau daemon) |
+
 ## File source of truth
 
 - `notes/BRIDGE.md` — status sinkron

@@ -301,3 +301,159 @@ Analisis coin X
 ```
 
 **Hermes:** pakai skill `meridian-lp-strategy` saat owner minta analisis strategi/entry untuk CA tertentu.
+
+## [2026-07-02] Thread @MeteoraFR — 5 checks anti-rug sebelum LP
+
+Sumber: https://x.com/i/status/2069363008409580016
+
+Ringkasan (FR → ID) untuk screening Meridian / Hermes manual audit:
+
+### 1. Volume
+- Cek ratio **volume / liquidity** — apakah masuk akal?
+- Volume harus **organik**: candle tidak seragam; ada jam sepi dan jam ramai (KOL, shill X, dll).
+- Red flag: volume tinggi tapi pola bot/uniform.
+
+### 2. Top holders
+- Buka distribusi top 10–100.
+- Red flag: beberapa wallet pegang **30–40%+** (exclude LP, burn, CEX) → dump risk tinggi.
+- Ideal: distribusi sehat; wallet trader aktif dengan histori (cek via Frontrun/GMGN).
+
+### 3. Total fees (global)
+- Fees = proxy aktivitas trading nyata.
+- Red flag: volume besar tapi **fees kecil** → fake volume.
+- Rule of thumb MeteoraFR:
+  - mcap ~100k → min **10 SOL** total fees
+  - mcap ~200k → min **20 SOL**
+  - mcap ~300k → min **30 SOL**
+- Meridian sudah punya `minTokenFeesSol: 20` — selaraskan dengan mcap saat audit.
+
+### 4. Bubblemap (GMGN)
+- Cek **koneksi cluster** antar top holder.
+- Red flag: top holder saling terhubung / satu sumber funding → satu orang kontrol supply.
+- Red flag: bubble tidak connect tapi wallet baru, tanpa trade/transfer history, ikon hijau (fresh wallet).
+
+### 5. Chart viewers (live attention)
+- Banyak viewer + volume organik = momentum sehat.
+- Sedikit viewer + volume tinggi = scam signal.
+- GMGN viewers biasanya > Trading Terminal (contoh: 600 vs 200 = OK).
+
+### Checklist cepat sebelum LP (5 menit)
+1. Volume organik + vol/liq masuk akal
+2. Top holders tidak terkonsentrasi
+3. Total fees sesuai skala mcap
+4. Bubblemap bersih (no cluster/fresh-wallet farm)
+5. Viewers live selaras dengan volume
+
+### Mapping ke Meridian
+| Check MeteoraFR | Meridian equivalent |
+|-----------------|---------------------|
+| Top holders 30–40% | `maxTop10Pct: 30`, GMGN audit |
+| Total fees vs mcap | `mcapScaledTokenFees: true` — 10 SOL per $100k mcap, floor `minTokenFeesSol: 10` |
+| Volume organik | `minOrganic: 60`, `minVolume: 400` |
+| Bubblemap / fresh wallets | `meridian_gmgn_audit.py`, bundler/bot % |
+| Viewers | Manual GMGN — belum di pipeline auto |
+
+**Hermes:** append materi baru ke **bagian bawah file ini** (jangan patch tengah file). Skill: `meridian-gmgn-audit` + `meridian-lp-strategy`.
+
+
+## Ringkasan Materi Thread: bengshark — Fast Bid-Ask "Bonus Stage"
+*Sumber: https://x.com/bengsharksol/status/2060220900428177743*
+
+Strategi LP rendah risiko dengan win rate tinggi (test: 12 entry, 83% win rate).
+
+**Filter Ketat (Wajib):**
+1. Token baru (usia < 2 hari) yang baru saja membuat ATH baru.
+2. Market Cap baru mencapai > 250k.
+3. Volume tinggi.
+4. Bullish Supertrend (15m timeframe).
+5. Distribusi sehat (top 75 avg buy normal).
+
+**Setup:**
+- **Zap:** Double Bid-Ask, full range.
+- **Entry:** Saat harga retrace ke supertrend (makin rendah entry, makin aman margin of safety).
+- **Exit:**
+  - Take Profit: 5-7% PnL.
+  - Stop Loss: Saat terjadi breakdown tajam dan keluar dari range; jangan tunggu "keajaiban".
+
+Catatan: Strategi ini bekerja jauh lebih baik pada token baru dibandingkan token lama.
+
+
+
+## Ringkasan Materi Thread: Friday7th — Market Structure for Swing Trade
+*Sumber: https://x.com/Friday_SOL/status/2062337484034638117*
+
+Pelajaran mendasar tentang *market structure* agar tidak terjebak pisau jatuh:
+
+**Key Takeaways:**
+1. **Harga Turun ≠ Murah:** Harga turun bisa jadi tanda sedang dalam *downtrend* dan akan terus turun.
+2. **Identifikasi Tren:**
+   - **HH + HL (Higher High + Higher Low):** Uptrend (Bullish).
+   - **LH + LL (Lower High + Lower Low):** Downtrend (Bearish).
+3. **Aturan Utama:** Jangan membeli melawan tren besar (downtrend). Tunggu setup yang searah dengan tren besar tersebut.
+
+**Catatan untuk LP:** Jangan hanya terpaku pada harga murah; perhatikan struktur pasar secara keseluruhan sebelum entry posisi LP.
+
+
+
+## Ringkasan Materi YouTube: Meteora LP Army Live - Advanced Boot Camp #7 (Evil Panda Strategy)
+*Sumber: https://www.youtube.com/live/L7SB__NfyzY?si=7CJ3LUB5QJF3NRaO*
+*Disimpan: Grok (rescue dari ringkasan chat Hermes session 20260702_230458_bb7702)*
+
+Video ini adalah sesi Advanced Boot Camp #7 dengan Logical TA (aka Evil Panda) yang menjelaskan strateginya secara live.
+
+**Bagian 1: Screening Koin (Deck Screener & GMGN)**
+1. **Deck Screener Filter:**
+   - Market Cap: minimum $250.000 (titik koin mulai koreksi pertama).
+   - Volume: minimum $1.000.000 (penting untuk fee yang organik).
+   - Sort by Age.
+   - **Penting:** Hanya pilih koin dengan gambar di Deck Screener. Abaikan yang tidak ada gambar (seringkali gratisan di GMGN, tidak kredibel).
+2. **GMGN Audit:**
+   - Setelah dapat CA dari Deck Screener, paste ke GMGN.
+   - Total Fees: minimal 30 SOL. Di bawah itu = death buying/selling, tidak organik.
+   - Top 10 Holders: maksimal 30%. Jika lebih = dangerous.
+   - Phishing: maksimal 30% (di bawah ini masih oke).
+   - Bundling: maksimal 60% (di bawah ini masih oke).
+   - **Catatan:** Chart GMGN sering tidak akurat (mulai sebelum migrasi token) — fokus pada data holder/fees, bukan chartnya.
+
+**Bagian 2: Entry & Indikator Chart (Evil Panda Strategy)**
+1. **Chart Tool:** Deck Screener, timeframe 15 menit.
+2. **Indikator Wajib:** Supertrend, MACD, RSI (diubah ke RSI 2), Bollinger Bands.
+3. **Entry Trigger:** Hanya buka posisi LP saat harga:
+   - Mencapai All-Time High (ATH) baru.
+   - DAN break above Supertrend (garis hijau).
+4. **RSI(2) Upper Limit 90:** Sinyal overbought sangat cepat (1–2 green bar kuat). Membantu timing jual optimal.
+5. **Posisi:** Evil Panda biasanya pakai Spot Position (satu sisi SOL), bukan Bid-Ask (alasan di bagian risk).
+6. **Range LP:** Untuk pool 100 bin, gunakan range sekitar -90% sampai -91% (mencakup 241–245 bins). Batas maksimal 250 bins agar bisa zap out nanti.
+
+**Bagian 3: Exit Strategy**
+1. Tunggu RSI(2) mencapai 90.
+2. ATAU harga close di atas Bollinger Band Upper.
+3. Prioritas selalu cut loss jika ada kesalahan identifikasi koin — jangan ditahan.
+
+**Bagian 4: Manajemen Risiko & Preferensi**
+1. **Spot vs Bid-Ask:**
+   - **Spot:** Dipilih jika yakin koin bagus dan tidak akan rug. Fee lebih banyak karena tidak bersaing bid-ask user lain, terutama jika koin dump 50–60% lalu rebound.
+   - **Bid-Ask:** Lebih konservatif / khawatir dump (minimalkan IL), meski fee lebih sedikit.
+   - Bisa kombinasi 50% Spot + 50% Bid-Ask.
+2. **Manajemen Loss:** Jika salah dan koin dump, cut loss tanpa ragu (Evil Panda pernah cut 20%). Cek ulang dalam 4 jam; jika terus leading down tanpa significant pump → cut.
+3. **Volume Setelah Entry:** Setelah posisi dibuka, volume tidak penting bagi strategi ini.
+4. **Minimum Investasi:** Mulai 3 SOL, target 10+ SOL untuk menutupi biaya bin-opening (~0.035 SOL per pool baru).
+5. **Progresi:** Mulai kecil, scale up 10–20% HANYA jika sesi sebelumnya profit. Jika rugi, jangan scale dan istirahat.
+6. **Zap In / Rebalance:**
+   - Zap In: untuk new pool, saat ini terbatas 69 bins.
+   - Rebalance: DCA in/out dalam 1 transaksi tanpa tutup LP (mis. keluar range bawah → rebalance range baru ke atas).
+
+**Bagian 5: Simulator (DLMM Sim by Geeklad)**
+- Tools: dmmlsim.xyz
+- Fitur: lihat current value per bin di berbagai harga, visualisasi IL, simulasi posisi live (sedang dikembangkan).
+
+**Mapping ke Meridian:**
+| Evil Panda | Meridian equivalent |
+|------------|---------------------|
+| Fees min 30 SOL | `minTokenFeesSol: 10` + `mcapScaledTokenFees` |
+| Top10 max 30% | `maxTop10Pct: 30` |
+| Phishing/bundler max 30% | GMGN audit + `maxBundlerTop100Pct` |
+| Entry ATH + Supertrend break | `autoStrategyEnabled` + chart 15m |
+| Spot vs bid-ask | auto-router: sideways→spot, dump→bid_ask |
+| Range 241–250 bins | `autoStrategyMaxBins: 200` (wide path di `tools/dlmm.js`) |
+

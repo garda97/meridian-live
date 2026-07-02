@@ -83,6 +83,32 @@ function classifyMarketView({ pool, priceChange1h, signal }) {
   return { view: "retracement", confidence: "medium", reason: "Default retracement fee play for trending meme" };
 }
 
+function shouldPreferSpotForHighFee(pool) {
+  if (config.autoStrategy?.preferSpotHighFee === false) return false;
+  const feeTvl = Number(pool?.fee_active_tvl_ratio);
+  const minFee = Number(config.autoStrategy?.spotFeeTvlMin ?? 2);
+  return Number.isFinite(feeTvl) && feeTvl >= minFee;
+}
+
+function applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot }) {
+  if (!allowSpot || !shouldPreferSpotForHighFee(pool) || !plan.entry_allowed) return plan;
+  const feeTvl = Number(pool.fee_active_tvl_ratio);
+  const total = clampInt(Math.max(baseBins, config.strategy.minBinsBelow), config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
+  const binsBelow = clampInt(total * spotBelowRatio, Math.ceil(config.strategy.minBinsBelow * 0.6), total);
+  const binsAbove = Math.max(0, total - binsBelow);
+  return {
+    ...plan,
+    strategy: "spot",
+    deposit_side: "sol_balanced",
+    bins_below: binsBelow,
+    bins_above: binsAbove,
+    notes: [
+      ...(plan.notes || []),
+      `High fee/TVL spot bias (${feeTvl.toFixed(2)} >= ${config.autoStrategy?.spotFeeTvlMin ?? 2})`,
+    ],
+  };
+}
+
 function buildDeployPlan({ pool, classification, signal, fibHint }) {
   const vol = Number(pool?.volatility);
   const baseBins = volatilityScaledBins(vol);
@@ -187,7 +213,7 @@ function buildDeployPlan({ pool, classification, signal, fibHint }) {
     if (strategy === "bid_ask") binsAbove = 0;
   }
 
-  return {
+  const plan = {
     market_view: view,
     view_reason: viewReason,
     strategy,
@@ -202,6 +228,8 @@ function buildDeployPlan({ pool, classification, signal, fibHint }) {
     signal_summary: signal ?? null,
     wide_range: binsBelow + binsAbove > 69,
   };
+
+  return applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot });
 }
 
 export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}) {

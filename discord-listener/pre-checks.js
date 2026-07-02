@@ -126,15 +126,28 @@ export async function deployerCheck(poolAddress) {
 }
 
 // Stage 6: Global fees check — priority + jito tips via Jupiter ChainInsight API
-// Reads minTokenFeesSol from user-config.json (same threshold executor.js uses before deploy)
+// Mcap-scaled threshold from config (MeteoraFR: 10 SOL per $100k mcap)
 export async function feesCheck(mint) {
   if (!mint) return { pass: true, global_fees_sol: null };
 
-  let minFeesSol = 30;
+  let screening = { minTokenFeesSol: 10, mcapScaledTokenFees: true, minTokenFeesSolPer100kMcap: 10 };
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, "user-config.json"), "utf8"));
-    minFeesSol = cfg.screening?.minTokenFeesSol ?? cfg.minTokenFeesSol ?? 30;
+    screening = {
+      minTokenFeesSol: cfg.minTokenFeesSol ?? 10,
+      mcapScaledTokenFees: cfg.mcapScaledTokenFees ?? true,
+      minTokenFeesSolPer100kMcap: cfg.minTokenFeesSolPer100kMcap ?? 10,
+    };
   } catch { /* use default */ }
+
+  const minFeesForMcap = (mcap) => {
+    const floor = Number(screening.minTokenFeesSol ?? 10);
+    if (screening.mcapScaledTokenFees === false) return floor;
+    const m = Number(mcap);
+    if (!Number.isFinite(m) || m <= 0) return floor;
+    const per100k = Number(screening.minTokenFeesSolPer100kMcap ?? 10);
+    return Math.max(floor, Math.ceil((m / 100_000) * per100k));
+  };
 
   try {
     const res = await fetch(`https://datapi.jup.ag/v1/assets/search?query=${mint}`);
@@ -143,13 +156,15 @@ export async function feesCheck(mint) {
     const tokens = Array.isArray(data) ? data : [data];
     const token = tokens.find(t => t.id === mint) || tokens[0];
     const globalFees = token?.fees != null ? parseFloat(token.fees) : null;
+    const mcap = token?.mcap ?? token?.fdv ?? null;
+    const minFeesSol = minFeesForMcap(mcap);
 
     if (globalFees === null) {
       console.warn(`  [fees] No fee data for ${mint} — passing`);
       return { pass: true, global_fees_sol: null };
     }
     if (globalFees < minFeesSol) {
-      return { pass: false, reason: `global fees too low: ${globalFees.toFixed(2)} SOL < ${minFeesSol} SOL threshold` };
+      return { pass: false, reason: `global fees too low: ${globalFees.toFixed(2)} SOL < ${minFeesSol} SOL threshold${mcap != null ? ` (mcap $${Math.round(mcap)})` : ""}` };
     }
     return { pass: true, global_fees_sol: globalFees };
   } catch (e) {

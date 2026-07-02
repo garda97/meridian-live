@@ -1,8 +1,15 @@
+import fs from "fs";
 import { config } from "../config.js";
+import { repoPath } from "../repo-root.js";
 import { isBlacklisted } from "../token-blacklist.js";
 import { isDevBlocked, getBlockedDevs } from "../dev-blocklist.js";
 import { log } from "../logger.js";
-import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
+import {
+  getBaseMintCooldownReason,
+  getPoolCooldownReason,
+  isBaseMintOnCooldown,
+  isPoolOnCooldown,
+} from "../pool-memory.js";
 import { confirmIndicatorPreset } from "./chart-indicators.js";
 import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
 
@@ -229,13 +236,80 @@ async function rugCheckCandidates(pools) {
   return results;
 }
 
-async function fetchDiscordSignalCandidates() {
+const DISCORD_SIGNALS_FILE = repoPath("discord-signals.json");
+
+async function fetchRemoteDiscordSignalCandidates() {
   const res = await fetch(`${getAgentMeridianBase()}/signals/discord/candidates`, {
     headers: getAgentMeridianHeaders(),
   });
   if (!res.ok) throw new Error(`discord signal candidates ${res.status}`);
   const data = await res.json();
   return Array.isArray(data?.candidates) ? data.candidates : [];
+}
+
+async function fetchLocalDiscordSignalCandidates(timeframe) {
+  if (!fs.existsSync(DISCORD_SIGNALS_FILE)) return [];
+  let signals = [];
+  try {
+    signals = JSON.parse(fs.readFileSync(DISCORD_SIGNALS_FILE, "utf8"));
+  } catch {
+    return [];
+  }
+  const pending = signals.filter((s) => s.status === "pending" && s.pool_address);
+  if (pending.length === 0) return [];
+
+  const results = await Promise.allSettled(
+    pending.map(async (signal) => {
+      const discoveryPool = await fetchPoolDiscoveryDetail({
+        poolAddress: signal.pool_address,
+        timeframe,
+      });
+      if (!discoveryPool?.pool_address) return null;
+      return {
+        discovery_pool: discoveryPool,
+        source_count: 1,
+        seen_count: 1,
+        first_seen_at: signal.queued_at || null,
+        last_seen_at: signal.queued_at || null,
+        local_signal_id: signal.id || null,
+      };
+    }),
+  );
+
+  const candidates = results
+    .filter((r) => r.status === "fulfilled" && r.value)
+    .map((r) => r.value);
+
+  if (candidates.length > 0) {
+    log("screening", `Loaded ${candidates.length} local Discord signal(s) from discord-signals.json`);
+  }
+  return candidates;
+}
+
+async function fetchDiscordSignalCandidates(timeframe) {
+  const remote = await fetchRemoteDiscordSignalCandidates().catch((error) => {
+    log("screening", `Remote Discord signals unavailable: ${error.message}`);
+    return [];
+  });
+  const local = await fetchLocalDiscordSignalCandidates(timeframe);
+
+  const byPool = new Map();
+  for (const candidate of [...remote, ...local]) {
+    const poolAddress = candidate?.discovery_pool?.pool_address;
+    if (!poolAddress) continue;
+    const existing = byPool.get(poolAddress);
+    if (!existing) {
+      byPool.set(poolAddress, candidate);
+      continue;
+    }
+    byPool.set(poolAddress, {
+      ...existing,
+      source_count: Math.max(existing.source_count || 1, candidate.source_count || 1),
+      seen_count: Math.max(existing.seen_count || 1, candidate.seen_count || 1),
+      last_seen_at: candidate.last_seen_at || existing.last_seen_at,
+    });
+  }
+  return Array.from(byPool.values());
 }
 
 async function fetchPoolDiscoveryPage({ page_size, filters, timeframe, category }) {
@@ -500,7 +574,7 @@ export async function discoverPools({
   let rawPools = Array.isArray(data.data) ? data.data : [];
 
   if (config.screening.useDiscordSignals) {
-    const signalCandidates = await fetchDiscordSignalCandidates().catch((error) => {
+    const signalCandidates = await fetchDiscordSignalCandidates(s.timeframe).catch((error) => {
       log("screening", `Discord signal fetch failed: ${error.message}`);
       return [];
     });
@@ -668,13 +742,15 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         return false;
       }
       if (isPoolOnCooldown(p.pool)) {
-        log("screening", `Filtered cooldown pool ${p.name} (${p.pool.slice(0, 8)})`);
-        pushFilteredReason(filteredOut, p, "pool cooldown active");
+        const reason = getPoolCooldownReason(p.pool) || "pool cooldown active";
+        log("screening", `Filtered cooldown pool ${p.name} (${p.pool.slice(0, 8)}): ${reason}`);
+        pushFilteredReason(filteredOut, p, reason);
         return false;
       }
       if (isBaseMintOnCooldown(p.base?.mint)) {
-        log("screening", `Filtered cooldown token ${p.base?.symbol} (${p.base?.mint?.slice(0, 8)})`);
-        pushFilteredReason(filteredOut, p, "token cooldown active");
+        const reason = getBaseMintCooldownReason(p.base?.mint) || "token cooldown active";
+        log("screening", `Filtered cooldown token ${p.base?.symbol} (${p.base?.mint?.slice(0, 8)}): ${reason}`);
+        pushFilteredReason(filteredOut, p, reason);
         return false;
       }
       return true;
