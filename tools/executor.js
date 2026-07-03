@@ -408,6 +408,8 @@ const toolMap = {
       partialTpClosePct: ["management", "partialTpClosePct"],
       partialTpMinRemainUsd: ["management", "partialTpMinRemainUsd"],
       pnlSanityMaxDiffPct: ["management", "pnlSanityMaxDiffPct"],
+      noDeployAfterHour: ["schedule", "noDeployAfterHour"],
+      noDeployBeforeHour: ["schedule", "noDeployBeforeHour"],
       // pnl poller
       pnlConfirmTicks: ["pnl", "confirmTicks"],
       // opportunity poller (interval/enabled changes apply on next restart)
@@ -478,6 +480,8 @@ const toolMap = {
       gmgnApiKey: ["gmgn", "apiKey", ["gmgnApiKey"]],
       gmgnHolderAudit: ["gmgn", "holderAudit", ["gmgnHolderAudit"]],
       maxBundlerTop100Pct: ["gmgn", "maxBundlerTop100Pct", ["maxBundlerTop100Pct"]],
+      maxFreshWalletHolderPct: ["gmgn", "maxFreshWalletHolderPct", ["maxFreshWalletHolderPct"]],
+      maxBundledWalletHolderPct: ["gmgn", "maxBundledWalletHolderPct", ["maxBundledWalletHolderPct"]],
       // chart indicators
       chartIndicatorsEnabled: ["indicators", "enabled", ["chartIndicators", "enabled"]],
       indicatorEntryPreset: ["indicators", "entryPreset", ["chartIndicators", "entryPreset"]],
@@ -489,6 +493,7 @@ const toolMap = {
       rsiOverbought: ["indicators", "rsiOverbought", ["chartIndicators", "rsiOverbought"]],
       requireAllIntervals: ["indicators", "requireAllIntervals", ["chartIndicators", "requireAllIntervals"]],
       evilPandaRsiExit: ["indicators", "evilPandaRsiExit", ["chartIndicators", "evilPandaRsiExit"]],
+      evilPandaMacdExitEnabled: ["indicators", "evilPandaMacdExitEnabled", ["chartIndicators", "evilPandaMacdExitEnabled"]],
     };
 
     const applied = {};

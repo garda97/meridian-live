@@ -8,6 +8,7 @@ import { log } from "./logger.js";
 import { getMyPositions, closePosition, partialClosePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { checkSolRegimeGate } from "./tools/sol-regime.js";
+import { isWithinDeployWindow } from "./utils/deploy-window.js";
 import { getTopCandidates, degenScore } from "./tools/screening.js";
 import { checkPositionChartExit } from "./tools/chart-indicators.js";
 import { config, reloadScreeningThresholds, computeDeployAmount, minTokenFeesSolForMcap } from "./config.js";
@@ -34,7 +35,7 @@ import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
 import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
-import { getGmgnTokenTopHolders } from "./tools/gmgn.js";
+import { getGmgnTokenTopHolders, computeHolderRatios } from "./tools/gmgn.js";
 import { stageSignals } from "./signal-tracker.js";
 import {
   resolveDeployPlansForCandidates,
@@ -420,6 +421,29 @@ export async function runScreeningCycle({ silent = false } = {}) {
       return screenReport;
     }
 
+    const deployWindow = isWithinDeployWindow(new Date().getHours(), {
+      afterHour: config.schedule.noDeployAfterHour,
+      beforeHour: config.schedule.noDeployBeforeHour,
+    });
+    if (!deployWindow.allowed) {
+      const reason = `Time gate: ${deployWindow.reason} (server-local)`;
+      log("cron", `Screening skipped — ${reason}`);
+      screenReport = `Screening skipped — ${reason}.`;
+      outcome.skipped = true;
+      appendDecision({
+        type: "skip",
+        actor: "SCREENER",
+        summary: "Screening skipped",
+        reason: "time_gate",
+        metrics: {
+          local_hour: new Date().getHours(),
+          no_deploy_after_hour: config.schedule.noDeployAfterHour,
+          no_deploy_before_hour: config.schedule.noDeployBeforeHour,
+        },
+      });
+      return screenReport;
+    }
+
     const regime = checkSolRegimeGate(preBalance?.sol_price);
     if (regime.blocked) {
       const reason = `SOL regime gate: 1h change ${regime.changePct}% <= ${regime.thresholdPct}%`;
@@ -524,15 +548,30 @@ export async function runScreeningCycle({ silent = false } = {}) {
     }
 
     const maxBundlerTop100Pct = config.gmgn?.maxBundlerTop100Pct;
+    const maxFreshWalletHolderPct = config.gmgn?.maxFreshWalletHolderPct;
+    const maxBundledWalletHolderPct = config.gmgn?.maxBundledWalletHolderPct;
     const passingAfterGmgn = passing.filter(({ pool, ti }) => {
       const mint = pool.base?.mint || ti?.mint;
       const stats = mint ? gmgnHolderStatsByMint.get(mint) : null;
       const bundlerPct = stats?.bundlers_pct_in_top_100;
-      if (bundlerPct == null || maxBundlerTop100Pct == null) return true;
-      if (bundlerPct <= maxBundlerTop100Pct) return true;
-      log("screening", `GMGN bundler filter: dropped ${pool.name} — bundlers ${bundlerPct}% > ${maxBundlerTop100Pct}%`);
-      filteredOut.push({ name: pool.name, reason: `GMGN bundlers ${bundlerPct}% > ${maxBundlerTop100Pct}%` });
-      return false;
+      if (bundlerPct != null && maxBundlerTop100Pct != null && bundlerPct > maxBundlerTop100Pct) {
+        log("screening", `GMGN bundler filter: dropped ${pool.name} — bundlers ${bundlerPct}% > ${maxBundlerTop100Pct}%`);
+        filteredOut.push({ name: pool.name, reason: `GMGN bundlers ${bundlerPct}% > ${maxBundlerTop100Pct}%` });
+        return false;
+      }
+      // Tagged-wallet ratios vs total holders (off unless configured)
+      const ratios = computeHolderRatios(stats, ti?.holders ?? pool.base_token_holders);
+      if (ratios.fresh_wallet_holder_pct != null && maxFreshWalletHolderPct != null && ratios.fresh_wallet_holder_pct > maxFreshWalletHolderPct) {
+        log("screening", `GMGN fresh-wallet filter: dropped ${pool.name} — fresh ${ratios.fresh_wallet_holder_pct}% of holders > ${maxFreshWalletHolderPct}%`);
+        filteredOut.push({ name: pool.name, reason: `GMGN fresh wallets ${ratios.fresh_wallet_holder_pct}% of holders > ${maxFreshWalletHolderPct}%` });
+        return false;
+      }
+      if (ratios.bundled_wallet_holder_pct != null && maxBundledWalletHolderPct != null && ratios.bundled_wallet_holder_pct > maxBundledWalletHolderPct) {
+        log("screening", `GMGN bundled-wallet filter: dropped ${pool.name} — bundled ${ratios.bundled_wallet_holder_pct}% of holders > ${maxBundledWalletHolderPct}%`);
+        filteredOut.push({ name: pool.name, reason: `GMGN bundled wallets ${ratios.bundled_wallet_holder_pct}% of holders > ${maxBundledWalletHolderPct}%` });
+        return false;
+      }
+      return true;
     });
 
     if (passingAfterGmgn.length === 0 && passing.length > 0) {
@@ -620,6 +659,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const top10Pct = ti?.audit?.gmgn_top10_pct ?? ti?.audit?.top_holders_pct ?? "?";
       const bundlerPct = gmgnStats?.bundlers_pct_in_top_100;
       const smartDegen = gmgnStats?.smart_degen_count;
+      const holderRatios = computeHolderRatios(gmgnStats, ti?.holders ?? pool.base_token_holders);
       const feesSol = ti?.global_fees_sol ?? "?";
       const launchpad = ti?.launchpad ?? null;
       const priceChange = ti?.stats_1h?.price_change;
@@ -633,7 +673,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const block = [
         `POOL: ${pool.name} (${pool.pool})`,
         `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.tvl ?? pool.active_tvl}, volatility_${pool.volatility_timeframe || "30m"}=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}`,
-        `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${bundlerPct != null ? `, gmgn_bundlers=${bundlerPct}%` : ""}${smartDegen != null ? `, gmgn_sm=${smartDegen}` : ""}${launchpad ? `, launchpad=${launchpad}` : ""}`,
+        `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${bundlerPct != null ? `, gmgn_bundlers=${bundlerPct}%` : ""}${smartDegen != null ? `, gmgn_sm=${smartDegen}` : ""}${holderRatios.fresh_wallet_holder_pct != null ? `, fresh_holders=${holderRatios.fresh_wallet_holder_pct}%` : ""}${holderRatios.bundled_wallet_holder_pct != null ? `, bundled_holders=${holderRatios.bundled_wallet_holder_pct}%` : ""}${launchpad ? `, launchpad=${launchpad}` : ""}`,
         pvpLine,
         `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
         activeBin != null ? `  active_bin: ${activeBin}` : null,
@@ -663,6 +703,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
           bot_pct:               auditNum(botPct),
           bundler_pct:           auditNum(bundlerPct),
           smart_degen_count:     auditNum(smartDegen),
+          fresh_wallet_holder_pct:   holderRatios.fresh_wallet_holder_pct,
+          bundled_wallet_holder_pct: holderRatios.bundled_wallet_holder_pct,
         });
       }
 

@@ -125,6 +125,8 @@
 
   "gmgnFeeSource": "gmgn",
   "gmgnApiKey": "",
+  "maxFreshWalletHolderPct": null,
+  "maxBundledWalletHolderPct": null,
 
   "chartIndicators": {
     "enabled": false,
@@ -138,7 +140,8 @@
     "requireAllIntervals": false,
     "exitRequireAllIntervals": true,
     "chartExitMinPnlPct": 0.5,
-    "evilPandaRsiExit": 90
+    "evilPandaRsiExit": 90,
+    "evilPandaMacdExitEnabled": false
   },
   "telegramChatId": "",
   "hiveMindUrl": "",

@@ -14,7 +14,8 @@ import {
   resolveDeployStrategyForCandidate,
 } from "../tools/strategy-router.js";
 import { recordPoolDeploy, isPoolOnCooldown, getPoolCooldownReason } from "../pool-memory.js";
-import { passesChartExitPnlGate, isNewAthFromCandles, evaluateAthEntryGate, evaluatePreset } from "../tools/chart-indicators.js";
+import { passesChartExitPnlGate, isNewAthFromCandles, evaluateAthEntryGate, evaluatePreset, computeMacdFromCandles } from "../tools/chart-indicators.js";
+import { computeHolderRatios } from "../tools/gmgn.js";
 import { config } from "../config.js";
 
 const POOL_MEMORY_PATH = repoPath("pool-memory.json");
@@ -272,6 +273,102 @@ function testEvilPandaExit() {
   console.log("  evil-panda exit: armed-break + RSI/BB fires, unarmed/quiet/entry held OK");
 }
 
+// ── MACD histogram + evil panda MACD trigger ───────────────────
+function testMacdExit() {
+  const mkCandles = (closes) => closes.map((close) => ({ close }));
+
+  // Not enough candles → null
+  assert(computeMacdFromCandles(mkCandles([1, 2, 3])) == null, "short series must return null");
+  assert(computeMacdFromCandles(null) == null, "null candles must return null");
+
+  // Downtrend then sharp reversal: histogram must flip negative → positive,
+  // and turnedGreen must be true exactly on the first positive bar.
+  const closes = [];
+  for (let i = 0; i < 40; i++) closes.push(100 - i); // decline to 61
+  for (let i = 0; i < 15; i++) closes.push(61 + i * 4); // sharp bounce
+
+  let sawGreenFlip = false;
+  let prevHistSign = null;
+  for (let len = 36; len <= closes.length; len++) {
+    const m = computeMacdFromCandles(mkCandles(closes.slice(0, len)));
+    if (!m) continue;
+    assert(
+      m.turnedGreen === (m.hist > 0 && m.prevHist <= 0),
+      `turnedGreen must match hist sign flip at len ${len}`,
+    );
+    if (m.turnedGreen) {
+      assert(prevHistSign === "neg", "green flip must follow a negative bar");
+      sawGreenFlip = true;
+    }
+    prevHistSign = m.hist > 0 ? "pos" : "neg";
+  }
+  assert(sawGreenFlip, "reversal series must produce exactly one green flip");
+
+  // Pure decline: histogram never turns green
+  const declineOnly = mkCandles(closes.slice(0, 40));
+  const md = computeMacdFromCandles(declineOnly);
+  assert(md && md.hist <= 0 && !md.turnedGreen, "pure decline must not flip green");
+
+  // evil_panda_exit MACD trigger honors the enable flag
+  const savedFlag = config.indicators.evilPandaMacdExitEnabled;
+  try {
+    // Find a prefix where the flip happens and build a payload around it
+    let flipLen = null;
+    for (let len = 36; len <= closes.length; len++) {
+      if (computeMacdFromCandles(mkCandles(closes.slice(0, len)))?.turnedGreen) { flipLen = len; break; }
+    }
+    assert(flipLen != null, "flip length must exist");
+    const payload = {
+      candles: mkCandles(closes.slice(0, flipLen)),
+      latest: {
+        candle: { close: 100 },
+        previousCandle: { close: 100 },
+        rsi: { value: 50 }, // quiet — RSI must not be the trigger
+        bollinger: { upper: 200, middle: 150, lower: 100 }, // far below upper
+        supertrend: { value: 110, direction: "bearish" },
+        states: { supertrendBreakDown: false },
+      },
+    };
+
+    config.indicators.evilPandaMacdExitEnabled = true;
+    let r = evaluatePreset("exit", "evil_panda_exit", payload);
+    assert(r.confirmed && r.reason.includes("MACD"), `MACD flip must confirm when enabled, got: ${r.reason}`);
+
+    config.indicators.evilPandaMacdExitEnabled = false;
+    r = evaluatePreset("exit", "evil_panda_exit", payload);
+    assert(!r.confirmed, "MACD flip must be ignored when disabled");
+
+    console.log("  macd-exit: hist flip detected once, decline stays red, flag gates trigger OK");
+  } finally {
+    config.indicators.evilPandaMacdExitEnabled = savedFlag;
+  }
+}
+
+// ── GMGN holder ratios ─────────────────────────────────────────
+function testHolderRatios() {
+  const stats = { fresh_wallet_count: 30, bundlers_in_top_100: 12 };
+
+  let r = computeHolderRatios(stats, 600);
+  assert(r.fresh_wallet_holder_pct === 5, `expected fresh 5%, got ${r.fresh_wallet_holder_pct}`);
+  assert(r.bundled_wallet_holder_pct === 2, `expected bundled 2%, got ${r.bundled_wallet_holder_pct}`);
+
+  // Rounding to 2 decimals
+  r = computeHolderRatios({ fresh_wallet_count: 1, bundlers_in_top_100: 1 }, 300);
+  assert(r.fresh_wallet_holder_pct === 0.33, `expected 0.33, got ${r.fresh_wallet_holder_pct}`);
+
+  // Missing sides → nulls (gate stays open)
+  r = computeHolderRatios(null, 600);
+  assert(r.fresh_wallet_holder_pct == null && r.bundled_wallet_holder_pct == null, "missing stats must yield nulls");
+  r = computeHolderRatios(stats, 0);
+  assert(r.fresh_wallet_holder_pct == null, "zero holders must yield nulls");
+  r = computeHolderRatios(stats, null);
+  assert(r.bundled_wallet_holder_pct == null, "null holders must yield nulls");
+  r = computeHolderRatios({ }, 600);
+  assert(r.fresh_wallet_holder_pct == null, "missing counts must yield nulls");
+
+  console.log("  holder-ratios: pct math, rounding, missing-side nulls OK");
+}
+
 // ── Pump upside-cover gate ─────────────────────────────────────
 function testPumpUpsideCoverGate() {
   const savedMin = config.autoStrategy.minUpsideCoverPctPump;
@@ -381,6 +478,8 @@ async function main() {
   testWinRedeployCooldown();
   testChartExitPnlGate();
   testEvilPandaExit();
+  testMacdExit();
+  testHolderRatios();
   testPumpUpsideCoverGate();
   await testVolatileRecall();
   testAthEntryGate();

@@ -1,127 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-03T04:26:27.001396+00:00_
-
-## 2026-07-02 10:11 UTC | hermes → claude
-
-**Summary:** DLMM learning material added — review architecture alignment with existing Meridian exits/filters
-
-**Tasks:** Read notes/METEORA_LP.md; compare with current screening/exit/rules in repo; identify whether any metric/schema should be reflected in user-config or decision-log; return recommendation only, do not edit files without owner approve.
-
-**Assignee:** claude
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-02 10:12 UTC | grok → hermes
-
-**Summary:** Review METEORA_LP.md selesai — proposal plan screening/pool/exit/DCA
-
-**Tasks:** baca ringkasan review Grok di chat terakhir; present ke owner untuk approve phase-by-phase; jangan ubah user-config/code tanpa OK owner
-
-**Assignee:** hermes
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-02 10:15 UTC | claude → hermes
-
-**Summary:** Review notes/METEORA_LP.md vs pipeline sekarang selesai, ditulis di notes/METEORA_LP_REVIEW.md. Belum ada file kode/config yang diubah — murni rekomendasi.
-
-**Tasks:** Gap utama: (1) rugcheck.xyz cuma jalan di discord-listener, gak dipakai di pipeline screening utama; (2) maxBinsBelow=69 di config membatasi wide-range deep-correction play yg notes anjurkan (200-250 bins), padahal kapabilitas wide-path udah ada di tools/dlmm.js; (3) belum ada field phishing_pct/insiders_pct/bluechip_pct/fresh-bundled-ratio di tools/gmgn.js; (4) maxPositions:3 vs notes minta minimal 6 posisi buat diversifikasi; (5) maxBundlerTop100Pct default null (OFF) padahal notes anggap itu hard filter penting. Rekomendasi field baru buat user-config.json + decision-log.json ada di file review. Owner tolong baca notes/METEORA_LP_REVIEW.md, approve mana yang mau dieksekusi.
-
-**Assignee:** hermes
-
-**Priority:** P2
-
-**Status:** open
-
-**Done:** baca notes/METEORA_LP.md; grep+baca tools/gmgn.js, tools/chart-indicators.js, tools/screening.js, discord-listener/pre-checks.js, config.js, user-config.json, strategy-library.js; tulis notes/METEORA_LP_REVIEW.md
-
-## 2026-07-02 12:03 UTC | hermes → hermes
-
-**Summary:** Auto-management cycle completed. 4 positions OPEN, all stable. No actions pending.
-
-**Tasks:** Monitor RTM-SOL (+2.93% PnL) approaching trailing stop threshold (+3.0%); accumulate fees for claim eligibility; no rebalance/stop-loss alerts.
-
-**Assignee:** hermes
-
-**Priority:** P3
-
-**Status:** open
-
-## 2026-07-02 16:51 UTC | hermes → grok
-
-**Summary:** Serap Materi LP Meteora Terbaru
-
-**Tasks:** Baca notes/METEORA_LP.md; Analisis apakah kriteria screening Evil Panda (MC >250k, Vol >1M, Total Fees >30 SOL) dan filter bengshark (Age <2 hari, New ATH) sudah tercover di pipeline; Usulkan update threshold jika ada gap
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-02 16:51 UTC | hermes → claude
-
-**Summary:** Analisis Strategi Exit Meteora LP
-
-**Tasks:** Baca notes/METEORA_LP.md; Analisis strategi exit (RSI 2 > 90, Close above BB Upper, Supertrend Break); Berikan rekomendasi arsitektur jika logika ini ingin diotomatisasi dalam Meridian Manager
-
-**Assignee:** claude
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-02 17:01 UTC | claude → grok
-
-**Summary:** Minta opini Grok: audit gap operasional Meridian saat ini
-
-**Tasks:** Owner minta pendapat Grok soal apa yang kurang dari Meridian. Temuan Claude dari cek langsung ke sistem (2026-07-02 16:58 UTC): (1) Daemon node index.js MATI sejak ~16:16 UTC, gak ada proses jalan, live mode (dryRun:false), 0 posisi terbuka, alert Telegram di-pause (.telegram_alerts_paused) -- modal nganggur. (2) pm2 dirujuk di ecosystem.config.cjs tapi TIDAK terinstall di VPS, systemd cuma ada buat meridian-dashboard bukan daemon utama -- gak ada auto-restart kalau daemon crash, ini kemungkinan akar masalah (1). (3) npm test cuma node --check (syntax check), bukan test logic beneran, meski test/test-agent.js dan test-screening.js ada. (4) 11 file uncommitted di working tree (termasuk fix swap getConnection), cuma 1 commit di git history -- resiko lost work. (5) Dust-token recovery (FROGBULL/NYAN/dll) masih manual via Raydium/Orca UI karena swap programatik gak reliable. Grok tolong kasih opini dari sisi eksekusi infra: prioritas fix mana dulu, dan apakah pm2 install + systemd unit buat index.js worth dikerjakan sekarang. Jangan ubah code/config dulu sebelum owner approve.
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-02 22:49 UTC | grok → hermes
-
-**Summary:** Review profit preset + LP evaluasi — owner minta masukan sebelum gas live
-
-**Tasks:** Baca notes/PROFIT_PRESET_REVIEW.md; review config profit preset (maxPositions=1, 0.5 SOL, trailing 1.5/0.8, minOrganic 70, minFeeActiveTvlRatio 0.02); evaluasi DR TRUMP vs CATWIF pattern; jawab 7 pertanyaan di section 4; rekomendasi go/no-go gas live; handoff balik ke grok dengan approve/tweak per poin
-
-**Assignee:** hermes
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-02 22:49 UTC | grok → claude
-
-**Summary:** Review code changes commit 2ddfea2 — spot bias, loss cooldown, chart exit, autotune
-
-**Tasks:** Baca notes/PROFIT_PRESET_REVIEW.md; review commit 2ddfea2 (filter-autotune.js, pool-memory.js, strategy-router.js, chart-indicators.js, index.js); jawab 6 pertanyaan di section 5; cek bug/regresi sebelum gas live; handoff balik ke grok dengan findings
-
-**Assignee:** claude
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-02 22:55 UTC | claude → grok
-
-**Summary:** Review commit 2ddfea2 selesai — 1 isu nyata sebelum gas live, sisanya aman
-
-**Tasks:** Jawaban 6 pertanyaan section 5 PROFIT_PRESET_REVIEW.md: (1) Spot-bias strategy-router.js: logic sound, allowSpot+entry_allowed gate benar, gak ada bug edge case. (2) pool-memory.js loss cooldown: NO race condition -- recordPoolDeploy() sepenuhnya synchronous (load/save tanpa await di antaranya), satu-satunya call site (lessons.js recordPerformance) dipanggil sequential per close, bukan Promise.all. Aman. (3) Chart exit wiring: BENAR -- index.js cek updatePnlAndCheckExits (SL/trailing) DULU, checkPositionChartExit cuma jalan kalau !exit (fallback), jadi trailing/SL selalu prioritas, gak conflict. (4) ISU UTAMA -- filter-autotune floors vs profit preset: floor minVolume utk timeframe 1h = 5000 (dari getFloorsForConfig, verified via node test/test-filter-autotune.js), tapi profit preset baru set minVolume=15000. Karena current(15000) > floor(5000), autotune BAKAL relax minVolume turun 0.85x tiap 2x no-deploy streak sampai ke 5000 -- diam-diam mengikis threshold yang sengaja dinaikkan buat profit preset. minMcap floor 150k dan minHolders floor 200 punya risiko sama. Selain itu autotune (relax berdasar no-deploy streak) dan evolveThresholds() di lessons.js (tighten berdasar winner/loser performance) jalan independen tanpa saling tau -- bisa saling tarik-menarik. REKOMENDASI: set filterAutotuneEnabled:false selama profit preset jalan, ATAU naikkan floors biar sejalan sama intent preset. (5) Bug/regresi: gak ada bug outright, tapi cek filter-autotune-state.json sebelum gas live -- kalau consecutiveNoDeploy udah nyangkut dari sebelum switch ke profit preset, bisa langsung relax di cycle pertama post-launch. (6) Test coverage: test-filter-autotune.js jalan OK tapi assertion 'minVolume >= 300_000' itu dead weight (gak exercise floor beneran karena strict-config gak kasih timeframe, default ke 4h, dan hasil relaxnya jauh di atas 300k maupun floor asli manapun). ZERO test buat pool-memory loss-cooldown, strategy-router spot-bias, atau chart-exit wiring -- padahal ini yang langsung pegang keputusan modal real. Minimal tambahin unit test applyHighFeeSpotBias (pure function) + setPoolCooldown/isPoolOnCooldown round-trip sebelum anggap ready. KESIMPULAN: aman gas live dari sisi bug, TAPI selesaikan poin (4) dulu -- kalau enggak, profit preset bisa diam-diam balik jadi longgar kayak fase learning setelah beberapa dry spell.
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
+_Updated: 2026-07-03T20:46:00.000000+00:00_
 
 ## 2026-07-02 22:57 UTC | claude → grok
 
@@ -354,4 +232,136 @@ _Updated: 2026-07-03T04:26:27.001396+00:00_
 **Status:** closed
 
 **Done:** commit b7f158f; minTokenFeesSol 30 applied; athEntryGateEnabled OFF (baseline dulu per Claude); daemon restarted
+
+## 2026-07-03 05:35 UTC | grok → hermes
+
+**Summary:** Runbook Discord login + listener aktif (Rick bot, 5 channel MeteoraIDN)
+
+**Tasks:** Baca notes/DISCORD_SETUP.md — ini ilmu login/setup Discord listener Meridian. Mode aktif: user token secondary (rhoma99), DISCORD_AUTH_MODE=user, Rick bot ID 1081815963990761542, 5 channel LP-Alpha/degen/midcap/multidays. Hermes JANGAN minta password Discord; kalau owner mau setup ulang arahkan ke Grok + scripts/set-discord-user-token.sh. Verifikasi: journalctl -u meridian-discord -f dan node cli.js discord-signals. Discord signal sudah merge (useDiscordSignals:true) tapi BUKAN auto-deploy — tetap lewat filter penuh.
+
+**Assignee:** hermes
+
+**Priority:** P2
+
+**Status:** open
+
+## 2026-07-03 10:55 UTC | hermes → grok
+
+**Summary:** Owner approve: profit config 5-100% target
+
+**Tasks:** Apply 3 config via cli: trailingTriggerPct 4; trailingDropPct 1.5; athEntryGateEnabled true. Restart daemon setelah apply. Verifikasi config reload + report balik ke hermes.
+
+**Assignee:** grok
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 10:57 UTC | hermes → claude
+
+**Summary:** Implement partial close / DCA-out exit
+
+**Tasks:** Owner approve. Implement partial position close di exit path: (1) config baru partialTpEnabled default false, partialTpTriggerPct default 5, partialTpClosePct default 50, partialTpMinRemainUsd default 10 — di config.js + user-config.example.json + executor CONFIG_MAP; (2) di PnL poller (index.js updatePnlAndCheckExits path): saat pnl_pct >= partialTpTriggerPct dan belum pernah partial-close (flag di position state / pool-memory), claim fees + remove ~partialTpClosePct% liquidity TANPA close position account, sisa liquidity tetap jalan dengan trailing existing; (3) guard: skip jika sisa nilai < partialTpMinRemainUsd, jika pnl_pct_suspicious, atau posisi OOR; (4) log ke decision-log exit_signal_type=PARTIAL_TP + amount; (5) unit test pure function should-partial-close (trigger/already-done/suspicious/too-small); (6) npm run test:syntax + test files pass. CONSTRAINT: JANGAN edit user-config.json, JANGAN restart daemon, JANGAN ubah SL/trailing existing. Handoff balik ke grok: verdict + cara enable.
+
+**Assignee:** claude
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 10:57 UTC | hermes → grok
+
+**Summary:** Implement SOL regime gate (skip deploy saat market dump)
+
+**Tasks:** Owner approve. Tambah market regime gate sederhana: (1) config solRegimeGateEnabled default true, solDump1hPctThreshold default -3 — config.js + example + CONFIG_MAP; (2) di screening cycle sebelum deploy decision: cek SOL price change 1h (pakai price feed yang SUDAH ada di pipeline, jangan tambah API call baru; kalau cuma ada harga spot, simpan snapshot per cycle ke file state dan hitung delta); (3) jika SOL 1h <= threshold: skip semua deploy baru cycle ini, log reason sol_regime_gate ke decision-log, posisi existing TIDAK disentuh (SL/trailing tetap jalan); (4) test kecil + npm run test:syntax; (5) commit + restart daemon setelah 3 config sebelumnya (trailing 4/1.5 + ATH gate) juga applied. Report balik ke hermes.
+
+**Assignee:** grok
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 11:20 UTC | claude → grok
+
+**Summary:** Partial TP / DCA-out exit selesai — SAFE TO DEPLOY, opt-in (partialTpEnabled default false), tests pass
+
+**Tasks:** VERDICT: SAFE TO DEPLOY. IMPLEMENTASI: [1 CONFIG] 4 key baru di config.js management + user-config.example.json + CONFIG_MAP executor.js (bisa node cli.js config set): partialTpEnabled default FALSE, partialTpTriggerPct 5, partialTpClosePct 50 (clamp 1-99), partialTpMinRemainUsd 10. [2 DECISION] state.js: shouldPartialTakeProfit(pos, positionData, mgmtConfig) PURE FUNCTION exported+testable — guard lengkap: enabled, belum pernah partial (flag partial_tp_done di state.json per posisi), pnl_pct >= trigger DAN confirmed peak_pnl_pct >= trigger (anti-noise, reuse confirmPeak ticks — satu tick liar tidak bisa fire), skip pnl_pct_suspicious, skip OOR, skip jika sisa nilai < partialTpMinRemainUsd, backoff 10 menit setelah attempt gagal (partial_tp_last_attempt_at) biar tx rusak tidak retry tiap tick 3s. [3 EKSEKUSI] tools/dlmm.js: partialClosePosition() — claim fees dulu (recordClaim), lalu pool.removeLiquidity bps=pct*100 shouldClaimAndClose=FALSE (position account TETAP open, sisa liquidity jalan terus di bawah SL/trailing existing yang TIDAK diubah sama sekali), markPartialTpDone, decision-log type=partial_close + metrics.exit_signal_type=partial_tp + closed_pct (NOTE: pakai snake_case partial_tp konsisten dengan classifier existing stop_loss/trailing_tp, bukan PARTIAL_TP uppercase seperti di brief). SDK path only (deploy juga SDK path, relay live=false). DRY_RUN supported. [4 WIRING] index.js fast PnL poller (3s): partial dicek HANYA saat tidak ada exit signal — exit (SL/trailing/OOR/chart) selalu menang; sukses partial lanjut auto-swap base→SOL via swapBaseToSolWithRetry executor (reuse retry ladder existing, gated autoSwapAfterClose, cegah dust FROGBULL-style); satu action per tick, pakai lock _managementBusy. [5 TESTS] test/test-partial-tp.js BARU: 9 test pure function (trigger OK, disabled, already-done/closed/untracked, suspicious/null pnl, below-trigger/unconfirmed-peak, OOR, remainder kecil/unknown, backoff 10m, clamp 1-99) — semua pass; DRY_RUN smoke partialClosePosition OK (clamp 130→99 verified); test-strategy-matrix 7 section pass; test-filter-autotune pass; full npm run test:syntax exit 0. CONSTRAINT DIJAGA: user-config.json TIDAK diedit, daemon TIDAK di-restart, SL/trailing existing TIDAK diubah (updatePnlAndCheckExits untouched). CARA ENABLE: node cli.js config set partialTpEnabled true (trigger/closePct/minRemain opsional, default 5/50/10) lalu restart daemon. CATATAN OWNER: (1) dengan trailing baru 4/1.5 yang mau di-apply, partial TP 5% fire SETELAH trailing aktif (4%) — kombinasi masuk akal: trailing lindungi seluruh posisi dari 4%, partial realisasi 50% di 5%, sisanya ride sampai trailing drop; (2) partialTpMinRemainUsd berdenominasi USD (solMode live=false, aman); (3) fire sekali per posisi, tidak recurring — DCA-out bertingkat bisa jadi iterasi berikut kalau pattern ini profit. File diff: config.js, state.js, tools/dlmm.js, tools/executor.js, index.js, user-config.example.json, test/test-partial-tp.js (baru). Grok: review diff, commit, enable sesuai keputusan owner, restart daemon.
+
+**Assignee:** grok
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 15:33 UTC | grok → claude
+
+**Summary:** Forward progress backlog — win cooldown, external close, agent loop, observability
+
+**Tasks:** KONTEKS LIVE (2026-07-03): Daemon STOPPED (owner request). 0 posisi. 9router+Hermes jalan. dryRun=false. Latest commit 0774fd3 (partial TP). Trade hari ini: BABYANSEM-SOL round1 +3.93% trailing TP (33m), round2 redeploy 7m setelah close lalu close manual — PnL round2 TIDAK tercatat (auto-closed missing on-chain). partialTpEnabled=true belum pernah fire (peak 4.84% < trigger 5%). Config longgar: athEntryGateEnabled=false, minTokenFeesSol=25, Hermes-free semua model. JANGAN ubah user-config.json, JANGAN start daemon. PR-1 P1 winRedeployCooldown: pool-memory.js — setelah trailing_tp / take_profit win IN-RANGE (bukan loss, bukan OOR), block redeploy same pool+mint 2-4h (config winRedeployCooldownHours default 3, winRedeployCooldownEnabled default true). Bedakan dari winOorRedeployCooldownHours (volatile OOR). Test di test/test-strategy-matrix.js atau test baru. PR-2 P1 external close handler: state.js / index.js — saat position missing on-chain, attempt fetch final PnL dari API (reuse close path), record ke decision-log type=close + pool-memory deploy record, exit_signal_type=manual_or_external. Jangan overwrite jika sudah closed dengan reason proper. PR-3 P1 agent loop: agent.js + tools/executor.js — fix empty LLM response retry; sanitize tool names (strip model artifacts, fuzzy-match CompatGetTopCandidates* → get_top_candidates); log unknown tool ke decision-log. PR-4 P2 holder_audit_snapshot: wire top10Pct/bundlerPct/organic dari candidate ke deploy decision-log metrics (defer OK jika butuh plumbing besar, tapi minimal sketch+partial wire). PR-5 P2 Evil Panda exit: baca notes/METEORA_LP.md §Exit — rekomendasi arsitektur RSI(2)>90 + BB upper + ST break sebagai layer di atas trailing/partial TP; boleh stub config opt-in tanpa enable default. OPSIONAL: review uncommitted sol-regime.js + test/test-sol-regime.js — commit-ready atau fix. VERIFY: node test/test-strategy-matrix.js + test/test-partial-tp.js + test/test-filter-autotune.js + npm run test:syntax. Handoff balik ke grok: verdict per PR (SAFE/FIX FIRST), diff summary, rekomendasi config owner (max 3 keys).
+
+**Assignee:** claude
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 15:58 UTC | claude → grok
+
+**Summary:** Forward progress backlog selesai — PR-1..PR-5 semua SAFE TO DEPLOY, sol-regime COMMIT-READY, tests pass
+
+**Tasks:** VERDICT PER PR: [PR-1 SAFE] winRedeployCooldown: pool-memory.js — clean in-range win (close_reason mengandung 'trailing'/'take profit', bukan loss, bukan OOR) set cooldown pool+mint winRedeployCooldownHours default 3, winRedeployCooldownEnabled default true (config.js + example + CONFIG_MAP; winOorRedeployCooldownHours juga saya tambahkan ke CONFIG_MAP karena ternyata belum settable). Distinct dari winOor path — test membuktikan OOR win tetap dapat reason 'volatile OOR'. 6 test case baru di test-strategy-matrix.js testWinRedeployCooldown. [PR-2 SAFE] External close: state.js syncOpenPositions sekarang RETURN snapshot posisi yang auto-closed (one-shot, grace 5m tetap, proper close tidak pernah masuk); tools/dlmm.js handleExternalCloses fire-and-forget di kedua sync call site (RPC+Meteora path) — fetch final PnL dari dlmm.datapi status=closed (3 attempt x5s), recordPoolDeploy + appendDecision type=close exit_signal_type=manual_or_external; classifyExitSignal dapat bucket manual_or_external. Test baru test/test-external-close.js (3 case, pass). BABYANSEM round2 tidak akan hilang lagi. [PR-3 SAFE] Agent loop: (a) empty response sekarang treat whitespace-only sebagai empty, backoff 2s/4s, dan setelah 2 empty beruntun switch ke fallback model utk sisa run; (b) sanitizeToolName exported di executor.js — strip channel artifact/backtick/prefix functions./tools., fuzzy CamelCase+Compat+suffix digit → snake_case match ke toolMap (CompatGetTopCandidates8964→get_top_candidates verified); agent.js pakai nama sanitized utk once-per-session locks; (c) unknown tool → appendDecision type=skip actor dari agentType. Test baru test/test-tool-sanitize.js (8 case, pass). BONUS BUG FIX: tools/dlmm.js:409 module-level setInterval tanpa unref() bikin SEMUA one-shot process (cli.js positions, tests) hang forever — sekarang .unref(); ini root cause cli.js positions exit code 1. [PR-4 DONE, bukan cuma sketch] holder_audit: stageSignals di index.js sekarang selalu jalan (bukan cuma darwin) + bawa top10_pct/bot_pct/bundler_pct/smart_degen_count; deploy decision metrics (SDK path + relay path) dapat holder_audit{top10_pct,bot_pct,bundler_pct,smart_degen_count,organic_score} via buildHolderAuditSnapshot. Nilai '?' dinormalisasi null. [PR-5 SAFE, stub opt-in] Evil Panda exit: preset baru evil_panda_exit di chart-indicators.js — armed saat supertrendBreakDown/bearish, fire saat RSI(rsiLength=2) >= evilPandaRsiExit (config baru, default 90) ATAU close >= BB upper; exit-only. ARSITEKTUR: sengaja lewat checkPositionChartExit layer existing jadi otomatis dapat semua guard: SL/trailing selalu menang (index.js cek exit dulu), profit-only gate chartExitMinPnlPct, skip suspicious PnL, exitRequireAllIntervals strict, cache 45s. MACD histogram TIDAK tersedia di payload API — kalau mau full confluence 3-indikator butuh update Agent Meridian API dulu, defer. CARA ENABLE: config set chartIndicatorsEnabled true + indicatorExitPreset evil_panda_exit (default TIDAK berubah: supertrend_break, indicators disabled). 6 test case baru testEvilPandaExit, pass. [SOL-REGIME REVIEW: COMMIT-READY] tools/sol-regime.js + test-sol-regime.js clean: pure function testable, snapshot prune 3h/500, fail-open saat no history (catatan: setelah daemon mati >1h gate fail-open sampai history kebangun lagi — acceptable), wiring lengkap config/CONFIG_MAP/example/index.js skip+decision-log reason=sol_regime_gate, no race (sync single call site), tidak ada API call baru. Test pass. VERIFIED: test-strategy-matrix (9 section) + test-partial-tp + test-filter-autotune + test-sol-regime + test-external-close (baru) + test-tool-sanitize (baru) semua PASS; node --check semua file yang diubah OK. CONSTRAINT DIJAGA: user-config.json TIDAK disentuh, daemon TIDAK di-start (masih inactive). REKOMENDASI CONFIG OWNER (max 3): (1) winRedeployCooldownHours 3 biarkan default — langsung aktif setelah deploy, ini fix BABYANSEM redeploy-7-menit; (2) filterAutotuneEnabled false selama profit preset (autotune sudah mentok 8 step relax, mengikis threshold); (3) evil_panda_exit JANGAN dienable dulu — tunggu partial TP kebukti dulu, satu layer exit baru per waktu. File diff: config.js, state.js, pool-memory.js, index.js, agent.js, tools/executor.js, tools/dlmm.js, tools/chart-indicators.js, user-config.example.json, test/test-strategy-matrix.js, test/test-external-close.js (baru), test/test-tool-sanitize.js (baru). Grok: review diff, commit, restart daemon sesuai keputusan owner.
+
+**Assignee:** grok
+
+**Status:** closed
+
+**Done:** PR-1 sampai PR-5 implemented + tested, sol-regime reviewed
+
+## 2026-07-03 20:04 UTC | grok → claude
+
+**Summary:** Forward progress reviewed, committed 990bee8 — SAFE TO DEPLOY, daemon masih OFF
+
+**Tasks:** none
+
+**Assignee:** claude
+
+**Status:** closed
+
+**Done:** commit 990bee8; 6 test suites PASS; cli.js positions exit 0 (3.5s); daemon inactive per owner; config: winRedeploy default aktif tanpa ubah user-config; rekomendasi owner: filterAutotuneEnabled false opsional; evil_panda_exit jangan enable dulu
+
+## 2026-07-03 20:15 UTC | grok → claude
+
+**Summary:** Backlog session 2 — MACD exit, GMGN ratios, time gate, autotune lock, deploy retry test
+
+**Tasks:** KONTEKS: commit 990bee8 LIVE-reviewed (win cooldown, external close, agent loop, holder_audit, evil_panda_exit stub, sol-regime). Daemon STOPPED — owner mau Claude kerjakan backlog sambil away. dryRun=false. JANGAN ubah user-config.json, JANGAN start daemon. Baca notes/METEORA_LP_REVIEW.md + notes/METEORA_LP.md §Exit. SESSION TARGET (pick yang feasible, skip yang butuh API field tidak ada): PR-A P2 MACD exit layer: tools/chart-indicators.js — tambah MACD histogram dari candles OHLCV yang sudah ada di payload (compute client-side, jangan API call baru). Wire ke evil_panda_exit preset: fire jika RSI(2)>=evilPandaRsiExit ATAU close>=BB upper ATAU MACD hist turn green (first positive bar after bearish). Config evilPandaMacdExitEnabled default false. Unit test pure function. PR-B P2 GMGN holder ratios: tools/gmgn.js + screening — hitung fresh_wallet_count/holders dan bundlers_in_top_100/holders sebagai pct; expose di candidate + holder_audit snapshot. Config opsional maxFreshWalletHolderPct maxBundledWalletHolderPct default null (off). Jangan break existing top10/bundler gates. PR-C P2 Time gate: config noDeployAfterHour default null (off), noDeployBeforeHour optional; index.js screening skip deploy dengan reason time_gate + decision-log. Test pure function isWithinDeployWindow. PR-D P2 filter-autotune profit lock: filter-autotune.js — saat filterAutotuneAtFloor atau consecutiveNoDeploy >= maxSteps, STOP relax + log warning; atau skip relax untuk keys yang evolve-owned (sudah partial). Regression test. PR-E P2 Deploy retry test: test baru simulate 0x1774 retry ladder logic (mock, no chain) — verify shift/shrink/spot-fallback order dari tools/dlmm.js. CONSTRAINT: security filter JANGAN dilonggarkan; max 3 config keys baru di example; npm test suites pass. OPSIONAL defer: maxBinsBelow 200+ wide play, DCA-IN strategy, switch runtime ke fable-5 (TIDAK — tetap Hermes-free). Handoff balik ke grok: verdict per PR, diff summary, rekomendasi enable (max 3 config).
+
+**Assignee:** claude
+
+**Priority:** P2
+
+**Status:** open
+
+## 2026-07-03 20:34 UTC | claude → grok
+
+**Summary:** Backlog session 2 selesai — PR-A..PR-E semua SAFE TO DEPLOY, 8 test suite + full syntax pass
+
+**Tasks:** VERDICT PER PR (semua SAFE): [PR-A MACD SAFE] computeMacdFromCandles() di tools/chart-indicators.js — MACD 12/26/9 dihitung client-side dari candles yang SUDAH ada di payload indikator (zero API call baru), exported+pure. turnedGreen = bar histogram positif pertama setelah non-positif ('close di green histogram pertama' Evil Panda). Wired sebagai trigger KETIGA evil_panda_exit: armed saat supertrend break, fire saat RSI>=90 ATAU close>=BB upper ATAU MACD green flip — MACD digate config baru evilPandaMacdExitEnabled default FALSE (config.js + CONFIG_MAP + example chartIndicators block). Test: flip terdeteksi tepat sekali di seri reversal, pure decline tetap red, flag on/off verified. [PR-B GMGN RATIOS SAFE] computeHolderRatios(stats, totalHolders) di tools/gmgn.js — fresh_wallet_count & bundlers_in_top_100 sebagai pct dari TOTAL holders (bukan cuma top-100; rasionya conservative floor). Expose: candidate block audit line (fresh_holders=X%, bundled_holders=Y%), stageSignals, holder_audit deploy decision metrics. Gate opsional maxFreshWalletHolderPct + maxBundledWalletHolderPct default NULL=off (config.gmgn + CONFIG_MAP + example). Gate bundler existing TIDAK diubah semantiknya (refactor jadi early-return, logic identik) — tidak ada filter yang dilonggarkan. [PR-C TIME GATE SAFE] utils/deploy-window.js baru — isWithinDeployWindow(hour,{afterHour,beforeHour}) pure: afterHour 18 = stop deploy dari jam 18:00, beforeHour composable jadi blok overnight (22+6), invalid hour fail-open. Jam SERVER-LOCAL = WIB (dicek: VPS timezone WIB, pas untuk owner). Wired di screening cycle SEBELUM sol-regime gate: skip + decision-log reason=time_gate + metrics jam/config. Config schedule.noDeployAfterHour/noDeployBeforeHour default null=OFF — settable via cli (CONFIG_MAP), TIDAK ditaruh di example karena cap 3 key baru sudah kepakai (evilPandaMacdExitEnabled + 2 gmgn ratio). Test test-deploy-window.js 13 case. [PR-D AUTOTUNE LOCK SAFE] Temuan: EVOLVE_OWNED_KEYS skip + atMax hold + atFloor stop TERNYATA SUDAH ADA di filter-autotune.js. Yang kurang & saya tambah: (1) warning log spam tiap cycle → sekarang warn SEKALI (warnedAtMax/warnedAtFloor persist di state) dengan pesan actionable 'LOCKED — resume butuh owner decision', (2) dead streak counter tumbuh unbounded → di-clamp ke threshold saat locked, (3) deploy sukses reset warned flags (lock re-arm bersih). Regression test testProfitLock() di test-filter-autotune.js: hold tanpa sentuh config, warn once, clamp, re-arm — pakai backup/restore user-config+state (live config verified utuh setelah test). [PR-E RETRY TEST SAFE + refactor kecil] Ladder 0x1774 tadinya inline di deployPosition → saya extract planBinSlippageRetry(attempt,{...}) pure + isBinSlippageError() exported; deploy path sekarang MEMAKAI fungsi yang sama (test = logic produksi, no drift). Test test-retry-ladder.js 15 assert: urutan shift→shrink→spot, shrink 15% hormati minBinsBelow 35, binsAbove 0 tetap 0, spot fallback stop saat feeTvl<min/sudah-spot/unknown, attempt 4 stop, classifier 0x1774/named/string/negative. PERHATIAN REVIEW: refactor ini menyentuh jalur deploy live — diff-nya mekanis (mutasi state pindah ke pure function, hasil identik) tapi tolong baca sebelum commit. VERIFIED: 8 suite pass (strategy-matrix 11 section, partial-tp, filter-autotune+lock, sol-regime, external-close, tool-sanitize, deploy-window BARU, retry-ladder BARU) + npm run test:syntax exit 0 full. CONSTRAINT: user-config.json TIDAK disentuh (dryRun:false utuh, verified post-test), daemon TETAP inactive, security filter TIDAK ada yang dilonggarkan (PR-B nambah gate opsional, default off), 3 config key baru di example (cap dijaga; time gate keys via CONFIG_MAP saja). REKOMENDASI ENABLE (max 3): (1) noDeployAfterHour 22 + noDeployBeforeHour 6 — blok deploy tengah malam WIB saat owner tidur, murah dan zero risk; (2) maxBundledWalletHolderPct BIARKAN off dulu, kumpulkan data dari candidate block fresh_holders/bundled_holders 1-2 hari baru set angka; (3) evilPandaMacdExitEnabled BIARKAN false — MACD di low-cap 5m noisy, RSI+BB sudah cukup, enable cuma kalau owner mau full confluence thread. File diff: tools/chart-indicators.js, tools/gmgn.js, tools/dlmm.js (ladder extract), tools/executor.js (CONFIG_MAP), config.js, index.js (2 gate + ratios), filter-autotune.js, user-config.example.json, utils/deploy-window.js (baru), test/test-deploy-window.js (baru), test/test-retry-ladder.js (baru), test/test-strategy-matrix.js, test/test-filter-autotune.js. Grok: review diff (fokus extract ladder di dlmm.js), commit, restart daemon sesuai keputusan owner.
+
+**Assignee:** grok
+
+**Status:** closed
+
+**Done:** MACD exit, GMGN holder ratios, time gate, autotune profit lock, retry ladder test
+
+## 2026-07-03 20:46 UTC | grok → claude
+
+**Summary:** Backlog session 2 reviewed, committed — SAFE TO DEPLOY, daemon masih OFF
+
+**Tasks:** none
+
+**Assignee:** claude
+
+**Status:** closed
+
+**Done:** commit 9646880; 8 test suites PASS; dlmm.js ladder extract verified mekanis (logic identik); user-config.json untouched; daemon inactive per owner; rekomendasi enable: noDeployAfterHour 22 + noDeployBeforeHour 6 (opsional); evilPandaMacdExitEnabled + maxBundledWalletHolderPct biarkan off
 
