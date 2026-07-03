@@ -177,6 +177,10 @@ export const config = {
     managementIntervalMin:  u.managementIntervalMin  ?? 10,
     screeningIntervalMin:   u.screeningIntervalMin   ?? 30,
     healthCheckIntervalMin: u.healthCheckIntervalMin ?? 60,
+    // Time-of-day deploy gate, server-local hours (VPS = WIB). null = off.
+    // e.g. noDeployAfterHour 18 = no new deploys from 18:00; existing positions unaffected.
+    noDeployAfterHour:  u.noDeployAfterHour  ?? null,
+    noDeployBeforeHour: u.noDeployBeforeHour ?? null,
   },
 
   // ─── LLM Settings ──────────────────────
@@ -271,6 +275,10 @@ export const config = {
     holderAudit: gmgnUserConfig.holderAudit ?? u.gmgnHolderAudit ?? true,
     // Optional hard filter on bundler supply share in top-100 holders (null = off).
     maxBundlerTop100Pct: gmgnUserConfig.maxBundlerTop100Pct ?? u.maxBundlerTop100Pct ?? null,
+    // Optional hard filters on tagged-wallet counts as % of total token holders
+    // (METEORA_LP checklist points 10-11). null = off.
+    maxFreshWalletHolderPct: gmgnUserConfig.maxFreshWalletHolderPct ?? u.maxFreshWalletHolderPct ?? null,
+    maxBundledWalletHolderPct: gmgnUserConfig.maxBundledWalletHolderPct ?? u.maxBundledWalletHolderPct ?? null,
   },
 
   jupiter: {
@@ -327,6 +335,9 @@ export const config = {
     // RSI limit for the evil_panda_exit preset (RSI(2) > 90 per the thread) —
     // separate from rsiOverbought so the generic presets keep their own level.
     evilPandaRsiExit: Number(indicatorUserConfig.evilPandaRsiExit ?? 90),
+    // Third evil_panda_exit trigger: first green MACD histogram bar after the
+    // supertrend break (computed client-side from payload candles).
+    evilPandaMacdExitEnabled: indicatorUserConfig.evilPandaMacdExitEnabled ?? false,
   },
 };
 

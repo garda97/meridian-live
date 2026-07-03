@@ -42,6 +42,50 @@ export function buildSignalSummary(payload) {
   };
 }
 
+/**
+ * MACD histogram from close prices — computed client-side from the candles
+ * already in the indicator payload (no extra API call). Standard 12/26/9 EMA.
+ * Returns { hist, prevHist, turnedGreen } or null when not enough candles.
+ * turnedGreen = first positive histogram bar after a non-positive one — the
+ * Evil Panda MACD exit trigger ("close di green histogram pertama").
+ */
+export function computeMacdFromCandles(candles, fast = 12, slow = 26, signalLen = 9) {
+  const closes = (Array.isArray(candles) ? candles : [])
+    .map((c) => safeNum(c?.close))
+    .filter((v) => v != null);
+  // Need enough bars for the slow EMA + signal to settle
+  if (closes.length < slow + signalLen) return null;
+
+  const ema = (values, len) => {
+    const k = 2 / (len + 1);
+    let prev = values.slice(0, len).reduce((s, v) => s + v, 0) / len;
+    const out = new Array(values.length).fill(null);
+    out[len - 1] = prev;
+    for (let i = len; i < values.length; i++) {
+      prev = values[i] * k + prev * (1 - k);
+      out[i] = prev;
+    }
+    return out;
+  };
+
+  const emaFast = ema(closes, fast);
+  const emaSlow = ema(closes, slow);
+  const macdLine = closes.map((_, i) =>
+    emaFast[i] != null && emaSlow[i] != null ? emaFast[i] - emaSlow[i] : null
+  );
+  const macdValues = macdLine.filter((v) => v != null);
+  if (macdValues.length < signalLen + 2) return null;
+  const signalLine = ema(macdValues, signalLen);
+
+  const rawHist = macdValues[macdValues.length - 1] - signalLine[signalLine.length - 1];
+  const rawPrevHist = macdValues[macdValues.length - 2] - signalLine[signalLine.length - 2];
+  if (!Number.isFinite(rawHist) || !Number.isFinite(rawPrevHist)) return null;
+
+  const hist = Math.round(rawHist * 1e10) / 1e10;
+  const prevHist = Math.round(rawPrevHist * 1e10) / 1e10;
+  return { hist, prevHist, turnedGreen: hist > 0 && prevHist <= 0 };
+}
+
 export function evaluatePreset(side, preset, payload) {
   const summary = buildSignalSummary(payload);
   const oversold = Number(config.indicators.rsiOversold ?? 30);
@@ -206,15 +250,23 @@ export function evaluatePreset(side, preset, payload) {
       const armed = summary.supertrendBreakDown || isBearish;
       const rsiSpike = rsi != null && rsi >= rsiExitLimit;
       const bbUpperTouch = close != null && upperBand != null && close >= upperBand;
+      // Optional third trigger: first green MACD histogram bar after the break
+      // (client-side from payload candles). Off by default — RSI/BB own the exit.
+      const macd = config.indicators.evilPandaMacdExitEnabled
+        ? computeMacdFromCandles(payload?.candles)
+        : null;
+      const macdGreen = !!macd?.turnedGreen;
       return {
-        confirmed: armed && (rsiSpike || bbUpperTouch),
+        confirmed: armed && (rsiSpike || bbUpperTouch || macdGreen),
         reason: !armed
           ? "Supertrend support still holding"
           : rsiSpike
           ? `Supertrend broken + RSI(${config.indicators.rsiLength ?? 2}) ${rsi} >= ${rsiExitLimit}`
           : bbUpperTouch
           ? `Supertrend broken + close ${close} >= BB upper ${upperBand}`
-          : "Supertrend broken — waiting for RSI/BB-upper strength candle",
+          : macdGreen
+          ? `Supertrend broken + first green MACD histogram (${macd.prevHist} → ${macd.hist})`
+          : "Supertrend broken — waiting for RSI/BB-upper/MACD strength candle",
         signal: summary,
       };
     }

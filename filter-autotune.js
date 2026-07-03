@@ -43,14 +43,21 @@ function getRelaxKeys(floors) {
   return Object.keys(floors).filter((key) => !EVOLVE_OWNED_KEYS.has(key));
 }
 
+const DEFAULT_STATE = {
+  consecutiveNoDeploy: 0,
+  totalRelaxations: 0,
+  lastRelaxAt: null,
+  lastRelaxChanges: null,
+  warnedAtMax: false,
+  warnedAtFloor: false,
+};
+
 function loadState() {
-  if (!fs.existsSync(STATE_PATH)) {
-    return { consecutiveNoDeploy: 0, totalRelaxations: 0, lastRelaxAt: null, lastRelaxChanges: null };
-  }
+  if (!fs.existsSync(STATE_PATH)) return { ...DEFAULT_STATE };
   try {
-    return { consecutiveNoDeploy: 0, totalRelaxations: 0, lastRelaxAt: null, lastRelaxChanges: null, ...JSON.parse(fs.readFileSync(STATE_PATH, "utf8")) };
+    return { ...DEFAULT_STATE, ...JSON.parse(fs.readFileSync(STATE_PATH, "utf8")) };
   } catch {
-    return { consecutiveNoDeploy: 0, totalRelaxations: 0, lastRelaxAt: null, lastRelaxChanges: null };
+    return { ...DEFAULT_STATE };
   }
 }
 
@@ -146,8 +153,10 @@ export function recordScreeningOutcome(outcome, liveConfig = null) {
   }
 
   if (outcome.deployed) {
-    if (state.consecutiveNoDeploy > 0) {
+    if (state.consecutiveNoDeploy > 0 || state.warnedAtMax || state.warnedAtFloor) {
       state.consecutiveNoDeploy = 0;
+      state.warnedAtMax = false;
+      state.warnedAtFloor = false;
       saveState(state);
       log("config", "Filter autotune: streak reset after successful deploy");
     }
@@ -166,20 +175,32 @@ export function recordScreeningOutcome(outcome, liveConfig = null) {
   }
 
   if (relaxCount >= maxSteps) {
+    // Profit lock: hold thresholds, warn once (not every cycle), and stop
+    // growing a dead streak counter — resuming needs an owner decision.
+    state.consecutiveNoDeploy = Math.min(state.consecutiveNoDeploy, threshold);
+    if (!state.warnedAtMax) {
+      state.warnedAtMax = true;
+      log("warn", `Filter autotune: max relaxation steps (${maxSteps}) reached — thresholds LOCKED at current values. To resume: raise filterAutotuneMaxSteps or reset _filterRelaxCount in user-config (owner decision).`);
+    }
     saveState(state);
-    log("config", `Filter autotune: max relaxation steps reached (${maxSteps}) — holding thresholds`);
     return { relaxed: false, streak: state.consecutiveNoDeploy, atMax: true };
   }
 
   const result = computeRelaxation(userConfig);
   if (!result) {
+    state.consecutiveNoDeploy = Math.min(state.consecutiveNoDeploy, threshold);
+    if (!state.warnedAtFloor) {
+      state.warnedAtFloor = true;
+      log("warn", "Filter autotune: all thresholds at floor — LOCKED, cannot relax further. Floors are the profit-preset line; loosening them is an owner decision.");
+    }
     saveState(state);
-    log("config", "Filter autotune: all thresholds at floor — cannot relax further");
     return { relaxed: false, streak: state.consecutiveNoDeploy, atFloor: true };
   }
 
   applyChangesToUserConfig(userConfig, result.changes);
   state.consecutiveNoDeploy = 0;
+  state.warnedAtMax = false;
+  state.warnedAtFloor = false;
   state.totalRelaxations += 1;
   state.lastRelaxAt = new Date().toISOString();
   state.lastRelaxChanges = result.changes;

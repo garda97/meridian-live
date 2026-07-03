@@ -5,7 +5,7 @@
 
 import fs from "fs";
 import { repoPath } from "../repo-root.js";
-import { computeRelaxation, getFloorsForConfig } from "../filter-autotune.js";
+import { computeRelaxation, getFloorsForConfig, recordScreeningOutcome } from "../filter-autotune.js";
 
 const USER_CONFIG_PATH = repoPath("user-config.json");
 const STATE_PATH = repoPath("filter-autotune-state.json");
@@ -63,9 +63,56 @@ function main() {
   const r3 = computeRelaxation(eroded);
   assert(r3 === null, `already-eroded config must not relax deeper, got ${JSON.stringify(r3?.changes)}`);
 
-  console.log("test-filter-autotune: OK");
   console.log("  1h floors:", JSON.stringify(floors1h));
   console.log("  sample relax:", JSON.stringify(r1.changes));
 }
 
+// Profit lock: at max steps the tuner must hold, warn once, clamp the streak,
+// and unlock only after a deploy resets state. Uses backup/restore on the real
+// user-config + state files (same pattern as pool-memory tests).
+function testProfitLock() {
+  const savedConfig = backup(USER_CONFIG_PATH);
+  const savedState = backup(STATE_PATH);
+  try {
+    fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify({
+      timeframe: "1h",
+      filterAutotuneEnabled: true,
+      filterAutotuneAfterCycles: 2,
+      filterAutotuneMaxSteps: 3,
+      _filterRelaxCount: 3, // already at max
+      minVolume: 900_000,
+    }));
+    fs.writeFileSync(STATE_PATH, JSON.stringify({ consecutiveNoDeploy: 57 }));
+
+    // At max: hold, flag atMax, clamp dead streak to threshold
+    let r = recordScreeningOutcome({ executed: true, deployed: false, skipped: false });
+    assert(r.atMax === true, "must report atMax when relax count >= maxSteps");
+    assert(r.relaxed === false, "must not relax at max steps");
+    assert(r.streak <= 2, `dead streak must be clamped to threshold, got ${r.streak}`);
+    let st = JSON.parse(fs.readFileSync(STATE_PATH, "utf8"));
+    assert(st.warnedAtMax === true, "warnedAtMax must persist after first hold");
+
+    // Config must be untouched by the held cycle
+    const cfgAfterHold = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+    assert(cfgAfterHold.minVolume === 900_000, "held cycle must not touch thresholds");
+
+    // Second held cycle: still atMax, warned flag stays set (no re-warn state churn)
+    r = recordScreeningOutcome({ executed: true, deployed: false, skipped: false });
+    assert(r.atMax === true && r.relaxed === false, "second held cycle must behave the same");
+
+    // Deploy resets streak and warned flags → lock re-arms cleanly
+    r = recordScreeningOutcome({ executed: true, deployed: true, skipped: false });
+    assert(r.streak === 0, "deploy must reset streak");
+    st = JSON.parse(fs.readFileSync(STATE_PATH, "utf8"));
+    assert(st.warnedAtMax === false, "deploy must clear warnedAtMax");
+
+    console.log("  profit-lock: atMax holds config, warns once, clamps streak, deploy re-arms OK");
+  } finally {
+    restore(USER_CONFIG_PATH, savedConfig);
+    restore(STATE_PATH, savedState);
+  }
+}
+
 main();
+testProfitLock();
+console.log("test-filter-autotune: OK");

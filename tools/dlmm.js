@@ -789,9 +789,7 @@ export async function deployPosition({
   }
 
   const wallet = getWallet();
-  const isBinSlippageError = (error) => /0x1774|ExceededBinSlippage/i.test(String(error?.message ?? error));
   const spotFeeTvlMin = Number(config.autoStrategy?.spotFeeTvlMin ?? 2);
-  const LADDER_STEPS = { 1: "shift range to fresh active bin", 2: "shrink bins ~15%", 3: "fallback to spot" };
 
   // 0x1774 retry ladder — attempt 0 runs the plan as-is; each rung refetches
   // pool state and re-anchors the range to the fresh active bin first.
@@ -804,17 +802,21 @@ export async function deployPosition({
 
   for (let attempt = 0; attempt <= 3; attempt++) {
     if (attempt > 0) {
-      if (attempt === 2) {
-        runBinsBelow = Math.max(minBinsBelow, Math.round(runBinsBelow * 0.85));
-        runBinsAbove = runBinsAbove > 0 ? Math.round(runBinsAbove * 0.85) : 0;
-      } else if (attempt === 3) {
-        const feeTvl = Number(fee_tvl_ratio);
-        if (runStrategy === "spot" || !Number.isFinite(feeTvl) || feeTvl < spotFeeTvlMin) {
-          log("deploy", `0x1774 ladder exhausted — spot fallback not eligible (fee/TVL ${fee_tvl_ratio ?? "?"} < ${spotFeeTvlMin})`);
-          break;
-        }
-        runStrategy = "spot";
+      const plan = planBinSlippageRetry(attempt, {
+        strategy: runStrategy,
+        binsBelow: runBinsBelow,
+        binsAbove: runBinsAbove,
+        feeTvlRatio: fee_tvl_ratio,
+        minBinsBelow,
+        spotFeeTvlMin,
+      });
+      if (plan.action === "stop") {
+        log("deploy", `0x1774 ladder exhausted — ${plan.reason}`);
+        break;
       }
+      runStrategy = plan.strategy;
+      runBinsBelow = plan.binsBelow;
+      runBinsAbove = plan.binsAbove;
       try {
         await pool.refetchStates();
       } catch (refetchError) {
@@ -822,7 +824,7 @@ export async function deployPosition({
       }
       const freshBin = await pool.getActiveBin();
       runActiveBinId = freshBin.binId;
-      log("deploy", `0x1774 retry ${attempt}/3 (${LADDER_STEPS[attempt]}): active bin ${runActiveBinId}, ${runStrategy} ${runBinsBelow}/${runBinsAbove}`);
+      log("deploy", `0x1774 retry ${attempt}/3 (${plan.step}): active bin ${runActiveBinId}, ${runStrategy} ${runBinsBelow}/${runBinsAbove}`);
     }
 
     const runStrategyType = strategyMap[runStrategy];
@@ -1159,6 +1161,42 @@ const PERFORMANCE_SIGNAL_FIELDS = [
   "volatility",
 ];
 
+/** Meteora program error 0x1774 = ExceededBinSlippageTolerance. */
+export function isBinSlippageError(error) {
+  return /0x1774|ExceededBinSlippage/i.test(String(error?.message ?? error));
+}
+
+/**
+ * One rung of the 0x1774 retry ladder — pure and testable, no chain access.
+ * attempt 1: re-anchor only (shift range to fresh active bin)
+ * attempt 2: shrink bins ~15% (never below minBinsBelow)
+ * attempt 3: fall back to spot, only when fee/TVL clears spotFeeTvlMin and
+ *            the plan isn't already spot
+ * Anything else: stop.
+ */
+export function planBinSlippageRetry(attempt, { strategy, binsBelow, binsAbove, feeTvlRatio, minBinsBelow, spotFeeTvlMin }) {
+  if (attempt === 1) {
+    return { action: "run", strategy, binsBelow, binsAbove, step: "shift range to fresh active bin" };
+  }
+  if (attempt === 2) {
+    return {
+      action: "run",
+      strategy,
+      binsBelow: Math.max(minBinsBelow, Math.round(binsBelow * 0.85)),
+      binsAbove: binsAbove > 0 ? Math.round(binsAbove * 0.85) : 0,
+      step: "shrink bins ~15%",
+    };
+  }
+  if (attempt === 3) {
+    const feeTvl = Number(feeTvlRatio);
+    if (strategy === "spot" || !Number.isFinite(feeTvl) || feeTvl < spotFeeTvlMin) {
+      return { action: "stop", reason: `spot fallback not eligible (fee/TVL ${feeTvlRatio ?? "?"} < ${spotFeeTvlMin})` };
+    }
+    return { action: "run", strategy: "spot", binsBelow, binsAbove, step: "fallback to spot" };
+  }
+  return { action: "stop", reason: "ladder exhausted" };
+}
+
 /** Compact holder-audit block for deploy decision metrics, from staged screening signals. */
 function buildHolderAuditSnapshot(snapshot) {
   if (!snapshot) return null;
@@ -1168,6 +1206,8 @@ function buildHolderAuditSnapshot(snapshot) {
     bundler_pct: snapshot.bundler_pct ?? null,
     smart_degen_count: snapshot.smart_degen_count ?? null,
     organic_score: snapshot.organic_score ?? null,
+    fresh_wallet_holder_pct: snapshot.fresh_wallet_holder_pct ?? null,
+    bundled_wallet_holder_pct: snapshot.bundled_wallet_holder_pct ?? null,
   };
   return Object.values(audit).some((v) => v != null) ? audit : null;
 }

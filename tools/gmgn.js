@@ -150,6 +150,27 @@ function summarizeGmgnHolders(list = []) {
   };
 }
 
+/**
+ * Tagged-wallet counts as % of total token holders (METEORA_LP checklist 10-11).
+ * `stats` is the top-100 GMGN audit, `totalHolders` the token's holder count
+ * from candidate data — counts are top-100-bounded, so these ratios are
+ * conservative floors. Returns nulls when either side is missing.
+ */
+export function computeHolderRatios(stats, totalHolders) {
+  const holders = Number(totalHolders);
+  if (!stats || !Number.isFinite(holders) || holders <= 0) {
+    return { fresh_wallet_holder_pct: null, bundled_wallet_holder_pct: null };
+  }
+  const pct = (count) => {
+    const n = Number(count);
+    return Number.isFinite(n) ? parseFloat(((n / holders) * 100).toFixed(2)) : null;
+  };
+  return {
+    fresh_wallet_holder_pct: pct(stats.fresh_wallet_count),
+    bundled_wallet_holder_pct: pct(stats.bundlers_in_top_100),
+  };
+}
+
 // ─── Token fees (SOL) for the minTokenFeesSol gate ──────────────
 // Returns { total_fee, trade_fee } in SOL, or null on missing key / error
 // so callers can fall back to Jupiter's fee figure.
