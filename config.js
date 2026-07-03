@@ -149,6 +149,9 @@ export const config = {
     rebalanceCooldownMinutes:  u.rebalanceCooldownMinutes  ?? 15,  // between attempts on the same position
     rebalanceMinPnlPct:        u.rebalanceMinPnlPct        ?? -8,  // below this, close instead of rebalance
     rebalanceOnStrategyDrift:  u.rebalanceOnStrategyDrift  ?? true, // in-range bid_ask→spot conversion
+    rebalanceMigrateRentBufferSol: u.rebalanceMigrateRentBufferSol ?? 0.1,  // extra SOL atop gasReserve for new position account rent
+    rebalanceMigrateWideRentExtraSol: u.rebalanceMigrateWideRentExtraSol ?? 0.05, // added when planned range > 69 bins
+    rebalanceTxFeeBufferSol:   u.rebalanceTxFeeBufferSol   ?? 0.02, // headroom for claim/remove/add/close txs
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,

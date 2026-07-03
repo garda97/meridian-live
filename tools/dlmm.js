@@ -36,7 +36,7 @@ import {
   isPoolOnCooldown,
   recordPoolDeploy,
 } from "../pool-memory.js";
-import { normalizeMint } from "./wallet.js";
+import { getWalletBalances, normalizeMint } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
 import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { getAndClearStagedSignals } from "../signal-tracker.js";
@@ -1199,6 +1199,59 @@ export function planBinSlippageRetry(attempt, { strategy, binsBelow, binsAbove, 
   return { action: "stop", reason: "ladder exhausted" };
 }
 
+/** RPC settle window before reclaiming an emptied position account (partialClose uses the same). */
+export const REBALANCE_SETTLE_DELAY_MS = 5000;
+
+/** True when the planned range still fits the existing position account allocation. */
+export function plannedRangeFitsAccount(minBinId, maxBinId, oldLower, oldUpper) {
+  if (!Number.isFinite(minBinId) || !Number.isFinite(maxBinId)) return false;
+  if (!Number.isFinite(oldLower) || !Number.isFinite(oldUpper)) return false;
+  return minBinId >= oldLower && maxBinId <= oldUpper;
+}
+
+/**
+ * Minimum free SOL required before a migrate rebalance (new position account + txs).
+ * gasReserve must stay untouched; migrate rent + tx fees sit on top.
+ */
+export function minSolRequiredForRebalanceMigrate(mgmtConfig = {}, { isWide = false } = {}) {
+  const gasReserve = Number(mgmtConfig.gasReserve ?? config.management.gasReserve ?? 0.2);
+  const rentBuffer = Number(mgmtConfig.rebalanceMigrateRentBufferSol ?? config.management.rebalanceMigrateRentBufferSol ?? 0.1);
+  const wideExtra = isWide ? Number(mgmtConfig.rebalanceMigrateWideRentExtraSol ?? config.management.rebalanceMigrateWideRentExtraSol ?? 0.05) : 0;
+  const txBuffer = Number(mgmtConfig.rebalanceTxFeeBufferSol ?? config.management.rebalanceTxFeeBufferSol ?? 0.02);
+  return gasReserve + rentBuffer + wideExtra + txBuffer;
+}
+
+/** Minimum free SOL for an in-place rebalance (re-add only — no new account rent). */
+export function minSolRequiredForRebalanceInPlace(mgmtConfig = {}) {
+  const gasReserve = Number(mgmtConfig.gasReserve ?? config.management.gasReserve ?? 0.2);
+  const txBuffer = Number(mgmtConfig.rebalanceTxFeeBufferSol ?? config.management.rebalanceTxFeeBufferSol ?? 0.02);
+  return gasReserve + txBuffer;
+}
+
+/**
+ * Pure gate: is wallet SOL high enough for the rebalance path?
+ * Returns { ok, required, path, reason }.
+ */
+export function checkRebalanceSolGate({ balanceSol, path, isWide, mgmtConfig } = {}) {
+  const bal = Number(balanceSol);
+  const p = path === "in_place" ? "in_place" : "migrate";
+  const required = p === "in_place"
+    ? minSolRequiredForRebalanceInPlace(mgmtConfig)
+    : minSolRequiredForRebalanceMigrate(mgmtConfig, { isWide });
+  if (!Number.isFinite(bal)) {
+    return { ok: false, required, path: p, reason: "rebalance_skipped_insufficient_sol: balance unknown" };
+  }
+  if (bal < required) {
+    return {
+      ok: false,
+      required,
+      path: p,
+      reason: `rebalance_skipped_insufficient_sol: have ${bal.toFixed(4)} SOL, need ${required.toFixed(4)} SOL (${p}${isWide ? ", wide" : ""})`,
+    };
+  }
+  return { ok: true, required, path: p, reason: null };
+}
+
 /** Compact holder-audit block for deploy decision metrics, from staged screening signals. */
 function buildHolderAuditSnapshot(snapshot) {
   if (!snapshot) return null;
@@ -2015,6 +2068,25 @@ export async function addLiquidity({
   }
 }
 
+/** Best-effort reclaim of an emptied position account after RPC settle. */
+async function reclaimEmptyPositionAccount(pool, wallet, position_address, { delayMs = REBALANCE_SETTLE_DELAY_MS, label = "rebalance" } = {}) {
+  if (delayMs > 0) {
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  try {
+    const orphan = await pool.getPosition(new PublicKey(position_address));
+    const closeTx = await pool.closePositionIfEmpty({ owner: wallet.publicKey, position: orphan });
+    if (closeTx) {
+      const hash = await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]);
+      log(label, `Reclaimed empty position account ${position_address.slice(0, 8)} (settle ${delayMs}ms): ${hash}`);
+      return { success: true, tx: hash };
+    }
+  } catch (e) {
+    log(`${label}_warn`, `Could not reclaim empty account ${position_address.slice(0, 8)}: ${e.message}`);
+  }
+  return { success: false };
+}
+
 // ─── Rebalance (POWER MODE) ────────────────────────────────────
 
 /**
@@ -2049,9 +2121,6 @@ export async function rebalancePosition({ position_address, plan, reason }) {
   const tracked = getTrackedPosition(position_address);
   if (tracked?.closed) return { success: false, error: "Position already closed" };
 
-  // Cooldown stamp up front — a failing rebalance must not retry every tick
-  recordRebalanceAttempt(position_address);
-
   try {
     const wallet = getWallet();
     const poolAddress = await lookupPoolForPosition(position_address, wallet.publicKey.toString());
@@ -2063,6 +2132,61 @@ export async function rebalancePosition({ position_address, plan, reason }) {
     } catch (e) {
       log("rebalance_warn", `refetchStates failed (${e.message}) — using getActiveBin only`);
     }
+
+    // Pre-flight: assess migrate vs in_place and verify SOL BEFORE withdraw.
+    const freshBin = await pool.getActiveBin();
+    let preBinsBelow = Math.max(0, Number(plan.bins_below) || 0);
+    let preBinsAbove = Math.max(0, Number(plan.bins_above) || 0);
+    const preMinBinId = freshBin.binId - preBinsBelow;
+    const preMaxBinId = freshBin.binId + preBinsAbove;
+    const preIsWide = preMaxBinId - preMinBinId + 1 > 69;
+
+    let accountLower = tracked?.bin_range?.min;
+    let accountUpper = tracked?.bin_range?.max;
+    try {
+      const existing = await pool.getPosition(new PublicKey(position_address));
+      const lower = existing?.positionData?.lowerBinId;
+      const upper = existing?.positionData?.upperBinId;
+      if (Number.isFinite(lower) && Number.isFinite(upper)) {
+        accountLower = lower;
+        accountUpper = upper;
+      }
+    } catch (e) {
+      log("rebalance_warn", `Could not read on-chain bin range for pre-flight (${e.message}) — using tracked range`);
+    }
+
+    const prePath = plannedRangeFitsAccount(preMinBinId, preMaxBinId, accountLower, accountUpper) ? "in_place" : "migrate";
+    const balance = await getWalletBalances().catch(() => null);
+    const solGate = checkRebalanceSolGate({
+      balanceSol: balance?.sol,
+      path: prePath,
+      isWide: preIsWide,
+      mgmtConfig: config.management,
+    });
+    if (!solGate.ok) {
+      log("rebalance", `Skipped (${prePath}): ${solGate.reason}`);
+      appendDecision({
+        type: "skip",
+        actor: "MANAGER",
+        pool: String(poolAddress),
+        pool_name: tracked?.pool_name || poolMeta.name || String(poolAddress).slice(0, 8),
+        position: position_address,
+        summary: "Rebalance skipped — insufficient SOL for safe migrate",
+        reason: solGate.reason,
+        metrics: {
+          rebalance_type: plan.rebalance_type ?? null,
+          rebalance_path_planned: prePath,
+          balance_sol: balance?.sol ?? null,
+          sol_required: solGate.required,
+          planned_bins: preBinsBelow + preBinsAbove,
+          planned_wide: preIsWide,
+        },
+      });
+      return { success: false, blocked: true, error: solGate.reason, rebalance_path_planned: prePath };
+    }
+
+    // Cooldown stamp only once pre-flight passes — skips must not burn the backoff
+    recordRebalanceAttempt(position_address);
 
     // Step 1+2: claim + remove 100%, capture the re-add budget
     const withdrawn = await withdrawLiquidity({ position_address, pool_address: String(poolAddress), bps: 10000, claim_fees: true });
@@ -2172,17 +2296,9 @@ export async function rebalancePosition({ position_address, plan, reason }) {
             });
             txHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet, newPosition]));
           }
-          // Old account is now empty — reclaim its rent (best effort)
-          try {
-            const orphan = await pool.getPosition(new PublicKey(position_address));
-            const closeTx = await pool.closePositionIfEmpty({ owner: wallet.publicKey, position: orphan });
-            if (closeTx) {
-              txHashes.push(await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]));
-              log("rebalance", `Reclaimed old position account ${position_address.slice(0, 8)}`);
-            }
-          } catch (e) {
-            log("rebalance_warn", `Could not reclaim old account ${position_address.slice(0, 8)}: ${e.message}`);
-          }
+          // Old account is now empty — wait for RPC settle, then reclaim rent
+          const reclaimed = await reclaimEmptyPositionAccount(pool, wallet, position_address);
+          if (reclaimed.tx) txHashes.push(reclaimed.tx);
         }
 
         added = {
@@ -2212,13 +2328,7 @@ export async function rebalancePosition({ position_address, plan, reason }) {
       // account and hand the pool back to the screener.
       const failMsg = lastError?.message ?? "re-add exhausted the retry ladder";
       log("rebalance_error", `Re-add failed after withdraw (${failMsg}) — closing empty account, funds stay in wallet`);
-      try {
-        const orphan = await pool.getPosition(new PublicKey(position_address));
-        const closeTx = await pool.closePositionIfEmpty({ owner: wallet.publicKey, position: orphan });
-        if (closeTx) await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]);
-      } catch (e) {
-        log("rebalance_warn", `Empty-account reclaim failed: ${e.message}`);
-      }
+      await reclaimEmptyPositionAccount(pool, wallet, position_address, { label: "rebalance_error" });
       recordClose(position_address, `rebalance failed after withdraw (${failMsg}) — funds returned to wallet`);
       appendDecision({
         type: "close",
