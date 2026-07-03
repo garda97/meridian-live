@@ -59,6 +59,11 @@ function isLossClose(deploy) {
   return false;
 }
 
+function isWinExitReason(reason) {
+  const text = String(reason || "").trim().toLowerCase();
+  return text.includes("trailing") || text.includes("take profit");
+}
+
 function isFeeGeneratingDeploy(deploy) {
   const minFeeEarnedPct = Number(config.management.repeatDeployCooldownMinFeeEarnedPct ?? 0);
   const feeEarnedPct = Number(deploy.fee_earned_pct ?? 0);
@@ -238,6 +243,28 @@ export function recordPoolDeploy(poolAddress, deployData) {
       const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, winOorHours, reason);
       if (mintCooldownUntil) {
         log("pool-memory", `Win+OOR cooldown set for token ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
+      }
+    }
+  }
+
+  // BABYANSEM pattern: a clean in-range win (trailing TP / take profit) means the
+  // pump already played out — short block so the screener doesn't redeploy into
+  // the retrace minutes later. Distinct from winOorRedeployCooldownHours (OOR wins).
+  const winHours = Math.max(0, Number(config.management.winRedeployCooldownHours ?? 3));
+  if (
+    config.management.winRedeployCooldownEnabled !== false &&
+    winHours > 0 &&
+    !isLossClose(deploy) &&
+    !isOorCloseReason(deploy.close_reason) &&
+    isWinExitReason(deploy.close_reason)
+  ) {
+    const reason = `in-range win close (PnL ${deploy.pnl_pct ?? "?"}%) — let the retrace pass`;
+    const poolCooldownUntil = setPoolCooldown(entry, winHours, reason);
+    log("pool-memory", `Win cooldown set for pool ${entry.name} until ${poolCooldownUntil} (${reason})`);
+    if (entry.base_mint) {
+      const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, winHours, reason);
+      if (mintCooldownUntil) {
+        log("pool-memory", `Win cooldown set for token ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
       }
     }
   }

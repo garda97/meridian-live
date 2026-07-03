@@ -25,7 +25,7 @@ import {
   applyPendingPlanToDeployArgs,
   validateDeployPlanGate,
 } from "./strategy-router.js";
-import { getRecentDecisions } from "../decision-log.js";
+import { getRecentDecisions, appendDecision } from "../decision-log.js";
 import fs from "fs";
 import { execSync, spawn } from "child_process";
 import { REPO_ROOT, repoPath } from "../repo-root.js";
@@ -393,6 +393,9 @@ const toolMap = {
       repeatDeployCooldownMinFeeEarnedPct: ["management", "repeatDeployCooldownMinFeeEarnedPct"],
       lossRedeployBlockEnabled: ["management", "lossRedeployBlockEnabled"],
       lossRedeployCooldownHours: ["management", "lossRedeployCooldownHours"],
+      winOorRedeployCooldownHours: ["management", "winOorRedeployCooldownHours"],
+      winRedeployCooldownEnabled: ["management", "winRedeployCooldownEnabled"],
+      winRedeployCooldownHours: ["management", "winRedeployCooldownHours"],
       minVolumeToRebalance: ["management", "minVolumeToRebalance"],
       stopLossPct: ["management", "stopLossPct"],
       takeProfitPct: ["management", "takeProfitPct"],
@@ -450,6 +453,8 @@ const toolMap = {
       minUpsideCoverPctPump: ["autoStrategy", "minUpsideCoverPctPump"],
       athEntryGateEnabled: ["autoStrategy", "athEntryGateEnabled"],
       athLookbackCandles: ["autoStrategy", "athLookbackCandles"],
+      solRegimeGateEnabled: ["screening", "solRegimeGateEnabled"],
+      solDump1hPctThreshold: ["screening", "solDump1hPctThreshold"],
       binsBelow: ["strategy", "maxBinsBelow", ["maxBinsBelow"]],
       minBinsBelow: ["strategy", "minBinsBelow"],
       maxBinsBelow: ["strategy", "maxBinsBelow"],
@@ -483,6 +488,7 @@ const toolMap = {
       rsiOversold: ["indicators", "rsiOversold", ["chartIndicators", "rsiOversold"]],
       rsiOverbought: ["indicators", "rsiOverbought", ["chartIndicators", "rsiOverbought"]],
       requireAllIntervals: ["indicators", "requireAllIntervals", ["chartIndicators", "requireAllIntervals"]],
+      evilPandaRsiExit: ["indicators", "evilPandaRsiExit", ["chartIndicators", "evilPandaRsiExit"]],
     };
 
     const applied = {};
@@ -657,19 +663,61 @@ export async function swapBaseToSolWithRetry(baseMint, label) {
 }
 
 /**
+ * Normalize an LLM-emitted tool name to a real tool in the toolMap.
+ * Some models mangle names: channel artifacts ("get_top_candidates<|channel|>…"),
+ * namespace prefixes ("functions.get_top_candidates"), or camel-case compat
+ * aliases with random suffixes ("CompatGetTopCandidates8964").
+ * Returns { name, corrected, known } — `name` is the best candidate,
+ * `known` says whether it resolved to a real tool.
+ */
+export function sanitizeToolName(rawName) {
+  let name = String(rawName || "")
+    .replace(/<.*$/, "")        // channel artifacts: "tool<|channel|>commentary"
+    .replace(/[`'"]/g, "")
+    .trim()
+    .replace(/^(functions?|tools?|namespace|api)[./:]/i, ""); // "functions.tool_name"
+
+  if (toolMap[name]) return { name, corrected: name !== rawName, known: true };
+
+  // Fuzzy path: strip compat prefix + trailing digit noise, camelCase → snake_case
+  const fuzzy = name
+    .replace(/^compat[_-]?/i, "")
+    .replace(/[_-]?\d+$/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+  if (fuzzy && toolMap[fuzzy]) {
+    log("executor_warn", `Fuzzy-matched tool name "${rawName}" → "${fuzzy}"`);
+    return { name: fuzzy, corrected: true, known: true };
+  }
+
+  return { name, corrected: name !== rawName, known: false };
+}
+
+/**
  * Execute a tool call with safety checks and logging.
  */
-export async function executeTool(name, args) {
+export async function executeTool(name, args, context = {}) {
   const startTime = Date.now();
 
-  // Strip model artifacts like "<|channel|>commentary" appended to tool names
-  name = name.replace(/<.*$/, "").trim();
+  // Normalize model-mangled tool names (artifacts, prefixes, compat aliases)
+  const resolved = sanitizeToolName(name);
+  name = resolved.name;
 
   // ─── Validate tool exists ─────────────────
   const fn = toolMap[name];
   if (!fn) {
     const error = `Unknown tool: ${name}`;
     log("error", error);
+    try {
+      appendDecision({
+        type: "skip",
+        actor: context.actor || "GENERAL",
+        summary: `Unknown tool call rejected: ${name}`,
+        reason: `LLM called a tool that does not exist (raw name: ${String(name).slice(0, 80)}). Call blocked, nothing executed.`,
+      });
+    } catch { /* decision log must never break tool dispatch */ }
     return { error };
   }
 

@@ -14,7 +14,7 @@ import {
   resolveDeployStrategyForCandidate,
 } from "../tools/strategy-router.js";
 import { recordPoolDeploy, isPoolOnCooldown, getPoolCooldownReason } from "../pool-memory.js";
-import { passesChartExitPnlGate, isNewAthFromCandles, evaluateAthEntryGate } from "../tools/chart-indicators.js";
+import { passesChartExitPnlGate, isNewAthFromCandles, evaluateAthEntryGate, evaluatePreset } from "../tools/chart-indicators.js";
 import { config } from "../config.js";
 
 const POOL_MEMORY_PATH = repoPath("pool-memory.json");
@@ -153,6 +153,62 @@ function testCooldownStacking() {
   }
 }
 
+// ── Win redeploy cooldown (clean in-range win) ─────────────────
+function testWinRedeployCooldown() {
+  const saved = backup(POOL_MEMORY_PATH);
+  const savedEnabled = config.management.winRedeployCooldownEnabled;
+  try {
+    fs.writeFileSync(POOL_MEMORY_PATH, "{}");
+
+    // 1. Trailing TP win in range → pool + mint cooldown (BABYANSEM round-2 pattern)
+    const pool = "TEST_POOL_WIN_TRAILING_111111111111111111111";
+    recordPoolDeploy(pool, {
+      pool_name: "WINTEST-SOL",
+      base_mint: "WINMINT111111111111111111111111111111111111",
+      pnl_pct: 3.93,
+      close_reason: "Trailing TP: peak 4.84% → current 3.93% (dropped 0.91% >= 0.8%)",
+    });
+    assert(isPoolOnCooldown(pool), "trailing TP win should set pool cooldown");
+    const reason = getPoolCooldownReason(pool) || "";
+    assert(reason.includes("in-range win"), `cooldown reason should mention in-range win, got "${reason}"`);
+    const db1 = JSON.parse(fs.readFileSync(POOL_MEMORY_PATH, "utf8"));
+    assert(db1[pool].base_mint_cooldown_until != null, "trailing TP win should set base mint cooldown too");
+
+    // 2. Take profit win → cooldown
+    const pool2 = "TEST_POOL_WIN_TP_222222222222222222222222222";
+    recordPoolDeploy(pool2, { pool_name: "TP-SOL", pnl_pct: 5.1, close_reason: "take profit" });
+    assert(isPoolOnCooldown(pool2), "take profit win should set pool cooldown");
+
+    // 3. Win via OOR → win cooldown must NOT claim it (winOor path owns it)
+    const pool3 = "TEST_POOL_WIN_OOR_33333333333333333333333333";
+    recordPoolDeploy(pool3, { pool_name: "OOR-SOL", pnl_pct: 1.2, close_reason: "pumped far above range (out of range)" });
+    const oorReason = getPoolCooldownReason(pool3) || "";
+    assert(oorReason.includes("volatile OOR"), `OOR win should keep volatile OOR reason, got "${oorReason}"`);
+
+    // 4. Trailing-worded close that ended in loss → loss cooldown, not win cooldown
+    const pool4 = "TEST_POOL_TRAIL_LOSS_44444444444444444444444";
+    recordPoolDeploy(pool4, { pool_name: "TL-SOL", pnl_pct: -0.4, close_reason: "Trailing TP: peak 1% → current -0.4%" });
+    const lossReason = getPoolCooldownReason(pool4) || "";
+    assert(lossReason.includes("loss close"), `trailing loss should get loss cooldown, got "${lossReason}"`);
+
+    // 5. Neutral win (agent decision) → no win cooldown
+    const pool5 = "TEST_POOL_NEUTRAL_5555555555555555555555555";
+    recordPoolDeploy(pool5, { pool_name: "N-SOL", pnl_pct: 0.8, close_reason: "agent decision" });
+    assert(!isPoolOnCooldown(pool5), "neutral win close must not set win cooldown");
+
+    // 6. Disabled → no cooldown
+    config.management.winRedeployCooldownEnabled = false;
+    const pool6 = "TEST_POOL_DISABLED_666666666666666666666666";
+    recordPoolDeploy(pool6, { pool_name: "D-SOL", pnl_pct: 4.0, close_reason: "take profit" });
+    assert(!isPoolOnCooldown(pool6), "win cooldown must not fire when disabled");
+
+    console.log("  win-cooldown: trailing/TP win blocks pool+mint, OOR/loss/neutral/disabled untouched OK");
+  } finally {
+    config.management.winRedeployCooldownEnabled = savedEnabled;
+    restore(POOL_MEMORY_PATH, saved);
+  }
+}
+
 // ── Chart exit PnL gate ────────────────────────────────────────
 function testChartExitPnlGate() {
   const savedMin = config.indicators.chartExitMinPnlPct;
@@ -174,6 +230,46 @@ function testChartExitPnlGate() {
   } finally {
     config.indicators.chartExitMinPnlPct = savedMin;
   }
+}
+
+// ── Evil Panda exit preset ─────────────────────────────────────
+function testEvilPandaExit() {
+  const payload = ({ direction, rsi, close, upper, breakDown = false }) => ({
+    latest: {
+      candle: { close },
+      previousCandle: { close },
+      rsi: { value: rsi },
+      bollinger: { upper, middle: upper * 0.9, lower: upper * 0.8 },
+      supertrend: { value: close * 1.05, direction },
+      states: { supertrendBreakDown: breakDown },
+    },
+  });
+
+  // Armed (bearish) + RSI(2) spike ≥ 90 → exit
+  let r = evaluatePreset("exit", "evil_panda_exit", payload({ direction: "bearish", rsi: 95, close: 100, upper: 120 }));
+  assert(r.confirmed, `bearish + RSI 95 must confirm, got: ${r.reason}`);
+
+  // Armed + close at/above BB upper (RSI quiet) → exit
+  r = evaluatePreset("exit", "evil_panda_exit", payload({ direction: "bearish", rsi: 50, close: 125, upper: 120 }));
+  assert(r.confirmed, `bearish + BB-upper close must confirm, got: ${r.reason}`);
+
+  // Armed but no strength candle yet → hold
+  r = evaluatePreset("exit", "evil_panda_exit", payload({ direction: "bearish", rsi: 50, close: 100, upper: 120 }));
+  assert(!r.confirmed, "bearish without RSI/BB spike must not confirm");
+
+  // Not armed: supertrend still bullish, even with RSI spike → hold
+  r = evaluatePreset("exit", "evil_panda_exit", payload({ direction: "bullish", rsi: 95, close: 100, upper: 120 }));
+  assert(!r.confirmed, "bullish supertrend must keep the position (not armed)");
+
+  // Fresh break-down flag arms it even before direction settles
+  r = evaluatePreset("exit", "evil_panda_exit", payload({ direction: "bullish", rsi: 95, close: 100, upper: 120, breakDown: true }));
+  assert(r.confirmed, "fresh supertrendBreakDown + RSI spike must confirm");
+
+  // Exit-only preset
+  r = evaluatePreset("entry", "evil_panda_exit", payload({ direction: "bearish", rsi: 95, close: 125, upper: 120 }));
+  assert(!r.confirmed, "evil_panda_exit must never confirm entries");
+
+  console.log("  evil-panda exit: armed-break + RSI/BB fires, unarmed/quiet/entry held OK");
 }
 
 // ── Pump upside-cover gate ─────────────────────────────────────
@@ -282,7 +378,9 @@ async function main() {
   testOorRisk();
   testStrategyMatrix();
   testCooldownStacking();
+  testWinRedeployCooldown();
   testChartExitPnlGate();
+  testEvilPandaExit();
   testPumpUpsideCoverGate();
   await testVolatileRecall();
   testAthEntryGate();

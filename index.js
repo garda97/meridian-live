@@ -7,6 +7,7 @@ import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
 import { getMyPositions, closePosition, partialClosePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
+import { checkSolRegimeGate } from "./tools/sol-regime.js";
 import { getTopCandidates, degenScore } from "./tools/screening.js";
 import { checkPositionChartExit } from "./tools/chart-indicators.js";
 import { config, reloadScreeningThresholds, computeDeployAmount, minTokenFeesSolForMcap } from "./config.js";
@@ -419,6 +420,27 @@ export async function runScreeningCycle({ silent = false } = {}) {
       return screenReport;
     }
 
+    const regime = checkSolRegimeGate(preBalance?.sol_price);
+    if (regime.blocked) {
+      const reason = `SOL regime gate: 1h change ${regime.changePct}% <= ${regime.thresholdPct}%`;
+      log("cron", `Screening skipped — ${reason}`);
+      screenReport = `Screening skipped — ${reason}.`;
+      outcome.skipped = true;
+      appendDecision({
+        type: "skip",
+        actor: "SCREENER",
+        summary: "Screening skipped",
+        reason: "sol_regime_gate",
+        metrics: {
+          sol_change_1h_pct: regime.changePct,
+          sol_threshold_pct: regime.thresholdPct,
+          sol_price: regime.currentPrice,
+          sol_price_1h_ago: regime.pastPrice,
+        },
+      });
+      return screenReport;
+    }
+
     outcome.executed = true;
     if (!silent && telegramEnabled()) {
       liveMessage = await createLiveMessage("🔍 Screening Cycle", "Scanning candidates...");
@@ -621,9 +643,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
         plan ? formatDeployPlanBlock(plan) : null,
       ].filter(Boolean).join("\n");
 
-      // Stage signals for Darwinian weighting — captured before LLM decides
-      if (config.darwin?.enabled) {
+      // Stage signals — Darwinian weighting + holder-audit snapshot for the
+      // deploy decision log. Always staged (not just darwin) so the deploy
+      // decision can record top10/bundler/bot context even with darwin off.
+      {
         const baseMint = pool.base?.mint || pool.base_mint || ti?.mint || null;
+        const auditNum = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
         stageSignals(pool.pool, {
           base_mint:             baseMint,
           organic_score:         pool.organic_score         ?? null,
@@ -634,6 +659,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
           smart_wallets_present: (sw?.in_pool?.length ?? 0) > 0,
           narrative_quality:     n?.narrative ? "present" : "absent",
           volatility:            pool.volatility            ?? null,
+          top10_pct:             auditNum(top10Pct),
+          bot_pct:               auditNum(botPct),
+          bundler_pct:           auditNum(bundlerPct),
+          smart_degen_count:     auditNum(smartDegen),
         });
       }
 
