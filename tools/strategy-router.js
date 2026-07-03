@@ -262,6 +262,22 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
 
   const fibHint = indicatorOk ? inferFibBins(signal) : null;
   const plan = buildDeployPlan({ pool, classification, signal, fibHint });
+
+  const maxPumpPct = Number(config.autoStrategy?.maxPumpPct1h ?? 20);
+  const pump1h = Number(priceChange1h);
+  if (
+    Number.isFinite(maxPumpPct) &&
+    maxPumpPct > 0 &&
+    Number.isFinite(pump1h) &&
+    pump1h > maxPumpPct &&
+    plan.strategy === "bid_ask" &&
+    plan.deposit_side === "sol_below"
+  ) {
+    plan.entry_allowed = false;
+    plan.entry_reason = `1h pump +${pump1h.toFixed(1)}% > ${maxPumpPct}% cap — bid_ask below would OOR; wait retracement`;
+    plan.notes = [...(plan.notes || []), `Pump gate: skip SOL-below deploy after +${pump1h.toFixed(1)}% 1h`];
+  }
+
   plan.pool = pool?.pool ?? null;
   plan.pool_name = pool?.name ?? null;
   plan.volatility = pool?.volatility ?? null;
