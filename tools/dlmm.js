@@ -19,6 +19,8 @@ import {
   markInRange,
   recordClaim,
   recordClose,
+  recordPartialTpAttempt,
+  markPartialTpDone,
   getTrackedPosition,
   minutesOutOfRange,
   syncOpenPositions,
@@ -1608,6 +1610,110 @@ export async function claimFees({ position_address }) {
     return { success: true, position: position_address, txs: txHashes, base_mint: pool.lbPair.tokenXMint.toString() };
   } catch (error) {
     log("claim_error", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// ─── Partial Close (DCA-out) ───────────────────────────────────
+/**
+ * One-time partial take-profit: claim fees, then remove close_pct% of liquidity
+ * WITHOUT closing the position account. The remaining liquidity keeps running
+ * under the existing SL/trailing management. Marks partial_tp_done in state so
+ * it can never fire twice for the same position. Local SDK path only (deploys
+ * already use it regardless of relay mode).
+ */
+export async function partialClosePosition({ position_address, close_pct = 50, reason }) {
+  position_address = normalizeMint(position_address);
+  const pct = Math.min(Math.max(Number(close_pct) || 50, 1), 99);
+  if (process.env.DRY_RUN === "true") {
+    return { dry_run: true, would_partial_close: position_address, close_pct: pct, message: "DRY RUN — no transaction sent" };
+  }
+
+  const tracked = getTrackedPosition(position_address);
+  if (tracked?.closed) {
+    return { success: false, error: "Position already closed" };
+  }
+  if (tracked?.partial_tp_done) {
+    return { success: false, error: "Partial TP already executed for this position" };
+  }
+
+  recordPartialTpAttempt(position_address);
+  try {
+    log("partial_close", `Partial close ${pct}% of ${position_address}: ${reason || "partial take profit"}`);
+    const wallet = getWallet();
+    const poolAddress = await lookupPoolForPosition(position_address, wallet.publicKey.toString());
+    const poolMeta = await getPoolMetadata(poolAddress);
+    poolCache.delete(poolAddress.toString());
+    const pool = await getPool(poolAddress);
+    const positionPubKey = new PublicKey(position_address);
+    const baseMint = pool.lbPair.tokenXMint.toString();
+
+    // ─── Step 1: Claim fees (realize earnings before trimming) ─
+    const claimTxHashes = [];
+    try {
+      const positionData = await pool.getPosition(positionPubKey);
+      const claimTxs = await pool.claimSwapFee({ owner: wallet.publicKey, position: positionData });
+      for (const tx of claimTxs || []) {
+        claimTxHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
+      }
+      if (claimTxHashes.length) {
+        log("partial_close", `Step 1 OK (claim): ${claimTxHashes.join(", ")}`);
+        recordClaim(position_address);
+      }
+    } catch (e) {
+      log("partial_close_warn", `Step 1 (Claim) failed or nothing to claim: ${e.message}`);
+    }
+
+    // ─── Step 2: Remove pct% of liquidity, keep account open ──
+    const positionForRemove = await pool.getPosition(positionPubKey);
+    const processed = positionForRemove?.positionData;
+    const fromBinId = processed?.lowerBinId ?? tracked?.bin_range?.min ?? -887272;
+    const toBinId = processed?.upperBinId ?? tracked?.bin_range?.max ?? 887272;
+
+    const removeTx = await pool.removeLiquidity({
+      user: wallet.publicKey,
+      position: positionPubKey,
+      fromBinId,
+      toBinId,
+      bps: new BN(Math.round(pct * 100)),
+      shouldClaimAndClose: false,
+    });
+    const removeTxHashes = [];
+    for (const tx of Array.isArray(removeTx) ? removeTx : [removeTx]) {
+      removeTxHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
+    }
+    log("partial_close", `Step 2 OK (removed ${pct}%): ${removeTxHashes.join(", ")}`);
+    // Wait for RPC to reflect withdrawn balances before the caller's auto-swap
+    await new Promise((r) => setTimeout(r, 5000));
+    _positionsCacheAt = 0;
+
+    markPartialTpDone(position_address, `removed ${pct}% liquidity — ${reason || "partial take profit"}`);
+    appendDecision({
+      type: "partial_close",
+      actor: "MANAGER",
+      pool: poolAddress,
+      pool_name: tracked?.pool_name || poolMeta.name || poolAddress.slice(0, 8),
+      position: position_address,
+      summary: `Partial TP: removed ${pct}% liquidity, position stays open`,
+      reason: reason || "partial take profit",
+      metrics: {
+        exit_signal_type: "partial_tp",
+        closed_pct: pct,
+      },
+    });
+
+    return {
+      success: true,
+      position: position_address,
+      pool: poolAddress,
+      pool_name: tracked?.pool_name || poolMeta.name || null,
+      close_pct: pct,
+      claim_txs: claimTxHashes,
+      remove_txs: removeTxHashes,
+      base_mint: baseMint,
+    };
+  } catch (error) {
+    log("partial_close_error", error.message);
     return { success: false, error: error.message };
   }
 }

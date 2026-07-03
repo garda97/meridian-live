@@ -81,6 +81,10 @@
   "trailingTriggerPct": 3,
   "trailingDropPct": 1.5,
   "pnlSanityMaxDiffPct": 5,
+  "partialTpEnabled": false,
+  "partialTpTriggerPct": 5,
+  "partialTpClosePct": 50,
+  "partialTpMinRemainUsd": 10,
   "solMode": false,
 
   "managementIntervalMin": 10,

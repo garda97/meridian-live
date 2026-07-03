@@ -436,6 +436,67 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   return null;
 }
 
+// ─── Partial Take-Profit (DCA-out) ─────────────────────────────
+
+const PARTIAL_TP_RETRY_COOLDOWN_MS = 10 * 60_000;
+
+/**
+ * Pure check: should this position take a one-time partial profit (DCA-out)?
+ * Fires at most once per position — removes partialTpClosePct% of liquidity while
+ * the position account stays open under the existing SL/trailing management.
+ * Requires the CONFIRMED peak (confirmPeak ticks) at/above the trigger too, so a
+ * single noisy PnL tick can't fire it.
+ * @param {object} pos - tracked position from state (getTrackedPosition)
+ * @param {object} positionData - live fields from getMyPositions: pnl_pct, pnl_pct_suspicious, in_range, total_value_usd
+ * @param {object} mgmtConfig
+ * Returns { close_pct, reason } or null.
+ */
+export function shouldPartialTakeProfit(pos, positionData, mgmtConfig) {
+  if (!mgmtConfig?.partialTpEnabled) return null;
+  if (!pos || pos.closed || pos.partial_tp_done) return null;
+  const { pnl_pct, pnl_pct_suspicious, in_range, total_value_usd } = positionData || {};
+  if (pnl_pct_suspicious || pnl_pct == null) return null;
+  if (in_range === false) return null; // OOR — the OOR/trailing exit rules own this position
+  const trigger = mgmtConfig.partialTpTriggerPct ?? 5;
+  if (pnl_pct < trigger || (pos.peak_pnl_pct ?? 0) < trigger) return null;
+  const closePct = Math.min(Math.max(Number(mgmtConfig.partialTpClosePct ?? 50), 1), 99);
+  const minRemain = mgmtConfig.partialTpMinRemainUsd ?? 10;
+  const remainValue = (total_value_usd ?? 0) * (1 - closePct / 100);
+  if (!(remainValue >= minRemain)) return null; // remainder too small to keep running
+  // Back off after a failed attempt so a broken tx doesn't retry every poll tick
+  if (pos.partial_tp_last_attempt_at && Date.now() - new Date(pos.partial_tp_last_attempt_at).getTime() < PARTIAL_TP_RETRY_COOLDOWN_MS) return null;
+  return {
+    close_pct: closePct,
+    reason: `Partial TP: PnL ${pnl_pct.toFixed(2)}% >= ${trigger}% — removing ${closePct}% liquidity (remaining ~${remainValue.toFixed(2)})`,
+  };
+}
+
+/**
+ * Record a partial-TP attempt timestamp (retry backoff, set before sending txs).
+ */
+export function recordPartialTpAttempt(position_address) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  pos.partial_tp_last_attempt_at = new Date().toISOString();
+  save(state);
+}
+
+/**
+ * Mark a position's one-time partial TP as done.
+ */
+export function markPartialTpDone(position_address, summary) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  pos.partial_tp_done = true;
+  pos.partial_tp_at = new Date().toISOString();
+  pos.notes.push(`Partial TP at ${pos.partial_tp_at}: ${summary}`);
+  pushEvent(state, { action: "partial_tp", position: position_address, pool_name: pos.pool_name || pos.pool, reason: summary });
+  save(state);
+  log("state", `Position ${position_address} partial TP done: ${summary}`);
+}
+
 // ─── Briefing Tracking ─────────────────────────────────────────
 
 /**
