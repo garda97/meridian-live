@@ -301,6 +301,33 @@ WARNING: This executes a real on-chain transaction. Cannot be undone.`,
   {
     type: "function",
     function: {
+      name: "rebalance_position",
+      description: `Re-analyze an open position against live market conditions and reposition it (POWER MODE).
+The position router re-classifies the market view (pump/breakdown/sideways/flat/retracement) and, when justified, moves the liquidity to a fresh range: shift_up / widen_spot (OOR upside), reseed_below (OOR downside with live volume), or convert_to_spot (in-range strategy drift).
+
+The router may refuse: it returns decision "hold" (nothing worth doing) or "close" (dead volume, PnL too deep, rebalance budget spent, risky re-plan) — in the close case use close_position instead.
+
+WARNING: This executes real on-chain transactions (claim + remove + re-add liquidity). Subject to rebalance cooldown and per-position budget.`,
+      parameters: {
+        type: "object",
+        properties: {
+          position_address: {
+            type: "string",
+            description: "The position public key to rebalance"
+          },
+          reason: {
+            type: "string",
+            description: "Optional context for the decision log (e.g. 'manual rebalance after pump')"
+          }
+        },
+        required: ["position_address"]
+      }
+    }
+  },
+
+  {
+    type: "function",
+    function: {
       name: "get_wallet_positions",
       description: `Get all open DLMM positions for any Solana wallet address.
 Use this when the user asks about another wallet's positions, wants to monitor a wallet,

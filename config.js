@@ -141,6 +141,14 @@ export const config = {
     winRedeployCooldownEnabled: u.winRedeployCooldownEnabled !== false, // block redeploy after a clean in-range win (trailing TP / take profit)
     winRedeployCooldownHours: u.winRedeployCooldownHours ?? 3,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
+    // POWER MODE auto-rebalance: re-analyze open positions and reposition
+    // (shift/widen/reseed/convert) instead of only hold/close.
+    autoRebalanceEnabled:      u.autoRebalanceEnabled      ?? true,
+    rebalanceMinOorMinutes:    u.rebalanceMinOorMinutes    ?? 5,   // OOR confirmation window before repositioning
+    rebalanceMaxPerPosition:   u.rebalanceMaxPerPosition   ?? 3,   // budget per position, then close
+    rebalanceCooldownMinutes:  u.rebalanceCooldownMinutes  ?? 15,  // between attempts on the same position
+    rebalanceMinPnlPct:        u.rebalanceMinPnlPct        ?? -8,  // below this, close instead of rebalance
+    rebalanceOnStrategyDrift:  u.rebalanceOnStrategyDrift  ?? true, // in-range bid_ask→spot conversion
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
