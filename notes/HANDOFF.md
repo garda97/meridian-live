@@ -363,5 +363,5 @@ _Updated: 2026-07-03T20:46:00.000000+00:00_
 
 **Status:** closed
 
-**Done:** commit 9646880; 8 test suites PASS; dlmm.js ladder extract verified mekanis (logic identik); user-config.json untouched; daemon inactive per owner; rekomendasi enable: noDeployAfterHour 22 + noDeployBeforeHour 6 (opsional); evilPandaMacdExitEnabled + maxBundledWalletHolderPct biarkan off
+**Done:** commit f15129d; 8 test suites PASS; dlmm.js ladder extract verified mekanis (logic identik); user-config.json untouched; daemon inactive per owner; rekomendasi enable: noDeployAfterHour 22 + noDeployBeforeHour 6 (opsional); evilPandaMacdExitEnabled + maxBundledWalletHolderPct biarkan off
 
