@@ -786,6 +786,23 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     if (eligible.length < before) log("dev_blocklist", `Filtered ${before - eligible.length} pool(s) via dev blocklist`);
   }
 
+  // Rugcheck gate — on-chain safety screen on the trimmed candidate set only
+  // (fails open on API errors; hard-rejects rugged / extreme-score tokens)
+  if (config.screening.rugcheckEnabled !== false && eligible.length > 0) {
+    const rugResults = await rugCheckCandidates(eligible);
+    const before = eligible.length;
+    const rugFiltered = eligible.filter((p) => {
+      const check = rugResults.get(p.pool) ?? { pass: true, rug_score: null };
+      p.rug_score = check.rug_score ?? null;
+      if (check.pass) return true;
+      pushFilteredReason(filteredOut, p, check.reason);
+      log("screening", `Rugcheck rejected ${p.name} (${p.pool?.slice(0, 8)}): ${check.reason}`);
+      return false;
+    });
+    eligible.splice(0, eligible.length, ...rugFiltered);
+    if (eligible.length < before) log("screening", `Rugcheck removed ${before - eligible.length} candidate(s)`);
+  }
+
   if (config.indicators.enabled && eligible.length > 0) {
     const confirmations = await Promise.all(
       eligible.map(async (pool) => {
