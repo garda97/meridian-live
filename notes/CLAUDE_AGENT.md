@@ -2,6 +2,8 @@
 
 Claude = **kartu AS** — analisis mendalam & refactor berat. Relay OFF, jalan hanya saat owner/Grok/Hermes dispatch manual.
 
+**Saat Grok limit:** baca `notes/GROK_LIMIT_RUNBOOK.md` — terima dispatch dari Hermes, handoff balik ke Hermes (bukan Grok).
+
 ## Startup wajib setiap sesi
 
 **Single source of truth:** `notes/SESSION_START.md` — jalankan Langkah 0–1, lalu baca file ini.

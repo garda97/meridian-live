@@ -8,6 +8,8 @@ Hermes = **otak utama** Meteora DLMM: analisis pool, evaluasi posisi, routing ke
 | **Grok** | Eksekutor — infra VPS, fix bug, monitor daemon, deploy kode |
 | **Claude** | Ace card — analisis arsitektur mendalam (on-demand) |
 
+**Saat Grok limit:** baca `notes/GROK_LIMIT_RUNBOOK.md` — Hermes pegang monitor + dispatch Claude.
+
 ## Startup wajib setiap sesi
 
 **Single source of truth:** `notes/SESSION_START.md` — baca dan jalankan Langkah 0–2 sebelum analisis.
