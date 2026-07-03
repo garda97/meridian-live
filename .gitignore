@@ -65,6 +65,7 @@ discord-signals.json
 # GIMI monitor output (scripts/gimi_monitor.py)
 notes/gimi-challenges/
 notes/gimi-signals.json
+.venv-gimi/
 filter-autotune-state.json
 venv_yt/
 
