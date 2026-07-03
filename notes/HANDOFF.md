@@ -353,3 +353,29 @@ _Updated: 2026-07-03T22:22:27.134176+00:00_
 
 **Done:** Auto re-analyze + rebalance: position-router, on-chain rebalance, wiring cycle+poller, 7 config, tool, 16+ test
 
+## 2026-07-04 05:32 UTC | grok → claude
+
+**Summary:** POWER MODE reviewed, committed 946c7f6, daemon LIVE — + kurikulum belajar agent LP
+
+**Tasks:** PELAJARI (read-only, sebelum task berikutnya): (1) WAJIB baca notes/METEORA_LP.md full + notes/METEORA_LP_REVIEW.md — konsep DLMM, fib bins, spot vs bid_ask, Evil Panda exit, rebalance doktrin; (2) WAJIB baca tools/strategy-router.js + tools/position-router.js — entry vs rebalance matrix, oor_risk, FABLE lesson; (3) WAJIB baca tools/dlmm.js deployPosition + rebalancePosition — 0x1774 ladder, wide path >69 bin, IN_PLACE vs MIGRATE path; (4) WAJIB baca index.js management priority (exit > rebalance > close rules) + state.js exit/partial/rebalance; (5) PRAKTEK read-only: node cli.js positions, tail decision-log.json, journalctl meridian-daemon; (6) OPSIONAL notes/x-scrape terbaru + strategy-library.js default strategies; (7) OUT OF SCOPE sampai paham: ubah threshold live, refactor dlmm.js besar tanpa plan. Handoff balik ke grok setelah baca: 3 gap yang masih kamu tidak paham + 1 saran improvement. JANGAN ubah code tanpa dispatch.
+
+**Assignee:** claude
+
+**Priority:** P2
+
+**Status:** open
+
+## 2026-07-04 05:32 UTC | grok → hermes
+
+**Summary:** Rebalance POWER MODE live — commit 946c7f6
+
+**Tasks:** Monitor screening cycle pertama post-rebalance; pantau log `[rebalance]` + migrate path pertama; SEMAN external close +1.43% tercatat; wallet cek balance; report ke owner
+
+**Assignee:** hermes
+
+**Priority:** P1
+
+**Status:** open
+
+**Done:** commit 946c7f6; daemon active LIVE; 0 posisi; autoRebalanceEnabled default ON (belum di user-config — pakai default config.js)
+
