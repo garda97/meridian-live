@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-03T04:23:13.881773+00:00 by **claude**_
+_Updated: 2026-07-03T04:26:27.005499+00:00 by **grok**_
 
 ## Quick status
 
@@ -8,8 +8,8 @@ _Updated: 2026-07-03T04:23:13.881773+00:00 by **claude**_
 |------|-------|
 | Phase | `learning_dry_run` |
 | Git branch | `github-main` |
-| Uncommitted files | 11 |
-| Last commit | 4143409 chore: sync handoff bridge after PR-A/B/C deploy (17 minutes ago) |
+| Uncommitted files | 2 |
+| Last commit | b7f158f feat: Evil Panda alignment — ATH entry gate + minTokenFeesSol 30 (6 seconds ago) |
 | DRY_RUN | `False` |
 | user-config.json | yes |
 | .env | yes |
@@ -17,10 +17,10 @@ _Updated: 2026-07-03T04:23:13.881773+00:00 by **claude**_
 
 ## Latest handoff
 
-**2026-07-03 04:23 UTC** | `claude` → `grok`
-> Evil Panda alignment selesai — ATH gate opt-in + minTokenFeesSol 30, SAFE TO DEPLOY, tests pass
+**2026-07-03 04:26 UTC** | `grok` → `claude`
+> Evil Panda ATH+fees reviewed, committed b7f158f, daemon LIVE
 
-Tasks: `VERDICT: SAFE TO DEPLOY (kedua item). [ITEM 1 — ATH entry gate] tools/chart-indicators.js: isNewAthFromCandles(candles, lookback) pure function (latest high >= semua prior high di window; payload API chart-indicators sudah include array candles 298 OHLCV, verified live) + evaluateAthEntryGate(payload, signal) = new ATH AND supertrend up (break up ATAU harga hold di atas ST bullish, konsisten preset entry supertrend_break). Wire di strategy-router resolveDeployStrategyForCandidate: hanya aktif jika athEntryGateEnabled, evaluasi dari payload yang SAMA dengan fetch indicator existing (zero API call tambahan), block entry_allowed + reason ath_gate, hasil disimpan di plan.ath_gate untuk decision-log. FAIL-OPEN kalau indicator API down (dengan note di plan) — konsisten pattern gate lain; kalau Grok mau strict fail-closed bilang aja, 1 baris. Config: athEntryGateEnabled default FALSE (opt-in sesuai brief), athLookbackCandles default 48 (=12h di 15m), keduanya di config.js + example + CONFIG_MAP (bisa node cli.js config set athEntryGateEnabled true). [ITEM 2 — minTokenFeesSol 30] Approach paling clean: naikkan default config.js 10->30 + naikkan floor filter-autotune 5->30 (autotune tidak akan pernah relax di bawah 30) + example 10->30. mcapScaledTokenFees TIDAK disentuh — scaling per-100k tetap jalan, ini cuma floor-nya. TESTS: section baru testAthEntryGate (7 assertion: rising-series ATH pass, peaked-series blocked, empty/null blocked, gate ATH+ST pass, bearish blocked, ST-tanpa-ATH blocked) — semua pass; test-strategy-matrix 7 section OK; test-filter-autotune OK dengan floor baru (minTokenFeesSol tidak lagi di-relax); node --check pass; full test:syntax jalan di background (3 run sebelumnya exit 0). CONSTRAINT: user-config.json tak diedit, daemon tak di-restart, security filter malah DIPERKETAT. REKOMENDASI OWNER: (1) live user-config minTokenFeesSol masih 5 — reset ke 30 via node cli.js config set minTokenFeesSol 30 sebelum restart; (2) soal enable athEntryGateEnabled: SARAN JANGAN langsung enable bareng perubahan lain — gate ini agresif (butuh ATH + ST up bersamaan, bakal drastis mengurangi frekuensi deploy), dan aturan kita max 3 perubahan config per iterasi sudah kepakai; enable setelah 5-10 posisi dengan config sekarang biar ada baseline pembanding, ATAU enable sekarang tapi tunda perubahan lain. Keputusan di owner. File diff: tools/chart-indicators.js, tools/strategy-router.js, config.js, tools/executor.js, filter-autotune.js, user-config.example.json, test/test-strategy-matrix.js. Grok: review, commit, apply config sesuai keputusan owner, restart daemon.`
+Tasks: `none`
 
 ## Pending for hermes
 
@@ -34,7 +34,6 @@ Tasks: `VERDICT: SAFE TO DEPLOY (kedua item). [ITEM 1 — ATH entry gate] tools/
 
 ## Pending for grok
 
-- [P2] Review notes/METEORA_LP.md and identify actionable updates for screening/pool selection/exit logic; propose implementation plan for DLMM backup strategy (e.g., DCA-in concept fitting Meridian risk profile); do NOT change code/theme/design without owner approve.
 - [P1] Baca notes/METEORA_LP.md; Analisis apakah kriteria screening Evil Panda (MC >250k, Vol >1M, Total Fees >30 SOL) dan filter bengshark (Age <2 hari, New ATH) sudah tercover di pipeline; Usulkan update threshold jika ada gap
 - [P1] Owner minta pendapat Grok soal apa yang kurang dari Meridian. Temuan Claude dari cek langsung ke sistem (2026-07-02 16:58 UTC): (1) Daemon node index.js MATI sejak ~16:16 UTC, gak ada proses jalan, live mode (dryRun:false), 0 posisi terbuka, alert Telegram di-pause (.telegram_alerts_paused) -- modal nganggur. (2) pm2 dirujuk di ecosystem.config.cjs tapi TIDAK terinstall di VPS, systemd cuma ada buat meridian-dashboard bukan daemon utama -- gak ada auto-restart kalau daemon crash, ini kemungkinan akar masalah (1). (3) npm test cuma node --check (syntax check), bukan test logic beneran, meski test/test-agent.js dan test-screening.js ada. (4) 11 file uncommitted di working tree (termasuk fix swap getConnection), cuma 1 commit di git history -- resiko lost work. (5) Dust-token recovery (FROGBULL/NYAN/dll) masih manual via Raydium/Orca UI karena swap programatik gak reliable. Grok tolong kasih opini dari sisi eksekusi infra: prioritas fix mana dulu, dan apakah pm2 install + systemd unit buat index.js worth dikerjakan sekarang. Jangan ubah code/config dulu sebelum owner approve.
 - [P1] Jawaban 6 pertanyaan section 5 PROFIT_PRESET_REVIEW.md: (1) Spot-bias strategy-router.js: logic sound, allowSpot+entry_allowed gate benar, gak ada bug edge case. (2) pool-memory.js loss cooldown: NO race condition -- recordPoolDeploy() sepenuhnya synchronous (load/save tanpa await di antaranya), satu-satunya call site (lessons.js recordPerformance) dipanggil sequential per close, bukan Promise.all. Aman. (3) Chart exit wiring: BENAR -- index.js cek updatePnlAndCheckExits (SL/trailing) DULU, checkPositionChartExit cuma jalan kalau !exit (fallback), jadi trailing/SL selalu prioritas, gak conflict. (4) ISU UTAMA -- filter-autotune floors vs profit preset: floor minVolume utk timeframe 1h = 5000 (dari getFloorsForConfig, verified via node test/test-filter-autotune.js), tapi profit preset baru set minVolume=15000. Karena current(15000) > floor(5000), autotune BAKAL relax minVolume turun 0.85x tiap 2x no-deploy streak sampai ke 5000 -- diam-diam mengikis threshold yang sengaja dinaikkan buat profit preset. minMcap floor 150k dan minHolders floor 200 punya risiko sama. Selain itu autotune (relax berdasar no-deploy streak) dan evolveThresholds() di lessons.js (tighten berdasar winner/loser performance) jalan independen tanpa saling tau -- bisa saling tarik-menarik. REKOMENDASI: set filterAutotuneEnabled:false selama profit preset jalan, ATAU naikkan floors biar sejalan sama intent preset. (5) Bug/regresi: gak ada bug outright, tapi cek filter-autotune-state.json sebelum gas live -- kalau consecutiveNoDeploy udah nyangkut dari sebelum switch ke profit preset, bisa langsung relax di cycle pertama post-launch. (6) Test coverage: test-filter-autotune.js jalan OK tapi assertion 'minVolume >= 300_000' itu dead weight (gak exercise floor beneran karena strict-config gak kasih timeframe, default ke 4h, dan hasil relaxnya jauh di atas 300k maupun floor asli manapun). ZERO test buat pool-memory loss-cooldown, strategy-router spot-bias, atau chart-exit wiring -- padahal ini yang langsung pegang keputusan modal real. Minimal tambahin unit test applyHighFeeSpotBias (pure function) + setPoolCooldown/isPoolOnCooldown round-trip sebelum anggap ready. KESIMPULAN: aman gas live dari sisi bug, TAPI selesaikan poin (4) dulu -- kalau enggak, profit preset bisa diam-diam balik jadi longgar kayak fase learning setelah beberapa dry spell.
