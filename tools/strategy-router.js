@@ -56,7 +56,7 @@ function inferFibBins(signal) {
   return { fib: 0.51, bins: clampInt(100, 35, maxBins) };
 }
 
-function classifyMarketView({ pool, priceChange1h, signal }) {
+export function classifyMarketView({ pool, priceChange1h, signal }) {
   const vol = Number(pool?.volatility);
   const absChange = Math.abs(Number(priceChange1h ?? 0));
   const bullishBreak = !!signal?.supertrendBreakUp;
@@ -68,7 +68,7 @@ function classifyMarketView({ pool, priceChange1h, signal }) {
   if (bearishBreak || (isBearish && signal?.close != null && signal?.supertrendValue != null && signal.close <= signal.supertrendValue)) {
     return { view: "breakdown", confidence: "high", reason: "Supertrend bearish / support break" };
   }
-  if (bullishBreak || (Number(priceChange1h) > 25 && isBullish)) {
+  if (bullishBreak || (Number(priceChange1h) > 15 && isBullish)) {
     return { view: "pump", confidence: "high", reason: `Strong upside momentum (${priceChange1h ?? "?"}% 1h, ST bullish)` };
   }
   if (Number.isFinite(vol) && vol < 2 && absChange < 8) {
@@ -81,6 +81,28 @@ function classifyMarketView({ pool, priceChange1h, signal }) {
     return { view: "retracement", confidence: "high", reason: `Active pullback (${priceChange1h}% 1h)` };
   }
   return { view: "retracement", confidence: "medium", reason: "Default retracement fee play for trending meme" };
+}
+
+/**
+ * OOR risk 0-100: how likely the deployed range breaks before fees cover costs.
+ * Components: volatility (0-30), 1h momentum magnitude (0-30), zero upside
+ * cover while price is running up — the FABLE OOR pattern (0-25), narrow
+ * range (0-15).
+ */
+export function computeOorRisk({ volatility, priceChange1h, binsBelow, binsAbove } = {}) {
+  const vol = Number(volatility);
+  const chg = Number(priceChange1h);
+  const below = Math.max(0, Number(binsBelow) || 0);
+  const above = Math.max(0, Number(binsAbove) || 0);
+  const total = below + above;
+
+  let risk = Number.isFinite(vol) ? Math.min(30, (vol / 8) * 30) : 15;
+  if (Number.isFinite(chg)) risk += Math.min(30, (Math.abs(chg) / 40) * 30);
+  if (Number.isFinite(chg) && chg > 0 && above === 0) risk += Math.min(25, (chg / 20) * 25);
+  const width = Math.min(150, Math.max(35, total || 35));
+  risk += 15 * (1 - (width - 35) / (150 - 35));
+
+  return Math.round(Math.min(100, risk));
 }
 
 function shouldPreferSpotForHighFee(pool) {
@@ -112,7 +134,7 @@ function applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot,
   };
 }
 
-function buildDeployPlan({ pool, classification, signal, fibHint }) {
+export function buildDeployPlan({ pool, classification, signal, fibHint }) {
   const vol = Number(pool?.volatility);
   const baseBins = volatilityScaledBins(vol);
   const spotBelowRatio = config.autoStrategy?.spotRatioBelow ?? 0.75;
@@ -130,22 +152,32 @@ function buildDeployPlan({ pool, classification, signal, fibHint }) {
 
   switch (view) {
     case "breakdown": {
+      // Matrix: breakdown → bid_ask wide SOL below, max bins.
       strategy = "bid_ask";
       depositSide = "sol_below";
-      binsBelow = fibHint?.bins ?? clampInt(baseBins * 1.4, config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
+      binsBelow = fibHint?.bins ?? clampInt(config.autoStrategy?.maxBins ?? 200, config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
       binsAbove = 0;
-      notes.push(fibHint ? `Fib ~${fibHint.fib} → ${binsBelow} bins` : "Wide below range for breakdown");
+      notes.push(fibHint ? `Fib ~${fibHint.fib} → ${binsBelow} bins` : `Max-width below range (${binsBelow} bins) for breakdown`);
       break;
     }
     case "pump": {
-      strategy = "bid_ask";
-      depositSide = "sol_below";
-      binsBelow = fibHint?.bins ?? clampInt(baseBins * 1.25, config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
-      binsAbove = 0;
-      notes.push("Post-pump: SOL below to catch dump fees");
+      // Matrix: pump → spot balanced or skip; NEVER bid_ask SOL-below.
+      // FABLE lesson: SOL-below on a running pump has 0% upside cover and OORs
+      // on the next leg up.
+      if (allowSpot) {
+        strategy = "spot";
+        depositSide = "sol_balanced";
+        const total = clampInt(baseBins * 1.1, config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
+        binsBelow = clampInt(total * 0.5, Math.ceil(config.strategy.minBinsBelow * 0.5), total);
+        binsAbove = Math.max(0, total - binsBelow);
+        notes.push("Pump view: spot balanced 50/50 for upside coverage (not bid_ask below)");
+      } else {
+        entryAllowed = false;
+        entryReason = "Pump view — bid_ask SOL-below would OOR on next leg; spot disabled, skip";
+      }
       if (config.autoStrategy?.requireEntryConfirm && !classification.bullishBreak && signal?.rsi != null && signal.rsi > 85) {
         entryAllowed = false;
-        entryReason = "RSI extended — wait for cooldown before wide below deploy";
+        entryReason = "RSI extended — wait for cooldown before deploy";
       }
       break;
     }
@@ -278,6 +310,19 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
     plan.notes = [...(plan.notes || []), `Pump gate: skip SOL-below deploy after +${pump1h.toFixed(1)}% 1h`];
   }
 
+  plan.oor_risk = computeOorRisk({
+    volatility: pool?.volatility,
+    priceChange1h,
+    binsBelow: plan.bins_below,
+    binsAbove: plan.bins_above,
+  });
+  const maxOorRisk = Number(config.autoStrategy?.maxOorRisk ?? 70);
+  if (plan.entry_allowed && Number.isFinite(maxOorRisk) && maxOorRisk > 0 && plan.oor_risk > maxOorRisk) {
+    plan.entry_allowed = false;
+    plan.entry_reason = `OOR risk ${plan.oor_risk} > ${maxOorRisk} — range likely breaks before fees cover the cycle`;
+    plan.notes = [...(plan.notes || []), `OOR risk gate: ${plan.oor_risk}/100`];
+  }
+
   plan.pool = pool?.pool ?? null;
   plan.pool_name = pool?.name ?? null;
   plan.volatility = pool?.volatility ?? null;
@@ -308,6 +353,7 @@ export function formatDeployPlanBlock(plan) {
     `  deploy_plan: SOL-only | bins_below=${plan.bins_below} bins_above=${plan.bins_above}${plan.wide_range ? " WIDE" : ""}`,
     `  entry_gate: ${plan.entry_allowed ? "ALLOW" : "BLOCK"} — ${plan.entry_reason}`,
   ];
+  if (plan.oor_risk != null) lines.push(`  oor_risk: ${plan.oor_risk}/100`);
   if (plan.notes?.length) lines.push(`  strategy_notes: ${plan.notes.join("; ")}`);
   if (plan.signal_summary?.supertrendDirection) {
     lines.push(`  chart_15m: ST=${plan.signal_summary.supertrendDirection} RSI=${plan.signal_summary.rsi ?? "?"}`);
@@ -326,6 +372,7 @@ export function applyPendingPlanToDeployArgs(args) {
   if (merged.bins_above == null && plan.bins_above != null) merged.bins_above = plan.bins_above;
   if (merged.amount_x == null) merged.amount_x = plan.amount_x ?? 0;
   if (plan.volatility != null && merged.volatility == null) merged.volatility = plan.volatility;
+  if (plan.oor_risk != null && merged.oor_risk == null) merged.oor_risk = plan.oor_risk;
   merged._auto_strategy_plan = plan;
   return merged;
 }

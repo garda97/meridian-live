@@ -114,6 +114,7 @@ export const config = {
     blockedLaunchpads:  u.blockedLaunchpads  ?? [],  // e.g. ["letsbonk.fun", "pump.fun"]
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
+    rugcheckEnabled:    u.rugcheckEnabled    ?? true, // rugcheck.xyz gate on final candidates (fails open on API error)
   },
 
   // ─── Position Management ────────────────
@@ -134,6 +135,7 @@ export const config = {
     repeatDeployCooldownMinFeeEarnedPct: u.repeatDeployCooldownMinFeeEarnedPct ?? u.repeatDeployCooldownMinFeeYieldPct ?? 0,
     lossRedeployBlockEnabled: u.lossRedeployBlockEnabled !== false,
     lossRedeployCooldownHours: u.lossRedeployCooldownHours ?? 24,
+    winOorRedeployCooldownHours: u.winOorRedeployCooldownHours ?? 3, // block redeploy after a win that still went OOR (volatile pool)
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
@@ -283,6 +285,7 @@ export const config = {
     requireEntryConfirm: u.autoStrategyRequireEntryConfirm ?? false,
     preferSpotHighFee: u.autoStrategyPreferSpotHighFee !== false,
     spotFeeTvlMin: Number(u.autoStrategySpotFeeTvlMin ?? 2),
+    maxOorRisk: Number(u.autoStrategyMaxOorRisk ?? 70), // 0-100; block deploy above this, 0/null disables
     maxPumpPct1h: Number(u.autoStrategyMaxPumpPct1h ?? 20),
   },
 

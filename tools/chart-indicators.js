@@ -235,6 +235,12 @@ export async function checkPositionChartExit(position = {}) {
   const mint = position.base_mint || position.base?.mint;
   if (!config.indicators.enabled || !mint) return null;
 
+  // bb_plus_rsi is a profit-taking signal (RSI overbought + BB upper touch).
+  // Firing it on a losing position just locks the loss — stop loss owns that
+  // path. Also skip when PnL is unknown or flagged suspicious.
+  const pnl = Number(position.pnl_pct);
+  if (position.pnl_pct_suspicious || !Number.isFinite(pnl) || pnl <= 0) return null;
+
   const cached = exitCheckCache.get(mint);
   if (cached && Date.now() - cached.at < EXIT_CHECK_TTL_MS) return cached.result;
 

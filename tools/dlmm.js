@@ -25,6 +25,7 @@ import {
 } from "../state.js";
 import { recordPerformance } from "../lessons.js";
 import {
+  addPoolNote,
   getBaseMintCooldownReason,
   getPoolCooldownReason,
   isBaseMintOnCooldown,
@@ -474,6 +475,8 @@ export async function deployPosition({
   entry_tvl,
   entry_volume,
   entry_holders,
+  // auto-strategy plan risk score (injected by applyPendingPlanToDeployArgs)
+  oor_risk,
 }) {
   pool_address = normalizeMint(pool_address);
   const activeStrategy = strategy || config.strategy.strategy;
@@ -499,6 +502,14 @@ export async function deployPosition({
     const reason = getBaseMintCooldownReason(baseMint) || "token cooldown active";
     log("deploy", `Base mint ${baseMint.slice(0, 8)} is on cooldown — skipping deploy (${reason})`);
     return { success: false, error: `Token on cooldown — ${reason}. Try a different token.` };
+  }
+  // The cached DLMM object can hold lbPair state up to 5 min old, and the SDK
+  // passes lbPair.activeId as the on-chain slippage reference — a stale value
+  // is exactly what triggers 0x1774 ExceededBinSlippageTolerance.
+  try {
+    await pool.refetchStates();
+  } catch (error) {
+    log("deploy", `refetchStates failed (${error.message}) — continuing with cached pool state`);
   }
   const activeBin = await pool.getActiveBin();
   const actualBinStep = pool.lbPair.binStep;
@@ -775,142 +786,242 @@ export async function deployPosition({
   }
 
   const wallet = getWallet();
-  const newPosition = Keypair.generate();
+  const isBinSlippageError = (error) => /0x1774|ExceededBinSlippage/i.test(String(error?.message ?? error));
+  const spotFeeTvlMin = Number(config.autoStrategy?.spotFeeTvlMin ?? 2);
+  const LADDER_STEPS = { 1: "shift range to fresh active bin", 2: "shrink bins ~15%", 3: "fallback to spot" };
 
-  log("deploy", `Pool: ${pool_address}`);
-  log("deploy", `Strategy: ${activeStrategy}, Bins: ${minBinId} to ${maxBinId} (${totalBins} bins${isWideRange ? " — WIDE RANGE" : ""})`);
-  log("deploy", `Amount: ${finalAmountX} X, ${finalAmountY} Y`);
-  log("deploy", `Position: ${newPosition.publicKey.toString()}`);
+  // 0x1774 retry ladder — attempt 0 runs the plan as-is; each rung refetches
+  // pool state and re-anchors the range to the fresh active bin first.
+  let runStrategy = activeStrategy;
+  let runBinsBelow = activeBinsBelow;
+  let runBinsAbove = activeBinsAbove;
+  let runActiveBinId = activeBin.binId;
+  let deployed = null;
+  let lastError = null;
 
-  try {
-    const txHashes = [];
-
-    if (isWideRange) {
-      // ── Wide Range Path (>69 bins) ─────────────────────────────────
-      // Solana limits inner instruction realloc to 10240 bytes, so we can't create
-      // a large position in a single initializePosition ix.
-      // Solution: createExtendedEmptyPosition (returns Transaction | Transaction[]),
-      //           then addLiquidityByStrategyChunkable (returns Transaction[]).
-
-      // Phase 1: Create empty position (may be multiple txs)
-      const createTxs = await pool.createExtendedEmptyPosition(
-        minBinId,
-        maxBinId,
-        newPosition.publicKey,
-        wallet.publicKey,
-      );
-      const createTxArray = Array.isArray(createTxs) ? createTxs : [createTxs];
-      for (let i = 0; i < createTxArray.length; i++) {
-        const signers = i === 0 ? [wallet, newPosition] : [wallet];
-        const txHash = await sendAndConfirmTransaction(getConnection(), createTxArray[i], signers);
-        txHashes.push(txHash);
-        log("deploy", `Create tx ${i + 1}/${createTxArray.length}: ${txHash}`);
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    if (attempt > 0) {
+      if (attempt === 2) {
+        runBinsBelow = Math.max(minBinsBelow, Math.round(runBinsBelow * 0.85));
+        runBinsAbove = runBinsAbove > 0 ? Math.round(runBinsAbove * 0.85) : 0;
+      } else if (attempt === 3) {
+        const feeTvl = Number(fee_tvl_ratio);
+        if (runStrategy === "spot" || !Number.isFinite(feeTvl) || feeTvl < spotFeeTvlMin) {
+          log("deploy", `0x1774 ladder exhausted — spot fallback not eligible (fee/TVL ${fee_tvl_ratio ?? "?"} < ${spotFeeTvlMin})`);
+          break;
+        }
+        runStrategy = "spot";
       }
-
-      // Phase 2: Add liquidity (may be multiple txs)
-      const addTxs = await pool.addLiquidityByStrategyChunkable({
-        positionPubKey: newPosition.publicKey,
-        user: wallet.publicKey,
-        totalXAmount: totalXLamports,
-        totalYAmount: totalYLamports,
-        strategy: { minBinId, maxBinId, strategyType },
-        slippage: 10, // 10%
-      });
-      const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
-      for (let i = 0; i < addTxArray.length; i++) {
-        const txHash = await sendAndConfirmTransaction(getConnection(), addTxArray[i], [wallet]);
-        txHashes.push(txHash);
-        log("deploy", `Add liquidity tx ${i + 1}/${addTxArray.length}: ${txHash}`);
+      try {
+        await pool.refetchStates();
+      } catch (refetchError) {
+        log("deploy", `refetchStates failed on retry (${refetchError.message}) — using getActiveBin only`);
       }
-    } else {
-      // ── Standard Path (≤69 bins) ─────────────────────────────────
-      const tx = await pool.initializePositionAndAddLiquidityByStrategy({
-        positionPubKey: newPosition.publicKey,
-        user: wallet.publicKey,
-        totalXAmount: totalXLamports,
-        totalYAmount: totalYLamports,
-        strategy: { maxBinId, minBinId, strategyType },
-        slippage: 1000, // 10% in bps
-      });
-      const txHash = await sendAndConfirmTransaction(getConnection(), tx, [wallet, newPosition]);
-      txHashes.push(txHash);
+      const freshBin = await pool.getActiveBin();
+      runActiveBinId = freshBin.binId;
+      log("deploy", `0x1774 retry ${attempt}/3 (${LADDER_STEPS[attempt]}): active bin ${runActiveBinId}, ${runStrategy} ${runBinsBelow}/${runBinsAbove}`);
     }
 
-    log("deploy", `SUCCESS — ${txHashes.length} tx(s): ${txHashes[0]}`);
+    const runStrategyType = strategyMap[runStrategy];
+    const runAllowsUpside = runStrategy === "spot" || runStrategy === "curve";
+    const runMinBinId = runActiveBinId - runBinsBelow;
+    const runMaxBinId = isSingleSidedSol && !runAllowsUpside ? runActiveBinId : runActiveBinId + runBinsAbove;
+    const runIsWide = runBinsBelow + runBinsAbove > 69;
+    const newPosition = Keypair.generate();
 
-    _positionsCacheAt = 0;
-    const signalSnapshot = config.darwin?.enabled
-      ? getAndClearStagedSignals(pool_address, baseMint)
-      : null;
-    trackPosition({
-      position: newPosition.publicKey.toString(),
-      pool: pool_address,
-      pool_name,
-      strategy: activeStrategy,
-      bin_range: { min: minBinId, max: maxBinId, bins_below: activeBinsBelow, bins_above: activeBinsAbove },
-      bin_step,
-      volatility: normalizedVolatility,
-      fee_tvl_ratio,
-      organic_score,
-      amount_sol: finalAmountY,
-      amount_x: finalAmountX,
-      active_bin: activeBin.binId,
-      initial_value_usd,
-      signal_snapshot: signalSnapshot,
-      entry_mcap,
-      entry_tvl,
-      entry_volume,
-      entry_holders,
-    });
+    if (attempt === 0) {
+      log("deploy", `Pool: ${pool_address}`);
+      log("deploy", `Strategy: ${runStrategy}, Bins: ${runMinBinId} to ${runMaxBinId} (${runBinsBelow + runBinsAbove} bins${runIsWide ? " — WIDE RANGE" : ""})`);
+      log("deploy", `Amount: ${finalAmountX} X, ${finalAmountY} Y`);
+    }
+    log("deploy", `Position: ${newPosition.publicKey.toString()}`);
 
-    appendDecision({
-      type: "deploy",
-      actor: "SCREENER",
-      pool: pool_address,
-      pool_name,
-      position: newPosition.publicKey.toString(),
-      summary: `Deployed ${finalAmountY} SOL with ${activeStrategy}`,
-      reason: `Chosen range ${minBinId}→${maxBinId} around active bin ${activeBin.binId}`,
-      risks: [
-        normalizedVolatility != null ? `volatility ${normalizedVolatility}` : null,
-        fee_tvl_ratio != null ? `fee/TVL ${fee_tvl_ratio}%` : null,
-      ].filter(Boolean),
-      metrics: {
-        amount_sol: finalAmountY,
-        strategy: activeStrategy,
-        active_bin: activeBin.binId,
-        min_bin: minBinId,
-        max_bin: maxBinId,
-        downside_pct: downside_pct ?? null,
-        upside_pct: upside_pct ?? null,
-      },
-    });
+    try {
+      if (attempt > 0) {
+        await assertRangeDoesNotRequireBinArrayInitialization(pool, runMinBinId, runMaxBinId);
+      }
+      const txHashes = [];
 
-    return {
-      success: true,
-      position: newPosition.publicKey.toString(),
-      pool: pool_address,
-      pool_name,
-      bin_range: { min: minBinId, max: maxBinId, active: activeBin.binId },
-      price_range: { min: minPrice, max: maxPrice },
-      range_coverage: {
-        downside_pct: downsideCoveragePct,
-        upside_pct: upsideCoveragePct,
-        width_pct: totalWidthPct,
-        active_price: activePrice,
-      },
-      bin_step: actualBinStep,
-      base_fee: actualBaseFee,
-      strategy: activeStrategy,
-      wide_range: isWideRange,
-      amount_x: finalAmountX,
-      amount_y: finalAmountY,
-      txs: txHashes,
-    };
-  } catch (error) {
-    log("deploy_error", error.message);
-    return { success: false, error: error.message };
+      if (runIsWide) {
+        // ── Wide Range Path (>69 bins) ─────────────────────────────────
+        // Solana limits inner instruction realloc to 10240 bytes, so we can't create
+        // a large position in a single initializePosition ix.
+        // Solution: createExtendedEmptyPosition (returns Transaction | Transaction[]),
+        //           then addLiquidityByStrategyChunkable (returns Transaction[]).
+
+        // Phase 1: Create empty position (may be multiple txs)
+        const createTxs = await pool.createExtendedEmptyPosition(
+          runMinBinId,
+          runMaxBinId,
+          newPosition.publicKey,
+          wallet.publicKey,
+        );
+        const createTxArray = Array.isArray(createTxs) ? createTxs : [createTxs];
+        for (let i = 0; i < createTxArray.length; i++) {
+          const signers = i === 0 ? [wallet, newPosition] : [wallet];
+          const txHash = await sendAndConfirmTransaction(getConnection(), createTxArray[i], signers);
+          txHashes.push(txHash);
+          log("deploy", `Create tx ${i + 1}/${createTxArray.length}: ${txHash}`);
+        }
+
+        try {
+          // Phase 2: Add liquidity (may be multiple txs)
+          const addTxs = await pool.addLiquidityByStrategyChunkable({
+            positionPubKey: newPosition.publicKey,
+            user: wallet.publicKey,
+            totalXAmount: totalXLamports,
+            totalYAmount: totalYLamports,
+            strategy: { minBinId: runMinBinId, maxBinId: runMaxBinId, strategyType: runStrategyType },
+            slippage: 10, // 10%
+          });
+          const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
+          for (let i = 0; i < addTxArray.length; i++) {
+            const txHash = await sendAndConfirmTransaction(getConnection(), addTxArray[i], [wallet]);
+            txHashes.push(txHash);
+            log("deploy", `Add liquidity tx ${i + 1}/${addTxArray.length}: ${txHash}`);
+          }
+        } catch (addError) {
+          // Empty position already exists on-chain; a ladder retry re-anchors
+          // with a new keypair, so reclaim this one's rent first.
+          try {
+            const orphan = await pool.getPosition(newPosition.publicKey);
+            const closeTx = await pool.closePositionIfEmpty({ owner: wallet.publicKey, position: orphan });
+            if (closeTx) await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]);
+            log("deploy", `Reclaimed empty position ${newPosition.publicKey.toString().slice(0, 8)} after failed add`);
+          } catch (cleanupError) {
+            log("deploy", `Could not reclaim empty position ${newPosition.publicKey.toString()}: ${cleanupError.message}`);
+          }
+          throw addError;
+        }
+      } else {
+        // ── Standard Path (≤69 bins) ─────────────────────────────────
+        const tx = await pool.initializePositionAndAddLiquidityByStrategy({
+          positionPubKey: newPosition.publicKey,
+          user: wallet.publicKey,
+          totalXAmount: totalXLamports,
+          totalYAmount: totalYLamports,
+          strategy: { maxBinId: runMaxBinId, minBinId: runMinBinId, strategyType: runStrategyType },
+          slippage: 1000, // 10% in bps
+        });
+        const txHash = await sendAndConfirmTransaction(getConnection(), tx, [wallet, newPosition]);
+        txHashes.push(txHash);
+      }
+
+      deployed = {
+        txHashes,
+        position: newPosition.publicKey.toString(),
+        minBinId: runMinBinId,
+        maxBinId: runMaxBinId,
+        activeBinId: runActiveBinId,
+        strategy: runStrategy,
+        binsBelow: runBinsBelow,
+        binsAbove: runBinsAbove,
+        isWide: runIsWide,
+        retries: attempt,
+      };
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!isBinSlippageError(error)) break;
+      log("deploy", `Bin slippage (0x1774) on attempt ${attempt}: ${error.message}`);
+    }
   }
+
+  if (!deployed) {
+    const message = lastError?.message ?? "Deploy failed: 0x1774 retry ladder exhausted";
+    if (lastError == null || isBinSlippageError(lastError)) {
+      addPoolNote({
+        pool_address,
+        note: `Deploy failed 0x1774 after retry ladder (shift/shrink/spot) — active bin too volatile at ${new Date().toISOString().slice(0, 16)}Z`,
+      });
+    }
+    log("deploy_error", message);
+    return { success: false, error: message };
+  }
+
+  log("deploy", `SUCCESS — ${deployed.txHashes.length} tx(s): ${deployed.txHashes[0]}${deployed.retries > 0 ? ` (after ${deployed.retries} 0x1774 retr${deployed.retries === 1 ? "y" : "ies"})` : ""}`);
+
+  const finalActivePrice = Number(getPriceOfBinByBinId(deployed.activeBinId, actualBinStep).toString());
+  const finalMinPrice = Number(getPriceOfBinByBinId(deployed.minBinId, actualBinStep).toString());
+  const finalMaxPrice = Number(getPriceOfBinByBinId(deployed.maxBinId, actualBinStep).toString());
+  const finalDownsidePct = finalActivePrice > 0 ? ((finalActivePrice - finalMinPrice) / finalActivePrice) * 100 : null;
+  const finalUpsidePct = finalActivePrice > 0 ? ((finalMaxPrice - finalActivePrice) / finalActivePrice) * 100 : null;
+  const finalWidthPct = finalMinPrice > 0 ? ((finalMaxPrice - finalMinPrice) / finalMinPrice) * 100 : null;
+
+  _positionsCacheAt = 0;
+  const signalSnapshot = config.darwin?.enabled
+    ? getAndClearStagedSignals(pool_address, baseMint)
+    : null;
+  trackPosition({
+    position: deployed.position,
+    pool: pool_address,
+    pool_name,
+    strategy: deployed.strategy,
+    bin_range: { min: deployed.minBinId, max: deployed.maxBinId, bins_below: deployed.binsBelow, bins_above: deployed.binsAbove },
+    bin_step,
+    volatility: normalizedVolatility,
+    fee_tvl_ratio,
+    organic_score,
+    amount_sol: finalAmountY,
+    amount_x: finalAmountX,
+    active_bin: deployed.activeBinId,
+    initial_value_usd,
+    signal_snapshot: signalSnapshot,
+    entry_mcap,
+    entry_tvl,
+    entry_volume,
+    entry_holders,
+  });
+
+  appendDecision({
+    type: "deploy",
+    actor: "SCREENER",
+    pool: pool_address,
+    pool_name,
+    position: deployed.position,
+    summary: `Deployed ${finalAmountY} SOL with ${deployed.strategy}`,
+    reason: `Chosen range ${deployed.minBinId}→${deployed.maxBinId} around active bin ${deployed.activeBinId}${deployed.retries > 0 ? ` (0x1774 ladder: ${deployed.retries} retr${deployed.retries === 1 ? "y" : "ies"})` : ""}`,
+    risks: [
+      normalizedVolatility != null ? `volatility ${normalizedVolatility}` : null,
+      fee_tvl_ratio != null ? `fee/TVL ${fee_tvl_ratio}%` : null,
+    ].filter(Boolean),
+    metrics: {
+      amount_sol: finalAmountY,
+      strategy: deployed.strategy,
+      active_bin: deployed.activeBinId,
+      min_bin: deployed.minBinId,
+      max_bin: deployed.maxBinId,
+      bins_used: deployed.binsBelow + deployed.binsAbove,
+      upside_cover_pct: finalUpsidePct != null ? Number(finalUpsidePct.toFixed(2)) : null,
+      oor_risk: oor_risk ?? null,
+      deploy_retries: deployed.retries,
+      downside_pct: downside_pct ?? null,
+      upside_pct: upside_pct ?? null,
+    },
+  });
+
+  return {
+    success: true,
+    position: deployed.position,
+    pool: pool_address,
+    pool_name,
+    bin_range: { min: deployed.minBinId, max: deployed.maxBinId, active: deployed.activeBinId },
+    price_range: { min: finalMinPrice, max: finalMaxPrice },
+    range_coverage: {
+      downside_pct: finalDownsidePct,
+      upside_pct: finalUpsidePct,
+      width_pct: finalWidthPct,
+      active_price: finalActivePrice,
+    },
+    bin_step: actualBinStep,
+    base_fee: actualBaseFee,
+    strategy: deployed.strategy,
+    wide_range: deployed.isWide,
+    amount_x: finalAmountX,
+    amount_y: finalAmountY,
+    deploy_retries: deployed.retries,
+    txs: deployed.txHashes,
+  };
 }
 
 const POSITIONS_CACHE_TTL = 5 * 60_000; // 5 minutes
@@ -2046,6 +2157,8 @@ export async function closePosition({ position_address, reason }) {
           pnl_pct: pnlPct,
           fees_usd: feesUsd,
           minutes_held: minutesHeld,
+          exit_signal_type: classifyExitSignal(reason),
+          minutes_oor: minutesOOR,
         },
       });
 
@@ -2088,6 +2201,20 @@ export async function closePosition({ position_address, reason }) {
     log("close_error", error.message);
     return { success: false, error: error.message };
   }
+}
+
+/** Bucket a free-text close reason into a stable exit_signal_type for the decision log. */
+function classifyExitSignal(reason) {
+  const text = String(reason || "").toLowerCase();
+  if (!text || text === "agent decision") return "agent_decision";
+  if (text.includes("stop loss")) return "stop_loss";
+  if (text.includes("trailing")) return "trailing_tp";
+  if (text.includes("chart exit")) return "chart_exit";
+  if (text.includes("low yield")) return "low_yield";
+  if (text.includes("out of range") || text.includes("oor") || text.includes("pumped far above")) return "out_of_range";
+  if (text.includes("take profit") || text.includes("tp")) return "take_profit";
+  if (text.includes("rug") || text.includes("emergency")) return "emergency";
+  return "other";
 }
 
 // ─── Helpers ──────────────────────────────────────────────────

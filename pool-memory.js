@@ -83,13 +83,21 @@ function setPoolCooldown(entry, hours, reason) {
 function setBaseMintCooldown(db, baseMint, hours, reason) {
   if (!baseMint) return null;
   const cooldownUntil = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  let effectiveUntil = null;
   for (const entry of Object.values(db)) {
     if (entry?.base_mint === baseMint) {
+      // Stack by max — a shorter new cooldown must not truncate a longer one
+      const existing = entry.base_mint_cooldown_until ? new Date(entry.base_mint_cooldown_until) : null;
+      if (existing && existing > new Date(cooldownUntil)) {
+        if (effectiveUntil == null || existing > new Date(effectiveUntil)) effectiveUntil = entry.base_mint_cooldown_until;
+        continue;
+      }
       entry.base_mint_cooldown_until = cooldownUntil;
       entry.base_mint_cooldown_reason = reason;
+      if (effectiveUntil == null || new Date(cooldownUntil) > new Date(effectiveUntil)) effectiveUntil = cooldownUntil;
     }
   }
-  return cooldownUntil;
+  return effectiveUntil;
 }
 
 // ─── Write ─────────────────────────────────────────────────────
@@ -215,6 +223,21 @@ export function recordPoolDeploy(poolAddress, deployData) {
       const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, cooldownHours, reason);
       if (mintCooldownUntil) {
         log("pool-memory", `Loss cooldown set for token ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
+      }
+    }
+  }
+
+  // FABLE pattern: a win that still ended OOR means the pool is too volatile
+  // for our range — short block so the screener doesn't chase straight back in.
+  const winOorHours = Math.max(0, Number(config.management.winOorRedeployCooldownHours ?? 3));
+  if (winOorHours > 0 && !isLossClose(deploy) && isOorCloseReason(deploy.close_reason)) {
+    const reason = `volatile OOR close despite win (PnL ${deploy.pnl_pct ?? "?"}%)`;
+    const poolCooldownUntil = setPoolCooldown(entry, winOorHours, reason);
+    log("pool-memory", `Win+OOR cooldown set for pool ${entry.name} until ${poolCooldownUntil} (${reason})`);
+    if (entry.base_mint) {
+      const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, winOorHours, reason);
+      if (mintCooldownUntil) {
+        log("pool-memory", `Win+OOR cooldown set for token ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
       }
     }
   }
