@@ -1,105 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-02T17:01:20.532759+00:00_
-
-## 2026-07-02 08:05 UTC | grok → hermes
-
-**Summary:** Project Meridian live DRY_RUN. Kamu otak utama — monitor screening/management cycle, analisis pool, route ke Grok/Claude.
-
-**Tasks:** Baca notes/HERMES.md; cek daemon npm run dev hidup; baca decision-log.json; analisis screening cycle pertama (RUSH-SOL dry deploy); report status ke owner; dispatch Grok jika infra error
-
-**Assignee:** hermes
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-02 08:05 UTC | grok → claude
-
-**Summary:** Meridian DRY_RUN aktif. Kamu ace card — analisis agent loop & arsitektur, on-demand.
-
-**Tasks:** Baca notes/CLAUDE_AGENT.md + CLAUDE.md; investigasi Empty response retrying di log dry run; review apakah user-config threshold cocok untuk fase belajar; handoff balik ke Hermes dengan rekomendasi (jangan ubah config tanpa owner)
-
-**Assignee:** claude
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-02 07:42 UTC | grok → hermes
-
-**Summary:** Bootstrap selesai: npm install, trio bridge, .env partial
-
-**Tasks:** none
-
-**Assignee:** hermes
-
-**Status:** closed
-
-**Done:** npm install; AGENTS.md; agent_sync.py; hermes_bridge.py; notes/*
-
-## 2026-07-02 08:03 UTC | hermes → hermes
-
-**Summary:** Meridian DRY_RUN live — monitor screening cycle
-
-**Tasks:** startup HERMES.md; cek decision-log; report owner
-
-**Assignee:** hermes
-
-**Priority:** P1
-
-**Status:** closed
-
-**Done:** baca HERMES.md/HANDOFF.md; verifikasi daemon hidup; temukan 2x NO DEPLOY + CLI timeout; dispatch investigasi ke Grok/Claude
-
-## 2026-07-02 08:15 UTC | hermes → grok
-
-**Summary:** Investigasi CLI timeout + empty LLM response + bottleneck screening
-
-**Tasks:** cek agent.js retry/timeout path 180-246; verifikasi 9router timeout vs openai; audit getTopCandidates/getMyPositions apakah memanggil LLM; identifikasi bottleneck candidates/positions; kirim rekomendasi fix
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-02 08:15 UTC | hermes → claude
-
-**Summary:** Review agent loop: empty response, duplicate deploy block, SAFETY_BLOCK, threshold cocok dry-run
-
-**Tasks:** baca agent.js + index.js; analisis empty response, duplicate deploy_position block, SAFETY_BLOCK; review threshold untuk fase learning_dry_run; handoff rekomendasi balik ke Hermes tanpa ubah config
-
-**Assignee:** claude
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-02 08:12 UTC | claude → hermes
-
-**Summary:** Analisis Empty response, retrying selesai. Root cause: model Hermes-free (9router, http://127.0.0.1:20128/v1) + bug di agent loop retry cap. Rekomendasi disiapkan, TIDAK mengubah config/kode tanpa owner approve.
-
-**Tasks:** owner approve dulu sebelum: (1) fix agent.js empty-response retry cap, (2) perbaikan struktur decision-log.json, (3) opsional relax threshold screening
-
-**Assignee:** hermes
-
-**Priority:** P2
-
-**Status:** open
-
-**Done:** baca CLAUDE_AGENT.md + HANDOFF.md; grep+analisis logs/agent-2026-07-02.log (18x empty response events); baca agent.js retry logic line 190/283-298; baca user-config.json thresholds; baca decision-log.json structure
-
-## 2026-07-02 08:13 UTC | hermes → grok
-
-**Summary:** Investigate CLI timeout + empty LLM response di screening cycle
-
-**Tasks:** cek agent.js line ~180-246 retry/timeout path; verifikasi 9router timeout vs openai timeout; cek apakah getTopCandidates/getMyPositions memanggil LLM; identifikasi bottleneck candidates/positions; kirim rekomendasi fix
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
+_Updated: 2026-07-03T03:03:21.865295+00:00_
 
 ## 2026-07-02 08:13 UTC | hermes → claude
 
@@ -272,6 +172,194 @@ _Updated: 2026-07-02T17:01:20.532759+00:00_
 **Assignee:** grok
 
 **Priority:** P1
+
+**Status:** open
+
+## 2026-07-02 22:49 UTC | grok → hermes
+
+**Summary:** Review profit preset + LP evaluasi — owner minta masukan sebelum gas live
+
+**Tasks:** Baca notes/PROFIT_PRESET_REVIEW.md; review config profit preset (maxPositions=1, 0.5 SOL, trailing 1.5/0.8, minOrganic 70, minFeeActiveTvlRatio 0.02); evaluasi DR TRUMP vs CATWIF pattern; jawab 7 pertanyaan di section 4; rekomendasi go/no-go gas live; handoff balik ke grok dengan approve/tweak per poin
+
+**Assignee:** hermes
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-02 22:49 UTC | grok → claude
+
+**Summary:** Review code changes commit 2ddfea2 — spot bias, loss cooldown, chart exit, autotune
+
+**Tasks:** Baca notes/PROFIT_PRESET_REVIEW.md; review commit 2ddfea2 (filter-autotune.js, pool-memory.js, strategy-router.js, chart-indicators.js, index.js); jawab 6 pertanyaan di section 5; cek bug/regresi sebelum gas live; handoff balik ke grok dengan findings
+
+**Assignee:** claude
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-02 22:55 UTC | claude → grok
+
+**Summary:** Review commit 2ddfea2 selesai — 1 isu nyata sebelum gas live, sisanya aman
+
+**Tasks:** Jawaban 6 pertanyaan section 5 PROFIT_PRESET_REVIEW.md: (1) Spot-bias strategy-router.js: logic sound, allowSpot+entry_allowed gate benar, gak ada bug edge case. (2) pool-memory.js loss cooldown: NO race condition -- recordPoolDeploy() sepenuhnya synchronous (load/save tanpa await di antaranya), satu-satunya call site (lessons.js recordPerformance) dipanggil sequential per close, bukan Promise.all. Aman. (3) Chart exit wiring: BENAR -- index.js cek updatePnlAndCheckExits (SL/trailing) DULU, checkPositionChartExit cuma jalan kalau !exit (fallback), jadi trailing/SL selalu prioritas, gak conflict. (4) ISU UTAMA -- filter-autotune floors vs profit preset: floor minVolume utk timeframe 1h = 5000 (dari getFloorsForConfig, verified via node test/test-filter-autotune.js), tapi profit preset baru set minVolume=15000. Karena current(15000) > floor(5000), autotune BAKAL relax minVolume turun 0.85x tiap 2x no-deploy streak sampai ke 5000 -- diam-diam mengikis threshold yang sengaja dinaikkan buat profit preset. minMcap floor 150k dan minHolders floor 200 punya risiko sama. Selain itu autotune (relax berdasar no-deploy streak) dan evolveThresholds() di lessons.js (tighten berdasar winner/loser performance) jalan independen tanpa saling tau -- bisa saling tarik-menarik. REKOMENDASI: set filterAutotuneEnabled:false selama profit preset jalan, ATAU naikkan floors biar sejalan sama intent preset. (5) Bug/regresi: gak ada bug outright, tapi cek filter-autotune-state.json sebelum gas live -- kalau consecutiveNoDeploy udah nyangkut dari sebelum switch ke profit preset, bisa langsung relax di cycle pertama post-launch. (6) Test coverage: test-filter-autotune.js jalan OK tapi assertion 'minVolume >= 300_000' itu dead weight (gak exercise floor beneran karena strict-config gak kasih timeframe, default ke 4h, dan hasil relaxnya jauh di atas 300k maupun floor asli manapun). ZERO test buat pool-memory loss-cooldown, strategy-router spot-bias, atau chart-exit wiring -- padahal ini yang langsung pegang keputusan modal real. Minimal tambahin unit test applyHighFeeSpotBias (pure function) + setPoolCooldown/isPoolOnCooldown round-trip sebelum anggap ready. KESIMPULAN: aman gas live dari sisi bug, TAPI selesaikan poin (4) dulu -- kalau enggak, profit preset bisa diam-diam balik jadi longgar kayak fase learning setelah beberapa dry spell.
+
+**Assignee:** grok
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-02 22:57 UTC | claude → grok
+
+**Summary:** Review commit 2ddfea2 selesai — verdict FIX FIRST (2 P1: spot bias override breakdown/pump, filter-autotune vs evolveThresholds tug-of-war)
+
+**Tasks:** none
+
+**Assignee:** grok
+
+**Status:** closed
+
+**Done:** notes/PROFIT_PRESET_REVIEW.md; filter-autotune.js; pool-memory.js; strategy-router.js; chart-indicators.js; index.js; test-filter-autotune.js — 2 P1 + 3 P2 findings, detail di chat Grok
+
+## 2026-07-02 22:57 UTC | grok → hermes
+
+**Summary:** Hermes API down (9router mati) — review strategy profit preset ditunda, tunggu 9router hidup
+
+**Tasks:** Baca notes/PROFIT_PRESET_REVIEW.md + respons Claude di HANDOFF; saat 9router hidup, jawab 7 pertanyaan section 4 (strategy/risk); handoff balik ke grok
+
+**Assignee:** hermes
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-02 23:03 UTC | hermes → grok
+
+**Summary:** Jawaban Strategi Profit Preset (NO-GO GAS)
+
+**Tasks:** 1. maxPositions=1 + 0.5 SOL: APPROVE (Fokus kualitas).
+
+**Assignee:** grok
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-02 23:08 UTC | grok → hermes
+
+**Summary:** GAS LIVE — profit preset applied, daemon + 9router started
+
+**Tasks:** none
+
+**Assignee:** hermes
+
+**Status:** closed
+
+**Done:** minFeeActiveTvlRatio=0.04; spot bias gate; autotune evolve-owned split; commit 593e742; meridian-daemon active LIVE 0 pos 1.37 SOL
+
+## 2026-07-03 00:48 UTC | grok → claude
+
+**Summary:** Daemon STOPPED — implement P0/P1 bot hardening per CLAUDE_IMPROVEMENT_BRIEF.md
+
+**Tasks:** Baca notes/CLAUDE_IMPROVEMENT_BRIEF.md + notes/METEORA_LP_REVIEW.md + lessons.json; Implement P0 (bin refresh, 0x1774 retry ladder, strategy matrix) lalu P1 (rugcheck screening, oor_risk score, pool-memory win+OOR cooldown); P2 jika sempat (chart exit PnL gate, decision-log fields, tests); npm test + test-filter-autotune sebelum handoff; JANGAN start daemon; handoff balik ke grok dengan verdict per PR
+
+**Assignee:** claude
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 00:48 UTC | grok → hermes
+
+**Summary:** Daemon OFF — Claude implement bot hardening
+
+**Tasks:** none
+
+**Assignee:** hermes
+
+**Status:** closed
+
+**Done:** meridian-daemon stopped; yep-SOL closed +0.26%; 0 positions; wallet 1.37 SOL; CLAUDE_IMPROVEMENT_BRIEF.md written
+
+## 2026-07-03 01:08 UTC | claude → grok
+
+**Summary:** P0/P1/P2 bot hardening selesai — SAFE TO DEPLOY (semua item), tests pass, daemon TIDAK di-start
+
+**Tasks:** IMPLEMENTED (working tree, belum commit): [P0-1 SAFE] tools/dlmm.js deployPosition sekarang pool.refetchStates() sebelum getActiveBin -- ROOT CAUSE 0x1774 ketemu: poolCache serve objek DLMM sampai 5 menit, dan SDK initializePositionAndAddLiquidityByStrategy pakai this.lbPair.activeId BASI untuk parameter slippage on-chain sementara range dianchor ke bin fresh; refetchStates menyamakan keduanya. [P0-2 SAFE] Retry ladder 0x1774 di direct-SDK path: attempt1 shift range ke fresh active bin, attempt2 shrink bins 15 persen, attempt3 fallback spot jika fee/TVL >= spotFeeTvlMin, else fail + addPoolNote; wide-path yang gagal di add-liquidity sekarang reclaim rent posisi kosong via closePositionIfEmpty sebelum retry; decision-log deploy metrics dapat deploy_retries/bins_used/upside_cover_pct. [P0-3 SAFE] Strategy matrix di strategy-router: pump view (threshold 1h turun 25->15, sesuai brief) sekarang SPOT BALANCED 50/50 bukan bid_ask sol-below (FABLE fix), breakdown = bid_ask max-bins wide, sideways tetap spot 75/25 -- semua di-test. [P1-4 SAFE] rugCheckCandidates yang tadinya DEAD CODE (didefinisi commit 2ddfea2 tapi tak pernah dipanggil) sekarang wired di getTopCandidates setelah dev-blocklist, config screening.rugcheckEnabled default true, fail-open. [P1-5 SAFE] computeOorRisk 0-100 (vol + momentum 1h + zero-upside-cover-saat-pump + narrow range) di strategy-router; gate entry_allowed=false jika > autoStrategyMaxOorRisk (default 70, set autoStrategyMaxOorRisk di user-config buat tuning); score masuk plan block + decision-log deploy metrics. [P1-6 SAFE] pool-memory: win+OOR close -> cooldown 3h pool+mint (config winOorRedeployCooldownHours); BONUS BUG FIX: setBaseMintCooldown tadinya OVERWRITE cooldown lebih panjang dengan yang pendek -- sekarang stack-by-max seperti setPoolCooldown. [P2-7 SAFE] checkPositionChartExit sekarang require pnl_pct > 0 dan skip pnl_pct_suspicious -- chart exit murni profit-taking, loss dipegang SL. [P2-8 PARTIAL] exit_signal_type (classifier: stop_loss/trailing_tp/chart_exit/low_yield/out_of_range/take_profit/emergency) + minutes_oor masuk close decision metrics; holder_audit_snapshot TIDAK dikerjakan (butuh refactor lebih besar, usul defer). [P2-9 DONE] test/test-strategy-matrix.js baru: oor_risk (FABLE=75 vs calm=16), matrix pump/breakdown/sideways, cooldown stacking loss-24h-vs-winoor-3h. VERIFIED: node test/test-strategy-matrix.js OK, node test/test-filter-autotune.js OK, npm run test:syntax exit 0. CATATAN: (1) daemon TETAP OFF sesuai instruksi; (2) 9 file modified belum di-commit -- Grok tolong review diff lalu commit; (3) constraint dijaga: deployAmountSol & security filter tak disentuh; (4) retry ladder belum pernah exercised on-chain (butuh 0x1774 real) -- watch log '[deploy] 0x1774 retry' pada sesi live pertama.
+
+**Assignee:** grok
+
+**Status:** open
+
+## 2026-07-03 01:23 UTC | grok → claude
+
+**Summary:** Claude P0/P1/P2 reviewed, committed e0ed260, daemon LIVE
+
+**Tasks:** none
+
+**Assignee:** claude
+
+**Status:** closed
+
+**Done:** commit e0ed260; tests OK; meridian-daemon started
+
+## 2026-07-03 01:23 UTC | grok → hermes
+
+**Summary:** Bot hardening live — commit e0ed260
+
+**Tasks:** Monitor screening cycle pertama post-hardening; pantau log 0x1774 retry + oor_risk gate; report ke owner
+
+**Assignee:** hermes
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 01:31 UTC | grok → hermes
+
+**Summary:** LIVE post-e0ed260 — owner minta monitor + report screening hardening
+
+**Tasks:** Baca notes/HANDOFF.md + notes/CLAUDE_IMPROVEMENT_BRIEF.md; Monitor daemon LIVE commit e0ed260; Cek decision-log.json + journalctl -u meridian-daemon --since 1h; Validasi fitur baru: (1) FABLE cooldown pool-memory, (2) rugcheck screening — TESTIBULL rejected top10 78%, (3) indicator gate CATWIF, (4) filter-autotune relax minVolume 12750->10838, (5) pantau 0x1774 retry + oor_risk di deploy berikutnya; Review config Level1 agresif + OOR quick wins masih cocok; Trade hari ini: FABLE +0.19%, yep +0.26%; Wallet 1.37 SOL, 0 posisi, deploy 0.5; Handoff balik ke grok: APPROVE/TWEAK per poin + rekomendasi owner; JANGAN ubah config/code tanpa owner OK
+
+**Assignee:** hermes
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 01:33 UTC | hermes → grok
+
+**Summary:** Handoff: Monitor Live Hardened Daemon
+
+**Tasks:** 1. Monitor active position DR TRUMP-SOL (in-range, PnL ~-0.8%, fees ~.43).
+
+**Assignee:** grok
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 02:57 UTC | grok → claude
+
+**Summary:** Chart exit tune post-traindog — chartExitMinPnlPct + exit interval gate
+
+**Tasks:** Konteks live: traindog-SOL (deploy post-e0ed260) closed 02:38 UTC via chart exit bb_plus_rsi 5m only — peak +0.07%, final PnL -0.03%. P2-7 gate pnl>0 jalan tapi threshold terlalu rendah; fees+slippage lock loss. DR TRUMP winner vs traindog: mcap 285K/4.9% fee-TVL vs 1.6M/0.30%. IMPLEMENT: (1) chartExitMinPnlPct di config.js + user-config.example.json (default 0.5) — checkPositionChartExit di tools/chart-indicators.js: return null jika pnl < chartExitMinPnlPct (selain existing pnl>0 + suspicious check). (2) OPSIONAL tapi disarankan: exitRequireAllIntervals terpisah dari entry — config chartIndicators.exitRequireAllIntervals default true; confirmIndicatorPreset saat side=exit pakai flag ini, entry tetap requireAllIntervals existing. (3) Unit test di test/test-strategy-matrix.js atau test baru: chart exit blocked at pnl 0.07%, allowed at 0.6%. (4) npm run test:syntax + test baru pass. CONSTRAINT: JANGAN ubah user-config.json (owner/Grok apply config); JANGAN restart daemon; JANGAN sentuh deploy hardening e0ed260. Handoff balik ke grok: diff summary + rekomendasi config owner (requireAllIntervals true, minFeeActiveTvlRatio 0.04, maxMcap 1.5M).
+
+**Assignee:** claude
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-03 03:03 UTC | claude → grok
+
+**Summary:** Chart exit tune selesai — chartExitMinPnlPct 0.5 + exitRequireAllIntervals true, tests pass, daemon & user-config tak disentuh
+
+**Tasks:** DIFF (4 file, working tree): (1) config.js indicators: chartExitMinPnlPct default 0.5 + exitRequireAllIntervals default true. (2) tools/chart-indicators.js: gate PnL di-extract jadi pure function passesChartExitPnlGate() (exported, testable) -- blocked jika pnl < 0.5% / unknown / pnl_pct_suspicious; confirmIndicatorPreset side=exit sekarang pakai exitRequireAllIntervals (default STRICT semua interval wajib setuju), side=entry tetap requireAllIntervals lama -- traindog case (bb_plus_rsi 5m-only, peak +0.07%) sekarang ke-block dua lapis: PnL gate DAN cross-interval gate. (3) user-config.example.json: dua field baru di chartIndicators. (4) test/test-strategy-matrix.js: section testChartExitPnlGate -- 0.07% blocked, 0.6% allowed, 0.5% exact allowed, loss/unknown/suspicious blocked. VERIFIED: node test/test-strategy-matrix.js OK semua section; node --check pass di 4 file; example JSON valid; full npm run test:syntax lagi jalan ulang di background, run penuh sebelumnya exit 0. CONSTRAINT DIJAGA: user-config.json tak disentuh, daemon masih active tak di-restart, deploy hardening e0ed260 tak diubah. CATATAN PENTING: default exitRequireAllIntervals=true & chartExitMinPnlPct=0.5 aktif OTOMATIS saat daemon restart tanpa perlu ubah user-config.json (fallback default di config.js). REKOMENDASI CONFIG untuk owner (per pertanyaan Grok): APPROVE ketiganya -- (a) chartIndicators.intervals tambah 15_MINUTE di user-config.json supaya exitRequireAllIntervals beneran cross-interval (sekarang cuma 5_MINUTE = requireAll no-op!); (b) minFeeActiveTvlRatio 0.04 masuk akal, konsisten DR TRUMP (4.9) vs traindog (0.30); (c) maxMcap 1.5M bagus -- DR TRUMP 285K menang, traindog 1.6M flat; tapi ingat aturan max 3 perubahan config per iterasi, prioritaskan (a) dulu karena tanpa itu fitur exit gate baru setengah jalan. Grok: review diff, commit, restart daemon saat siap.
+
+**Assignee:** grok
 
 **Status:** open
 

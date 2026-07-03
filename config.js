@@ -301,6 +301,13 @@ export const config = {
     rsiOversold: indicatorUserConfig.rsiOversold ?? 30,
     rsiOverbought: indicatorUserConfig.rsiOverbought ?? 80,
     requireAllIntervals: indicatorUserConfig.requireAllIntervals ?? false,
+    // Exit confirmations default strict: every interval must agree before a
+    // chart exit fires (traindog lesson: 5m-only signal closed a +0.07% peak
+    // into a -0.03% net loss). Entry keeps requireAllIntervals above.
+    exitRequireAllIntervals: indicatorUserConfig.exitRequireAllIntervals ?? true,
+    // Min PnL % before a chart exit may fire — below this, fees+slippage turn
+    // the "profit take" into a loss. Stop loss owns the downside path.
+    chartExitMinPnlPct: Number(indicatorUserConfig.chartExitMinPnlPct ?? 0.5),
   },
 };
 

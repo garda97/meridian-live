@@ -122,7 +122,9 @@
     "candles": 298,
     "rsiOversold": 30,
     "rsiOverbought": 80,
-    "requireAllIntervals": false
+    "requireAllIntervals": false,
+    "exitRequireAllIntervals": true,
+    "chartExitMinPnlPct": 0.5
   },
   "telegramChatId": "",
   "hiveMindUrl": "",

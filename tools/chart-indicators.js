@@ -228,6 +228,19 @@ const EXIT_CHECK_TTL_MS = 45_000;
 const exitCheckCache = new Map();
 
 /**
+ * bb_plus_rsi is a profit-taking signal (RSI overbought + BB upper touch).
+ * Below chartExitMinPnlPct, fees+slippage turn the exit into a net loss
+ * (traindog: exited at +0.07% peak → -0.03% final). Stop loss owns the
+ * downside; unknown or suspicious PnL never fires a chart exit.
+ */
+export function passesChartExitPnlGate(position = {}) {
+  const minPnl = Number(config.indicators.chartExitMinPnlPct ?? 0.5);
+  const pnl = Number(position.pnl_pct);
+  if (position.pnl_pct_suspicious || !Number.isFinite(pnl)) return false;
+  return pnl > 0 && pnl >= minPnl;
+}
+
+/**
  * Chart-based exit for open positions (bb_plus_rsi, supertrend, etc.).
  * Cached per mint to avoid hammering the indicator API on the 3s PnL poller.
  */
@@ -235,11 +248,7 @@ export async function checkPositionChartExit(position = {}) {
   const mint = position.base_mint || position.base?.mint;
   if (!config.indicators.enabled || !mint) return null;
 
-  // bb_plus_rsi is a profit-taking signal (RSI overbought + BB upper touch).
-  // Firing it on a losing position just locks the loss — stop loss owns that
-  // path. Also skip when PnL is unknown or flagged suspicious.
-  const pnl = Number(position.pnl_pct);
-  if (position.pnl_pct_suspicious || !Number.isFinite(pnl) || pnl <= 0) return null;
+  if (!passesChartExitPnlGate(position)) return null;
 
   const cached = exitCheckCache.get(mint);
   if (cached && Date.now() - cached.at < EXIT_CHECK_TTL_MS) return cached.result;
@@ -311,7 +320,11 @@ export async function confirmIndicatorPreset({
     };
   }
 
-  const requireAll = !!config.indicators.requireAllIntervals;
+  // Exits demand cross-interval agreement by default; a single fast interval
+  // (5m) firing alone is noise, not a top. Entry keeps its own looser flag.
+  const requireAll = side === "exit"
+    ? config.indicators.exitRequireAllIntervals !== false
+    : !!config.indicators.requireAllIntervals;
   const confirmed = requireAll
     ? successful.every((entry) => entry.confirmed)
     : successful.some((entry) => entry.confirmed);
