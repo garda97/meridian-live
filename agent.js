@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { jsonrepair } from "jsonrepair";
 import { buildSystemPrompt } from "./prompt.js";
-import { executeTool } from "./tools/executor.js";
+import { executeTool, sanitizeToolName } from "./tools/executor.js";
 import { tools } from "./tools/definitions.js";
 
 const MANAGER_TOOLS  = new Set(["close_position", "claim_fees", "swap_token", "get_position_pnl", "get_my_positions", "get_wallet_balance"]);
@@ -188,7 +188,10 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
   let omitToolChoice = false;
 
   const MAX_EMPTY_RETRIES = 3;
+  const FALLBACK_MODEL = "stepfun/step-3.5-flash:free";
   let emptyStreak = 0;
+  // After repeated empty responses, swap to the fallback model for the rest of the run
+  let emptyFallbackActive = false;
   for (let step = 0; step < maxSteps; step++) {
     log("agent", `Step ${step + 1}/${maxSteps}`);
 
@@ -196,9 +199,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       const activeModel = model || DEFAULT_MODEL;
 
       // Retry up to 3 times on transient provider errors (502, 503, 529)
-      const FALLBACK_MODEL = "stepfun/step-3.5-flash:free";
       let response;
-      let usedModel = activeModel;
+      let usedModel = emptyFallbackActive ? FALLBACK_MODEL : activeModel;
       // Force a tool call on step 0 for action intents — prevents the model from inventing deploy/close outcomes
       const ACTION_INTENTS = /\b(deploy|open|add liquidity|close|exit|withdraw|claim|swap|block|unblock)\b/i;
       let toolChoice = (step === 0 && (ACTION_INTENTS.test(goal) || mustUseRealTool)) ? "required" : "auto";
@@ -282,8 +284,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
       // If the model didn't call any tools, it's done
       if (!msg.tool_calls || msg.tool_calls.length === 0) {
-        // Some providers return null content with no tool_calls — retry without burning a step
-        if (!msg.content) {
+        // Some providers return null/whitespace content with no tool_calls — retry without burning a step
+        if (!msg.content || !String(msg.content).trim()) {
           messages.pop();
           emptyStreak += 1;
           if (emptyStreak >= MAX_EMPTY_RETRIES) {
@@ -293,7 +295,15 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               userMessage: goal,
             };
           }
-          log("agent", `Empty response, retrying (${emptyStreak}/${MAX_EMPTY_RETRIES})...`);
+          // Second consecutive empty: the primary model is likely degraded — switch
+          // to the fallback for the rest of the run instead of hammering it.
+          if (emptyStreak >= 2 && !emptyFallbackActive && (model || DEFAULT_MODEL) !== FALLBACK_MODEL) {
+            emptyFallbackActive = true;
+            log("agent", `Repeated empty responses — switching to fallback model ${FALLBACK_MODEL}`);
+          }
+          const wait = emptyStreak * 2000;
+          log("agent", `Empty response, retrying in ${wait / 1000}s (${emptyStreak}/${MAX_EMPTY_RETRIES})...`);
+          await sleep(wait);
           step -= 1;
           continue;
         }
@@ -325,7 +335,9 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
       // Execute each tool call in parallel
       const toolResults = await Promise.all(msg.tool_calls.map(async (toolCall) => {
-        const functionName = toolCall.function.name.replace(/<.*$/, "").trim();
+        // Normalize model-mangled names (artifacts, prefixes, CompatGetTopCandidates-style aliases)
+        // so the once-per-session locks below see the same name the executor resolves.
+        const functionName = sanitizeToolName(toolCall.function.name).name;
         let functionArgs;
 
         if (invalidToolArgErrors.has(toolCall.id)) {
@@ -382,7 +394,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         }
 
         await onToolStart?.({ name: functionName, args: functionArgs, step });
-        const result = await executeTool(functionName, functionArgs);
+        const result = await executeTool(functionName, functionArgs, { actor: agentType });
         await onToolFinish?.({
           name: functionName,
           args: functionArgs,

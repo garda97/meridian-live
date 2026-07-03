@@ -42,7 +42,7 @@ export function buildSignalSummary(payload) {
   };
 }
 
-function evaluatePreset(side, preset, payload) {
+export function evaluatePreset(side, preset, payload) {
   const summary = buildSignalSummary(payload);
   const oversold = Number(config.indicators.rsiOversold ?? 30);
   const overbought = Number(config.indicators.rsiOverbought ?? 80);
@@ -193,6 +193,31 @@ function evaluatePreset(side, preset, payload) {
             reason: "Price rejected below a key Fibonacci level",
             signal: summary,
           };
+    case "evil_panda_exit": {
+      // Evil Panda layered exit (METEORA_LP.md §Exit): armed once supertrend
+      // support breaks (fresh break down or bearish direction), then fires on
+      // the first strength candle — RSI(2) at/above the exit limit OR a close
+      // at/above the BB upper band. Two-indicator confluence: trend break +
+      // momentum spike, so the exit lands on the bounce, not the dump.
+      if (side === "entry") {
+        return { confirmed: false, reason: "evil_panda_exit is exit-only", signal: summary };
+      }
+      const rsiExitLimit = Number(config.indicators.evilPandaRsiExit ?? 90);
+      const armed = summary.supertrendBreakDown || isBearish;
+      const rsiSpike = rsi != null && rsi >= rsiExitLimit;
+      const bbUpperTouch = close != null && upperBand != null && close >= upperBand;
+      return {
+        confirmed: armed && (rsiSpike || bbUpperTouch),
+        reason: !armed
+          ? "Supertrend support still holding"
+          : rsiSpike
+          ? `Supertrend broken + RSI(${config.indicators.rsiLength ?? 2}) ${rsi} >= ${rsiExitLimit}`
+          : bbUpperTouch
+          ? `Supertrend broken + close ${close} >= BB upper ${upperBand}`
+          : "Supertrend broken — waiting for RSI/BB-upper strength candle",
+        signal: summary,
+      };
+    }
     default:
       return {
         confirmed: false,

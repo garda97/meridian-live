@@ -519,6 +519,10 @@ export function setLastBriefingDate() {
 /**
  * Reconcile local state with actual on-chain positions.
  * Marks any local open positions as closed if they are not in the on-chain list.
+ * Returns a snapshot of the positions it just auto-closed so the caller can
+ * record the external close (final PnL, decision log, pool memory). Positions
+ * closed through the normal close path never appear here — recordClose already
+ * set `closed` with a proper reason before the next sync runs.
  */
 const SYNC_GRACE_MS = 5 * 60_000; // don't auto-close positions deployed < 5 min ago
 
@@ -526,6 +530,7 @@ export function syncOpenPositions(active_addresses) {
   const state = load();
   const activeSet = new Set(active_addresses);
   let changed = false;
+  const externallyClosed = [];
 
   for (const posId in state.positions) {
     const pos = state.positions[posId];
@@ -543,7 +548,19 @@ export function syncOpenPositions(active_addresses) {
     pos.notes.push(`Auto-closed during state sync (not found on-chain)`);
     changed = true;
     log("state", `Position ${posId} auto-closed (missing from on-chain data)`);
+    externallyClosed.push({
+      position: posId,
+      pool: pos.pool || null,
+      pool_name: pos.pool_name || null,
+      strategy: pos.strategy || null,
+      volatility: pos.volatility ?? null,
+      amount_sol: pos.amount_sol ?? null,
+      deployed_at: pos.deployed_at || null,
+      closed_at: pos.closed_at,
+      total_fees_claimed_usd: pos.total_fees_claimed_usd || 0,
+    });
   }
 
   if (changed) save(state);
+  return externallyClosed;
 }

@@ -32,6 +32,7 @@ import {
   getPoolCooldownReason,
   isBaseMintOnCooldown,
   isPoolOnCooldown,
+  recordPoolDeploy,
 } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
@@ -405,8 +406,9 @@ async function getPool(poolAddress) {
   return poolCache.get(key);
 }
 
-setInterval(() => poolCache.clear(), 5 * 60 * 1000);
-setInterval(() => poolMetadataCache.clear(), 15 * 60 * 1000);
+// unref: these cache sweeps must not keep one-shot processes (cli.js, tests) alive
+setInterval(() => poolCache.clear(), 5 * 60 * 1000).unref();
+setInterval(() => poolMetadataCache.clear(), 15 * 60 * 1000).unref();
 
 async function getPoolMetadata(poolAddress) {
   const key = String(poolAddress);
@@ -709,10 +711,8 @@ export async function deployPosition({
       ) || refreshed?.positions?.find((position) => position.pool === pool_address);
 
       const positionAddress = matching?.position || null;
+      const signalSnapshot = getAndClearStagedSignals(pool_address, baseMint);
       if (positionAddress) {
-        const signalSnapshot = config.darwin?.enabled
-          ? getAndClearStagedSignals(pool_address, baseMint)
-          : null;
         trackPosition({
           position: positionAddress,
           pool: pool_address,
@@ -755,6 +755,7 @@ export async function deployPosition({
           max_bin: maxBinId,
           downside_pct: downside_pct ?? downsideCoveragePct,
           upside_pct: upside_pct ?? upsideCoveragePct,
+          holder_audit: buildHolderAuditSnapshot(signalSnapshot),
         },
       });
 
@@ -951,9 +952,9 @@ export async function deployPosition({
   const finalWidthPct = finalMinPrice > 0 ? ((finalMaxPrice - finalMinPrice) / finalMinPrice) * 100 : null;
 
   _positionsCacheAt = 0;
-  const signalSnapshot = config.darwin?.enabled
-    ? getAndClearStagedSignals(pool_address, baseMint)
-    : null;
+  // Always consume staged signals — darwin uses them for weighting, the deploy
+  // decision log uses them for the holder-audit snapshot.
+  const signalSnapshot = getAndClearStagedSignals(pool_address, baseMint);
   trackPosition({
     position: deployed.position,
     pool: pool_address,
@@ -999,6 +1000,7 @@ export async function deployPosition({
       deploy_retries: deployed.retries,
       downside_pct: downside_pct ?? null,
       upside_pct: upside_pct ?? null,
+      holder_audit: buildHolderAuditSnapshot(signalSnapshot),
     },
   });
 
@@ -1157,6 +1159,19 @@ const PERFORMANCE_SIGNAL_FIELDS = [
   "volatility",
 ];
 
+/** Compact holder-audit block for deploy decision metrics, from staged screening signals. */
+function buildHolderAuditSnapshot(snapshot) {
+  if (!snapshot) return null;
+  const audit = {
+    top10_pct: snapshot.top10_pct ?? null,
+    bot_pct: snapshot.bot_pct ?? null,
+    bundler_pct: snapshot.bundler_pct ?? null,
+    smart_degen_count: snapshot.smart_degen_count ?? null,
+    organic_score: snapshot.organic_score ?? null,
+  };
+  return Object.values(audit).some((v) => v != null) ? audit : null;
+}
+
 function resolvePerformanceSignalSnapshot({ poolAddress, baseMint, tracked }) {
   const staged = config.darwin?.enabled
     ? getAndClearStagedSignals(poolAddress, baseMint)
@@ -1193,6 +1208,83 @@ function getClosedPnlPct(posEntry, solMode = false) {
     ? maybeNum(posEntry?.allTimeDeposits?.total?.sol)
     : maybeNum(posEntry?.allTimeDeposits?.total?.usd);
   return deposit && deposit > 0 ? (pnl / deposit) * 100 : 0;
+}
+
+/**
+ * Record positions that vanished on-chain without going through closePosition
+ * (closed manually in the UI or by an external tool). Fetches the final PnL
+ * from the Meteora closed-positions API and writes the close to the decision
+ * log + pool memory so the trade isn't lost from the learning data.
+ * Fire-and-forget from the getMyPositions sync path — never throws.
+ */
+async function handleExternalCloses(externallyClosed, walletAddress) {
+  for (const pos of externallyClosed) {
+    const reason = "closed externally (missing on-chain, manual close?)";
+    let pnlUsd = null;
+    let pnlPct = null;
+    let feesUsd = pos.total_fees_claimed_usd || 0;
+    const minutesHeld = pos.deployed_at
+      ? Math.floor((Date.now() - new Date(pos.deployed_at).getTime()) / 60000)
+      : null;
+
+    try {
+      if (pos.pool) {
+        const closedUrl = `https://dlmm.datapi.meteora.ag/positions/${pos.pool}/pnl?user=${walletAddress}&status=closed&pageSize=50&page=1`;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const res = await fetch(closedUrl);
+          if (res.ok) {
+            const data = await res.json();
+            const posEntry = (data.positions || []).find((p) => p.positionAddress === pos.position);
+            if (posEntry) {
+              pnlUsd = config.management.solMode ? getClosedPnlValue(posEntry, true) : safeNum(posEntry.pnlUsd);
+              pnlPct = getClosedPnlPct(posEntry, config.management.solMode);
+              feesUsd = parseFloat(posEntry.allTimeFees?.total?.usd || 0) || feesUsd;
+              break;
+            }
+          }
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 5000));
+        }
+      }
+    } catch (e) {
+      log("external_close_warn", `Final PnL fetch failed for ${pos.position.slice(0, 8)}: ${e.message}`);
+    }
+
+    try {
+      if (pos.pool) {
+        recordPoolDeploy(pos.pool, {
+          pool_name: pos.pool_name || pos.pool.slice(0, 8),
+          deployed_at: pos.deployed_at,
+          closed_at: pos.closed_at,
+          pnl_pct: pnlPct,
+          pnl_usd: pnlUsd,
+          fees_earned_usd: feesUsd || null,
+          minutes_held: minutesHeld,
+          close_reason: reason,
+          strategy: pos.strategy,
+          volatility: pos.volatility,
+        });
+      }
+      appendDecision({
+        type: "close",
+        actor: "MANAGER",
+        pool: pos.pool,
+        pool_name: pos.pool_name || (pos.pool ? pos.pool.slice(0, 8) : null),
+        position: pos.position,
+        summary: pnlPct != null ? `Closed externally at ${pnlPct.toFixed(2)}%` : "Closed externally (PnL unknown)",
+        reason,
+        metrics: {
+          pnl_usd: pnlUsd,
+          pnl_pct: pnlPct,
+          fees_usd: feesUsd,
+          minutes_held: minutesHeld,
+          exit_signal_type: "manual_or_external",
+        },
+      });
+      log("external_close", `Recorded external close for ${pos.pool_name || pos.position.slice(0, 8)}: PnL ${pnlPct != null ? pnlPct.toFixed(2) + "%" : "unknown"}`);
+    } catch (e) {
+      log("external_close_warn", `Recording external close failed for ${pos.position.slice(0, 8)}: ${e.message}`);
+    }
+  }
 }
 
 function deriveOpenPnlPct(binData, solMode = false) {
@@ -1287,7 +1379,10 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
         if (!silent) log("positions", `Computing PnL from RPC (${config.pnl.rpcUrl})...`);
         const rpcResult = await computePositions(walletAddress);
         if (useLocalWallet) {
-          syncOpenPositions(rpcResult.positions.map((p) => p.position));
+          const externallyClosed = syncOpenPositions(rpcResult.positions.map((p) => p.position));
+          if (externallyClosed?.length) {
+            handleExternalCloses(externallyClosed, walletAddress).catch((e) => log("external_close_warn", e.message));
+          }
           _positionsCache = rpcResult;
           _positionsCacheAt = Date.now();
         }
@@ -1458,7 +1553,10 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
       source: "meteora",
     };
     if (useLocalWallet) {
-      syncOpenPositions(positions.map(p => p.position));
+      const externallyClosed = syncOpenPositions(positions.map(p => p.position));
+      if (externallyClosed?.length) {
+        handleExternalCloses(externallyClosed, walletAddress).catch((e) => log("external_close_warn", e.message));
+      }
       _positionsCache = result;
       _positionsCacheAt = Date.now();
     }
@@ -2313,6 +2411,7 @@ export async function closePosition({ position_address, reason }) {
 function classifyExitSignal(reason) {
   const text = String(reason || "").toLowerCase();
   if (!text || text === "agent decision") return "agent_decision";
+  if (text.includes("external") || text.includes("manual")) return "manual_or_external";
   if (text.includes("stop loss")) return "stop_loss";
   if (text.includes("trailing")) return "trailing_tp";
   if (text.includes("chart exit")) return "chart_exit";

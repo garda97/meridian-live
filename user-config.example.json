@@ -26,6 +26,8 @@
   "minUpsideCoverPctPump": 25,
   "athEntryGateEnabled": false,
   "athLookbackCandles": 48,
+  "solRegimeGateEnabled": true,
+  "solDump1hPctThreshold": -3,
   "minBinsBelow": 35,
   "maxBinsBelow": 69,
   "defaultBinsBelow": 69,
@@ -69,6 +71,9 @@
   "oorCooldownHours": 12,
   "lossRedeployBlockEnabled": true,
   "lossRedeployCooldownHours": 24,
+  "winOorRedeployCooldownHours": 3,
+  "winRedeployCooldownEnabled": true,
+  "winRedeployCooldownHours": 3,
   "filterAutotuneEnabled": true,
   "filterAutotuneAfterCycles": 2,
   "filterAutotuneMaxSteps": 8,
@@ -132,7 +137,8 @@
     "rsiOverbought": 80,
     "requireAllIntervals": false,
     "exitRequireAllIntervals": true,
-    "chartExitMinPnlPct": 0.5
+    "chartExitMinPnlPct": 0.5,
+    "evilPandaRsiExit": 90
   },
   "telegramChatId": "",
   "hiveMindUrl": "",

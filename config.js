@@ -115,6 +115,8 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     rugcheckEnabled:    u.rugcheckEnabled    ?? true, // rugcheck.xyz gate on final candidates (fails open on API error)
+    solRegimeGateEnabled: u.solRegimeGateEnabled ?? true,
+    solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
   },
 
   // ─── Position Management ────────────────
@@ -136,6 +138,8 @@ export const config = {
     lossRedeployBlockEnabled: u.lossRedeployBlockEnabled !== false,
     lossRedeployCooldownHours: u.lossRedeployCooldownHours ?? 24,
     winOorRedeployCooldownHours: u.winOorRedeployCooldownHours ?? 3, // block redeploy after a win that still went OOR (volatile pool)
+    winRedeployCooldownEnabled: u.winRedeployCooldownEnabled !== false, // block redeploy after a clean in-range win (trailing TP / take profit)
+    winRedeployCooldownHours: u.winRedeployCooldownHours ?? 3,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
@@ -320,6 +324,9 @@ export const config = {
     // Min PnL % before a chart exit may fire — below this, fees+slippage turn
     // the "profit take" into a loss. Stop loss owns the downside path.
     chartExitMinPnlPct: Number(indicatorUserConfig.chartExitMinPnlPct ?? 0.5),
+    // RSI limit for the evil_panda_exit preset (RSI(2) > 90 per the thread) —
+    // separate from rsiOverbought so the generic presets keep their own level.
+    evilPandaRsiExit: Number(indicatorUserConfig.evilPandaRsiExit ?? 90),
   },
 };
 
