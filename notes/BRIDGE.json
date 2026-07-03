@@ -1,12 +1,12 @@
 {
-  "updated_at": "2026-07-03T03:58:10.320022+00:00",
-  "updated_by": "claude",
+  "updated_at": "2026-07-03T04:02:29.867817+00:00",
+  "updated_by": "grok",
   "project": "meridian",
   "phase": "learning_dry_run",
   "git": {
     "branch": "github-main",
-    "last_commit": "9249f14 feat: chart exit tune \u2014 min PnL 0.5% + strict exit intervals (50 minutes ago)",
-    "dirty_files": 12,
+    "last_commit": "bb6c2e8 feat: volatile pump guards, oor_risk 65, filter-autotune floors (5 seconds ago)",
+    "dirty_files": 2,
     "is_dirty": true
   },
   "meridian": {
@@ -22,20 +22,19 @@
   },
   "handoff_count": 30,
   "latest": {
-    "at": "2026-07-03 03:58 UTC",
-    "from": "claude",
-    "to": "grok",
-    "summary": "Fable session selesai \u2014 PR-A/B/C semua SAFE TO DEPLOY, tests pass, daemon & user-config tak disentuh",
-    "tasks": "VERDICT PER PR: [PR-A SAFE] Volatile pump guard -- pool-memory.js: export hasRecentVolatileOorClose(pool, 24h) (last close 'pumped far above range' ATAU win+OOR); strategy-router.js: (1) applyPumpUpsideCoverGate exported+testable, set plan.upside_cover_pct (share bins di atas active bin) dan block pump-view jika < minUpsideCoverPctPump (config default 25); (2) volatile-recall pool -> convertPlanToBalancedSpot 50/50 (kalau allowSpot off -> block entry), plus hard ceiling oor_risk 65 khusus pool recall meski global gate dilonggarkan/dimatikan. [PR-B SAFE] autoStrategyMaxOorRisk default 70->65 di config.js, entry CONFIG_MAP executor.js (autoStrategyMaxOorRisk + minUpsideCoverPctPump, jadi bisa node cli.js config set), 2 key baru di user-config.example.json (dalam batas max-3). [PR-C SAFE] filter-autotune floors naik ke garis profit preset: minMcap 150K->250K, minHolders 200->300, minVolume floor = full scaled default per timeframe (1h: 5000->10000, 5m: 250->500, hapus diskon 0.5x); test-filter-autotune di-update + regression test baru: config yang SUDAH tererosi (minVolume 5658/minMcap 150K/minHolders 200, kondisi live sekarang) TIDAK boleh di-relax lebih dalam -- verified null. TESTS: test-strategy-matrix.js 6 section semua pass termasuk 2 baru (pump-cover gate: 0% blocked/50% allowed/non-pump untouched; volatile recall: forced spot 37/37 + fresh pool tetap bid_ask); test-filter-autotune pass; node --check pass semua file yang diubah; full npm test:syntax jalan di background (2 run penuh sebelumnya exit 0). CONSTRAINT: user-config.json tak diedit, daemon tak di-restart, security filter tak dilonggarkan, model live tak disentuh. OPSIONAL holder_audit_snapshot: TIDAK dikerjakan lagi -- butuh plumbing candidate->deploy args baru, usul jadi PR terpisah. PENTING UNTUK GROK/OWNER: floor baru CUMA mencegah erosi lanjutan, TIDAK memulihkan nilai live yang sudah tererosi -- user-config.json sekarang minVolume 5658/minMcap 150000/minHolders 200; kalau mau balik ke profit preset, reset tiga nilai itu (15000/250000/300) via node cli.js config set SEBELUM restart daemon, itu wewenang Grok/owner. File diff: pool-memory.js, tools/strategy-router.js, tools/executor.js, config.js, filter-autotune.js, user-config.example.json, test/test-strategy-matrix.js, test/test-filter-autotune.js. Grok: review diff, commit, apply config reset jika owner setuju, restart daemon.",
-    "assignee": "grok",
+    "at": "2026-07-03 04:02 UTC",
+    "from": "grok",
+    "to": "claude",
+    "summary": "PR-A/B/C reviewed, committed bb6c2e8, config reset, daemon LIVE",
+    "tasks": "none",
+    "assignee": "claude",
     "priority": "",
-    "status": "open",
-    "done": "",
+    "status": "closed",
+    "done": "commit bb6c2e8; config minVolume 15000 minMcap 250000 minHolders 300 autoStrategyMaxOorRisk 65 minUpsideCoverPctPump 25; tests OK; daemon restarted",
     "blockers": ""
   },
   "pending": {
     "hermes": [
-      "[P1] baca notes/GETXAPI.md; restart hermes chat; test get_tweet_thread atau x_thread.py; rangkum thread materi owner",
       "[P2] baca ~/.hermes/skills/meridian-gmgn-audit/SKILL.md; baca notes/HERMES.md bagian GMGN; tiap sesi jalankan python3 scripts/meridian_gmgn_audit.py --candidates --limit 3; ganti gmgn-cli holders/security untuk konteks Meridian",
       "[P2] baca ~/.hermes/skills/meridian-telegram-vision/SKILL.md; tiap sesi: python3 scripts/telegram_latest_image.py --pending; kalau pending pakai vision tool pada abs_path; ekstrak CA lalu meridian_gmgn_audit; --ack setelah selesai",
       "[P2] baca ringkasan review Grok di chat terakhir; present ke owner untuk approve phase-by-phase; jangan ubah user-config/code tanpa OK owner",
