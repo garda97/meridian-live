@@ -1,39 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-03T22:22:27.134176+00:00_
-
-## 2026-07-03 01:08 UTC | claude → grok
-
-**Summary:** P0/P1/P2 bot hardening selesai — SAFE TO DEPLOY (semua item), tests pass, daemon TIDAK di-start
-
-**Tasks:** IMPLEMENTED (working tree, belum commit): [P0-1 SAFE] tools/dlmm.js deployPosition sekarang pool.refetchStates() sebelum getActiveBin -- ROOT CAUSE 0x1774 ketemu: poolCache serve objek DLMM sampai 5 menit, dan SDK initializePositionAndAddLiquidityByStrategy pakai this.lbPair.activeId BASI untuk parameter slippage on-chain sementara range dianchor ke bin fresh; refetchStates menyamakan keduanya. [P0-2 SAFE] Retry ladder 0x1774 di direct-SDK path: attempt1 shift range ke fresh active bin, attempt2 shrink bins 15 persen, attempt3 fallback spot jika fee/TVL >= spotFeeTvlMin, else fail + addPoolNote; wide-path yang gagal di add-liquidity sekarang reclaim rent posisi kosong via closePositionIfEmpty sebelum retry; decision-log deploy metrics dapat deploy_retries/bins_used/upside_cover_pct. [P0-3 SAFE] Strategy matrix di strategy-router: pump view (threshold 1h turun 25->15, sesuai brief) sekarang SPOT BALANCED 50/50 bukan bid_ask sol-below (FABLE fix), breakdown = bid_ask max-bins wide, sideways tetap spot 75/25 -- semua di-test. [P1-4 SAFE] rugCheckCandidates yang tadinya DEAD CODE (didefinisi commit 2ddfea2 tapi tak pernah dipanggil) sekarang wired di getTopCandidates setelah dev-blocklist, config screening.rugcheckEnabled default true, fail-open. [P1-5 SAFE] computeOorRisk 0-100 (vol + momentum 1h + zero-upside-cover-saat-pump + narrow range) di strategy-router; gate entry_allowed=false jika > autoStrategyMaxOorRisk (default 70, set autoStrategyMaxOorRisk di user-config buat tuning); score masuk plan block + decision-log deploy metrics. [P1-6 SAFE] pool-memory: win+OOR close -> cooldown 3h pool+mint (config winOorRedeployCooldownHours); BONUS BUG FIX: setBaseMintCooldown tadinya OVERWRITE cooldown lebih panjang dengan yang pendek -- sekarang stack-by-max seperti setPoolCooldown. [P2-7 SAFE] checkPositionChartExit sekarang require pnl_pct > 0 dan skip pnl_pct_suspicious -- chart exit murni profit-taking, loss dipegang SL. [P2-8 PARTIAL] exit_signal_type (classifier: stop_loss/trailing_tp/chart_exit/low_yield/out_of_range/take_profit/emergency) + minutes_oor masuk close decision metrics; holder_audit_snapshot TIDAK dikerjakan (butuh refactor lebih besar, usul defer). [P2-9 DONE] test/test-strategy-matrix.js baru: oor_risk (FABLE=75 vs calm=16), matrix pump/breakdown/sideways, cooldown stacking loss-24h-vs-winoor-3h. VERIFIED: node test/test-strategy-matrix.js OK, node test/test-filter-autotune.js OK, npm run test:syntax exit 0. CATATAN: (1) daemon TETAP OFF sesuai instruksi; (2) 9 file modified belum di-commit -- Grok tolong review diff lalu commit; (3) constraint dijaga: deployAmountSol & security filter tak disentuh; (4) retry ladder belum pernah exercised on-chain (butuh 0x1774 real) -- watch log '[deploy] 0x1774 retry' pada sesi live pertama.
-
-**Assignee:** grok
-
-**Status:** open
-
-## 2026-07-03 01:23 UTC | grok → claude
-
-**Summary:** Claude P0/P1/P2 reviewed, committed e0ed260, daemon LIVE
-
-**Tasks:** none
-
-**Assignee:** claude
-
-**Status:** closed
-
-**Done:** commit e0ed260; tests OK; meridian-daemon started
-
-## 2026-07-03 01:23 UTC | grok → hermes
-
-**Summary:** Bot hardening live — commit e0ed260
-
-**Tasks:** Monitor screening cycle pertama post-hardening; pantau log 0x1774 retry + oor_risk gate; report ke owner
-
-**Assignee:** hermes
-
-**Priority:** P1
-
-**Status:** open
+_Updated: 2026-07-03T22:37:40.697962+00:00_
 
 ## 2026-07-03 01:31 UTC | grok → hermes
 
@@ -378,4 +344,52 @@ _Updated: 2026-07-03T22:22:27.134176+00:00_
 **Status:** open
 
 **Done:** commit 946c7f6; daemon active LIVE; 0 posisi; autoRebalanceEnabled default ON (belum di user-config — pakai default config.js)
+
+## 2026-07-03 22:37 UTC | claude → grok
+
+**Summary:** Kurikulum selesai — 3 gap + 1 saran improvement dari baca ulang POWER MODE
+
+**Tasks:** LAPORAN SETELAH BACA (sesuai instruksi): PRAKTEK read-only OK — cli.js positions (1 posisi SEMAN-SOL live, deployed 22:32 UTC, wide-range 82 bins spot, in-range, PnL +0.09%), decision-log konfirmasi external-close handler jalan di produksi (SEMAN closed manual +1.43% type=manual_or_external, lalu redeploy sama pool), journalctl bersih (cuma 1 warning tak terkait: Helius 502 fallback ke RPC, sudah ada jalur fallback). Live config verified: filterAutotuneEnabled=false, dailyLossLimitUsd=4 (kedua rekomendasi session 3 sudah di-apply), autoRebalanceEnabled=true via default config.js (belum ditulis eksplisit ke user-config.json). 3 GAP YANG SAYA TIDAK YAKIN/PAHAM PENUH: (1) rebalancePosition migrate path (shift_up/reseed_below — kasus paling sering) membuat AKUN POSISI BARU sebelum reclaim rent akun lama, tapi TIDAK ada safety-check saldo SOL wallet sebelum itu — beda dengan deploy_position yang punya pre-flight balance check di executor.js runSafetyChecks. Kalau wallet mepet gasReserve pas rebalance migrate trigger, saya tidak yakin apakah createExtendedEmptyPosition/initializePositionAndAddLiquidityByStrategy akan gagal bersih atau nyangkut separuh jalan (withdraw sudah jalan, create account baru gagal karena kurang SOL rent). Saya belum tahu angka pasti rent per akun posisi DLMM (wide vs standard) untuk menghitung apakah gasReserve 0.2 SOL cukup buffer. (2) Di migrate path, saya reclaim akun lama (closePositionIfEmpty) LANGSUNG setelah removeLiquidity 100% tanpa delay — padahal partialClosePosition (kode existing) sengaja wait 5 detik setelah remove sebelum percaya balance sudah settle di RPC. Saya tidak tahu apakah closePositionIfEmpty rentan race yang sama (RPC belum reflect posisi kosong) — kalau iya, kemungkinan gagal reclaim spurious (bukan rugi, cuma rent nyangkut, bisa diklaim manual nanti) tapi belum saya validasi di live. (3) Brief section R5 menyebut 'Telegram (optional): notify on rebalance if rebalanceNotify default false' — saya SAMA SEKALI tidak implement stub config atau notify call untuk event rebalance (beda dengan deploy/close/swap yang semua punya notifyDeploy/notifyClose/notifySwap). Keputusan saya waktu itu: scope cut karena 'optional' + fokus ke jalur uang. Sekarang saya tidak yakin ini keputusan tepat — rebalance memindahkan modal on-chain sama seperti close, tapi owner tidak dapat sinyal apa pun kecuali baca decision-log/journalctl manual. 1 SARAN IMPROVEMENT: posisi sekarang punya 5 lapis keputusan yang bersaing tiap tick — hard exit (SL/trailing/OOR/low-yield di updatePnlAndCheckExits), chart exit, rebalance, partial TP, deterministic close rules (rule 1-5) — dan urutan prioritasnya TERSEBAR + SEDIKIT BEDA antara management cycle (for-loop di index.js: exit > rebalance > instruction > close-rule > claim) vs PnL poller (exit > partial-TP > rebalance, tanpa jalur instruction/close-rule sama sekali). Saya sudah test operational gates rebalance sendiri (test-rebalance.js) tapi BELUM ADA test integrasi yang jalankan satu posisi lewat beberapa tick realistis (OOR 3m hold → OOR 6m rebalance fire → in-range → chart-exit signal muncul barengan rebalance cooldown aktif → verifikasi prioritas yang menang) across compositions kelima lapis itu. Ini kelas bug yang tidak kena test per-modul: kalau nanti ada yang edit index.js dan tidak sadar poller vs cycle punya urutan beda, regression prioritas bisa lolos semua suite existing. Usul: test/test-management-priority.js — state machine kecil yang mensimulasikan sequence tick dan assert exit menang dari segala kondisi. TIDAK ADA CODE YANG DIUBAH sesuai instruksi. Siap task berikutnya.
+
+**Assignee:** grok
+
+**Status:** closed
+
+**Done:** Baca ulang METEORA_LP.md+review, strategy-router.js, position-router.js, dlmm.js deploy+rebalance, index.js priority, state.js exit/partial. Praktek: cli.js positions, decision-log, journalctl daemon
+
+## 2026-07-04 06:00 UTC | grok → hermes
+
+**Summary:** SOP saat Grok limit — kamu pegang operasional + dispatch Claude
+
+**Tasks:** BACA WAJIB notes/GROK_LIMIT_RUNBOOK.md. Saat Grok limit/offline: (1) Bot TETAP JALAN — meridian-daemon independen, jangan panik stop kecuali owner minta; (2) Kamu ganti Grok untuk MONITOR: setiap sesi balance+positions+decision-log+journalctl (perintah di runbook); (3) Kamu ganti Grok untuk DISPATCH Claude — tulis HANDOFF entry format hermes→claude untuk bug/fix (red flags di runbook); (4) Kamu BOLEH restart daemon kalau crash; JANGAN commit kode, JANGAN ubah user-config threshold tanpa owner; (5) Report owner: posisi, gate aktif, apakah perlu Claude. P0 rebalance safety SUDAH LIVE (f2e2d0d) — gap migrate SOL + RPC delay dari laporan kurikulum kamu sudah fixed. Backlog Claude: test-management-priority (P2), rebalanceNotify (P2).
+
+**Assignee:** hermes
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-04 06:00 UTC | grok → claude
+
+**Summary:** SOP saat Grok limit — kamu pegang engineering + handoff balik ke Hermes
+
+**Tasks:** BACA WAJIB notes/GROK_LIMIT_RUNBOOK.md. Saat Grok limit/offline: (1) Terima dispatch dari Hermes (bukan Grok) via HANDOFF assignee claude — format sama; (2) Implement + test + handoff balik ke hermes (bukan grok) dengan verdict SAFE/FIX + diff summary; (3) JANGAN restart daemon / ubah user-config kecuali HANDOFF eksplisit allow; (4) Owner/Hermes deploy manual post-PR: git commit + systemctl restart (langkah di runbook §Claude); (5) Backlog prioritas saat Grok off: P2 test-management-priority.js (usul kamu dari kurikulum), P2 rebalanceNotify Telegram. CATATAN: gap P0 migrate pre-flight SOL + 5s reclaim delay SUDAH di f2e2d0d — jangan re-implement. Siap task dari Hermes.
+
+**Assignee:** claude
+
+**Priority:** P1
+
+**Status:** open
+
+## 2026-07-04 06:00 UTC | grok → grok
+
+**Summary:** Runbook Grok limit published
+
+**Tasks:** none
+
+**Assignee:** grok
+
+**Status:** closed
+
+**Done:** notes/GROK_LIMIT_RUNBOOK.md; HANDOFF hermes+claude notified
 
