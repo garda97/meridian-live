@@ -100,7 +100,7 @@ export const config = {
     maxBinStep:        u.maxBinStep        ?? 125,
     timeframe:         u.timeframe         ?? "5m",
     category:          u.category          ?? "trending",
-    minTokenFeesSol:   u.minTokenFeesSol   ?? 10,  // floor (SOL); use with mcapScaledTokenFees
+    minTokenFeesSol:   u.minTokenFeesSol   ?? 30,  // floor (SOL); Evil Panda rule: <30 SOL total fees = bundled/scam signal
     mcapScaledTokenFees: u.mcapScaledTokenFees ?? true, // MeteoraFR rule: 10 SOL per $100k mcap
     minTokenFeesSolPer100kMcap: u.minTokenFeesSolPer100kMcap ?? 10,
     useDiscordSignals: u.useDiscordSignals ?? false,
@@ -287,6 +287,10 @@ export const config = {
     spotFeeTvlMin: Number(u.autoStrategySpotFeeTvlMin ?? 2),
     maxOorRisk: Number(u.autoStrategyMaxOorRisk ?? 65), // 0-100; block deploy above this, 0/null disables
     minUpsideCoverPctPump: Number(u.minUpsideCoverPctPump ?? 25), // pump-view deploys need this % of range above active bin
+    // Evil Panda entry rule (opt-in): only deploy when token just set a new
+    // ATH within the lookback window AND supertrend confirms break up.
+    athEntryGateEnabled: u.athEntryGateEnabled ?? false,
+    athLookbackCandles: Math.max(2, Number(u.athLookbackCandles ?? 48)),
     maxPumpPct1h: Number(u.autoStrategyMaxPumpPct1h ?? 20),
   },
 

@@ -26,7 +26,7 @@ const STATIC_FLOORS = {
   minMcap: 250_000,
   minHolders: 300,
   minTokenFeesSolPer100kMcap: 6,
-  minTokenFeesSol: 5,
+  minTokenFeesSol: 30, // Evil Panda hard floor — <30 SOL total fees = bundled/scam signal
 };
 
 /** Floors scale with screening timeframe — minVolume floor is the full scaled default (1h = 10000), not half. */

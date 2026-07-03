@@ -224,6 +224,54 @@ export async function fetchChartIndicatorsForMint(
   });
 }
 
+/**
+ * New-ATH check over the last `lookback` candles: the latest candle's high
+ * must be >= every prior high in the window (Evil Panda entry precondition).
+ */
+export function isNewAthFromCandles(candles, lookback = 48) {
+  if (!Array.isArray(candles) || candles.length < 2) {
+    return { isNewAth: false, reason: "insufficient candles" };
+  }
+  const series = candles.slice(-Math.max(2, Math.round(lookback)));
+  const latestHigh = safeNum(series[series.length - 1]?.high);
+  if (latestHigh == null) return { isNewAth: false, reason: "latest high unavailable" };
+  const priorHighs = series.slice(0, -1).map((c) => safeNum(c?.high)).filter((h) => h != null);
+  if (priorHighs.length === 0) return { isNewAth: false, reason: "no prior highs in lookback" };
+  const priorHigh = Math.max(...priorHighs);
+  return {
+    isNewAth: latestHigh >= priorHigh,
+    latestHigh,
+    priorHigh,
+    reason: latestHigh >= priorHigh
+      ? `new ATH ${latestHigh} >= prior high ${priorHigh} over ${series.length} candles`
+      : `high ${latestHigh} below window high ${priorHigh}`,
+  };
+}
+
+/**
+ * Evil Panda entry gate: new ATH in lookback AND supertrend break above
+ * (fresh flip up, or price holding above a bullish supertrend).
+ */
+export function evaluateAthEntryGate(payload, signal, lookback = config.autoStrategy?.athLookbackCandles ?? 48) {
+  const ath = isNewAthFromCandles(payload?.candles, lookback);
+  const supertrendUp = !!(
+    signal?.supertrendBreakUp ||
+    (signal?.supertrendDirection === "bullish" &&
+      signal?.close != null &&
+      signal?.supertrendValue != null &&
+      signal.close >= signal.supertrendValue)
+  );
+  const pass = ath.isNewAth && supertrendUp;
+  return {
+    pass,
+    isNewAth: ath.isNewAth,
+    supertrendUp,
+    reason: pass
+      ? `ath_gate: ${ath.reason} + supertrend up`
+      : `ath_gate: ${!ath.isNewAth ? ath.reason : "supertrend break up not confirmed"}`,
+  };
+}
+
 const EXIT_CHECK_TTL_MS = 45_000;
 const exitCheckCache = new Map();
 

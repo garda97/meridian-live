@@ -6,7 +6,7 @@
 
 import { config } from "../config.js";
 import { log } from "../logger.js";
-import { fetchChartIndicatorsForMint, buildSignalSummary } from "./chart-indicators.js";
+import { fetchChartIndicatorsForMint, buildSignalSummary, evaluateAthEntryGate } from "./chart-indicators.js";
 import { hasRecentVolatileOorClose } from "../pool-memory.js";
 
 const pendingPlans = new Map();
@@ -318,6 +318,7 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   const mint = pool?.base?.mint || tokenInfo?.mint;
   let signal = null;
   let indicatorOk = false;
+  let athGate = null;
 
   if (mint && config.autoStrategy?.fetchIndicators !== false) {
     try {
@@ -328,6 +329,9 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
       });
       signal = buildSignalSummary(payload);
       indicatorOk = true;
+      if (config.autoStrategy?.athEntryGateEnabled) {
+        athGate = evaluateAthEntryGate(payload, signal);
+      }
     } catch (error) {
       log("strategy_router", `Indicator fetch failed for ${mint?.slice(0, 8)}: ${error.message}`);
     }
@@ -372,6 +376,19 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   }
 
   applyPumpUpsideCoverGate(plan);
+
+  // Evil Panda ATH gate (opt-in): only enter on a fresh ATH with supertrend
+  // confirmation. Fails open when indicators are unavailable (noted in plan),
+  // consistent with the other indicator gates.
+  if (config.autoStrategy?.athEntryGateEnabled) {
+    plan.ath_gate = athGate;
+    if (athGate && !athGate.pass && plan.entry_allowed) {
+      plan.entry_allowed = false;
+      plan.entry_reason = athGate.reason;
+    } else if (!athGate) {
+      plan.notes = [...(plan.notes || []), "ath_gate: indicators unavailable — gate skipped (fail-open)"];
+    }
+  }
 
   plan.oor_risk = computeOorRisk({
     volatility: pool?.volatility,
