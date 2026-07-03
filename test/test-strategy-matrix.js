@@ -8,6 +8,8 @@ import fs from "fs";
 import { repoPath } from "../repo-root.js";
 import { classifyMarketView, buildDeployPlan, computeOorRisk } from "../tools/strategy-router.js";
 import { recordPoolDeploy, isPoolOnCooldown, getPoolCooldownReason } from "../pool-memory.js";
+import { passesChartExitPnlGate } from "../tools/chart-indicators.js";
+import { config } from "../config.js";
 
 const POOL_MEMORY_PATH = repoPath("pool-memory.json");
 
@@ -145,10 +147,34 @@ function testCooldownStacking() {
   }
 }
 
+// ── Chart exit PnL gate ────────────────────────────────────────
+function testChartExitPnlGate() {
+  const savedMin = config.indicators.chartExitMinPnlPct;
+  try {
+    config.indicators.chartExitMinPnlPct = 0.5;
+
+    // traindog case: +0.07% peak must be blocked
+    assert(!passesChartExitPnlGate({ pnl_pct: 0.07 }), "chart exit must be blocked at +0.07%");
+    // above threshold: allowed
+    assert(passesChartExitPnlGate({ pnl_pct: 0.6 }), "chart exit must be allowed at +0.6%");
+    // exactly at threshold: allowed
+    assert(passesChartExitPnlGate({ pnl_pct: 0.5 }), "chart exit must be allowed at exactly +0.5%");
+    // losing / unknown / suspicious: always blocked
+    assert(!passesChartExitPnlGate({ pnl_pct: -1.2 }), "chart exit must be blocked on a losing position");
+    assert(!passesChartExitPnlGate({}), "chart exit must be blocked when PnL unknown");
+    assert(!passesChartExitPnlGate({ pnl_pct: 2, pnl_pct_suspicious: true }), "chart exit must be blocked on suspicious PnL");
+
+    console.log("  chart-exit gate: 0.07% blocked, 0.6% allowed, loss/unknown/suspicious blocked OK");
+  } finally {
+    config.indicators.chartExitMinPnlPct = savedMin;
+  }
+}
+
 function main() {
   testOorRisk();
   testStrategyMatrix();
   testCooldownStacking();
+  testChartExitPnlGate();
   console.log("test-strategy-matrix: OK");
 }
 
