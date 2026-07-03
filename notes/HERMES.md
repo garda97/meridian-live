@@ -10,23 +10,23 @@ Hermes = **otak utama** Meteora DLMM: analisis pool, evaluasi posisi, routing ke
 
 ## Startup wajib setiap sesi
 
-```bash
-cd /root/meridian
-python3 scripts/hermes_bridge.py connect
-python3 scripts/agent_sync.py status
-cat notes/HANDOFF.md | head -60
-tail -30 logs/*.log 2>/dev/null || tail -30 /root/.grok/projects/root/terminals/49.txt
-cat decision-log.json | tail -c 3000
-```
+**Single source of truth:** `notes/SESSION_START.md` — baca dan jalankan Langkah 0–2 sebelum analisis.
 
-## Tugas kamu (fase: learning_dry_run)
+**Skill Hermes:** `meridian-session-startup` (`~/.hermes/skills/meridian-session-startup/SKILL.md`)
+
+Ringkas: bridge → cek `dryRun` live di `user-config.json` → balance/positions → `decision-log.json` → baca `METEORA_LP.md` + x-scrape terbaru → GMGN kandidat → report owner.
+
+Skill lanjutan: `meridian-lp-strategy` (Langkah 0) + `meridian-gmgn-audit` untuk CA spesifik.
+
+## Tugas kamu (fase: Phase 2 live)
 
 ### Wajib tiap sesi
 
-1. **Monitor dry run** — cek apakah `npm run dev` masih hidup, screening/management cycle jalan
-2. **Baca `decision-log.json`** — apa keputusan SCREENER/MANAGER terakhir? deploy/skip/close?
-3. **Analisis kandidat pool + GMGN holder audit** — jalankan perintah di bawah (skill: `meridian-gmgn-audit`)
-4. **Report ke owner** — ringkas: pool menarik, masalah infra, rekomendasi threshold
+1. **Monitor daemon** — `meridian-daemon` + screening/management cycle jalan (`systemctl` atau `journalctl`)
+2. **Cek mode live** — `grep dryRun user-config.json` (jangan asumsikan DRY_RUN dari catatan lama)
+3. **Baca `decision-log.json`** — keputusan SCREENER/MANAGER terakhir? deploy/skip/close/gate?
+4. **Analisis kandidat pool + GMGN holder audit** — perintah di bawah (skill: `meridian-gmgn-audit`)
+5. **Report ke owner** — pool menarik, masalah infra, insight dari x-scrape/Printboard
 
 ### GMGN holder audit (otomatis + manual)
 
@@ -68,10 +68,67 @@ Hermes: skill `meridian-telegram-vision` → baca `abs_path` → **vision tool**
 
 **Jangan** enable `platforms.telegram` di Hermes untuk bot yang sama selama Meridian `npm run dev` aktif.
 
+### Discord signals (Rick bot — MeteoraIDN)
+
+Listener terpisah `meridian-discord` baca channel Discord, extract address dari post **Rick**, pre-check, lalu merge ke screening daemon.
+
+**Runbook lengkap:** `notes/DISCORD_SETUP.md` — baca kalau owner tanya Discord atau signal aneh.
+
+**Setup aktif (Jul 2026):**
+
+| Item | Value |
+|------|-------|
+| Service | `meridian-discord.service` |
+| Akun | secondary `rhoma99` (selfbot, `DISCORD_AUTH_MODE=user`) |
+| Guild | MeteoraIDN `1431687513734643904` |
+| Signal bot | Rick ID `1081815963990761542` |
+| Screening | `useDiscordSignals: true`, mode `merge` |
+
+**Channel dimonitor:** `#🏛️│LP-Alpha`, `#🚨│degen-calls`, `#⚔️│degen-dlmm`, `#🔮│midcap-dlmm`, `#🏟️│multidays-dlmm`, `#📣│announcements` (ID di `DISCORD_SETUP.md`).
+
+**Cek tiap sesi (Hermes — monitor saja, jangan ubah token):**
+```bash
+systemctl is-active meridian-discord
+journalctl -u meridian-discord -n 15 --no-pager | grep -E 'Connected|Channels|Signal bot|\[message\]|\[QUEUED\]|REJECT'
+cd /root/meridian && node cli.js discord-signals
+```
+
+**Startup sukses:** `Connected as rhoma99`, guild MeteoraIDN, 6 channel, `Signal bot IDs: 1081815963990761542`.
+
+**Flow signal:**
+1. Rick post di channel → listener extract address
+2. Pre-check: dedup, blacklist, pool DLMM, rugcheck, fees ≥30 SOL, screening gate
+3. Lolos → `discord-signals.json` status `pending`
+4. Daemon merge kandidat → **filter penuh lagi** (GMGN, indicators, cooldown) → **bukan auto-deploy**
+
+**Normal vs masalah:**
+
+| Gejala | Arti |
+|--------|------|
+| `[message] @Rick` + `REJECT [pool]` | Rick post token belum punya pool Meteora DLMM — expected |
+| `[QUEUED]` | Signal lolos pre-check, tunggu screening cycle |
+| 0 `[message]` lama | Rick belum post / listener mati / bot ID salah |
+| `Guild not found` | Token/login rusak → dispatch **Grok** |
+
+**Login Discord — bukan tugas Hermes:**
+- **Jangan** minta password/email Discord ke owner
+- **Jangan** baca/edit `DISCORD_USER_TOKEN` di `.env`
+- Owner mau setup ulang / token expired → dispatch **Grok** dengan tasks: `scripts/set-discord-user-token.sh` + restart `meridian-discord`
+
+```bash
+# Dispatch contoh
+python3 scripts/hermes_bridge.py dispatch \
+  --assignee grok --priority P1 \
+  --summary "meridian-discord disconnect / token invalid" \
+  --tasks "cek journalctl -u meridian-discord; rotate token via set-discord-user-token.sh; verify Rick ID 1081815963990761542"
+```
+
 ### Routing keputusan
 
 | Situasi | Dispatch ke |
 |---------|-------------|
+| `meridian-discord` mati, token invalid, tambah channel/bot | **Grok** P1 |
+| Discord signal REJECT semua (format embed Rick berubah) | **Grok** P2 |
 | Daemon mati, LLM error, Helius 429 | **Grok** P1 |
 | Empty response LLM berulang | **Claude** P2 (analisis agent loop) |
 | Threshold screening perlu tuning | **Hermes** propose → owner approve → **Grok** execute |
@@ -80,8 +137,8 @@ Hermes: skill `meridian-telegram-vision` → baca `abs_path` → **vision tool**
 ### Jangan lakukan
 
 - Edit `user-config.json` threshold tanpa owner approve
-- Matikan `DRY_RUN` tanpa owner approve
-- Deploy on-chain — itu tugas Meridian daemon, bukan Hermes CLI langsung
+- Ubah `dryRun` tanpa owner approve
+- Deploy on-chain manual — itu tugas Meridian daemon, bukan Hermes CLI langsung
 
 ## Dispatch
 
@@ -99,11 +156,14 @@ python3 scripts/hermes_bridge.py dispatch \
   --tasks "baca agent.js + log dry run; saran fix"
 ```
 
-## Konteks live (2 Jul 2026)
+## Konteks live
+
+Verifikasi tiap sesi via `SESSION_START.md` Langkah 0 — jangan percaya snapshot statis.
 
 - Project: `/root/meridian` (fork yunus-0x/meridian)
-- Wallet: `Dats8FtZFPBTdeYMoBFkXDbLkaccAx8yUU9GESofDZjZ` — **0 SOL**
-- Mode: **DRY_RUN** — belajar Meteora, tidak ada tx on-chain
+- Wallet: `Dats8FtZFPBTdeYMoBFkXDbLkaccAx8yUU9GESofDZjZ`
+- Mode: cek `user-config.json` → `dryRun` (Phase 2: **false** = live)
+- Gates: `athEntryGateEnabled`, `solRegimeGateEnabled`, `solDump1hPctThreshold: -3`
 - LLM: 9router `127.0.0.1:20128` model `Hermes-free`
 - Helius: rotator 21 key di `~/.meridian/helius-keys.json`
 - screening_g97: decommissioned, backup di GitHub
@@ -177,6 +237,7 @@ Lokasi: `/root/meridian/notes/`
 | `CONFIG_HISTORY.md` | Audit trail config (append) |
 | `METEORA_LP.md` | Cheat sheet LP / materi X |
 | `METEORA_LP_REVIEW.md` | Gap analysis notes vs kode |
+| `DISCORD_SETUP.md` | Login listener, channel, Rick bot, troubleshooting |
 | `MANAGER.md` / `MONITOR.md` | Log auto-manage / alert |
 | `SWAP_FIX_REPORT.md` | Post-mortem fix teknis |
 | `CURRENT.md` | Fase project (learning / live) |
@@ -210,9 +271,11 @@ Hermes: propose di notes, jangan commit sendiri.
 
 ## File source of truth
 
+- `notes/SESSION_START.md` — ritual awal sesi (Hermes + Claude)
 - `notes/BRIDGE.md` — status sinkron
 - `notes/GETXAPI.md` — baca thread X via GetXAPI
 - `notes/HANDOFF.md` — task queue
 - `decision-log.json` — keputusan agent Meridian
 - `user-config.json` — threshold screening + exit rules
 - `notes/CLAUDE_AGENT.md` — tugas Claude
+- `notes/DISCORD_SETUP.md` — Discord listener login + operasional

@@ -160,6 +160,10 @@ export const config = {
     partialTpTriggerPct:   u.partialTpTriggerPct   ?? 5,    // fire once when confirmed PnL reaches X%
     partialTpClosePct:     u.partialTpClosePct     ?? 50,   // % of liquidity to remove (clamped 1-99)
     partialTpMinRemainUsd: u.partialTpMinRemainUsd ?? 10,   // skip if remaining value would fall below this (SOL units when solMode)
+    // Daily realized-loss kill-switch: when today's (WIB) summed realized PnL
+    // hits -X USD, skip all new deploys until midnight. Open positions keep
+    // running under SL/trailing. null = off.
+    dailyLossLimitUsd:     u.dailyLossLimitUsd     ?? null,
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
   },

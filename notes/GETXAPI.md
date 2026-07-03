@@ -33,7 +33,17 @@ Rangkum poin utama tentang Meteora DLMM untuk screening.
 ```bash
 cd /root/meridian
 python3 scripts/x_thread.py "https://x.com/user/status/1234567890"
+python3 scripts/x_scrape_lp.py              # batch Tier 1 → notes/x-scrape/
+python3 scripts/x_scrape_lp.py --threads    # + pinned/thread resolve
 ```
+
+**Cron harian (Hermes alpha):**
+```bash
+# Terpasang: 05:00 UTC setiap hari; Minggu + --threads
+crontab -l | grep x_scrape
+tail -20 /root/meridian/logs/x-scrape-cron.log
+```
+Script: `/root/meridian/scripts/run_x_scrape_cron.sh`
 
 ## Auth
 

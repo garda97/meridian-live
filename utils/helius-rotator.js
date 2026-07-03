@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { log } from "../logger.js";
 import { repoPath } from "../repo-root.js";
+import { atomicWriteFileSync } from "./atomic-write.js";
 
 const DATA_DIR = path.join(os.homedir(), ".meridian");
 const KEYS_PATH = path.join(DATA_DIR, "helius-keys.json");
@@ -85,7 +86,7 @@ function loadState() {
 
 function saveState() {
   ensureDataDir();
-  fs.writeFileSync(STATE_PATH, JSON.stringify(loadState(), null, 2));
+  atomicWriteFileSync(STATE_PATH, JSON.stringify(loadState(), null, 2));
 }
 
 function keyHint(key) {
@@ -126,7 +127,7 @@ export function saveHeliusKeys(keys, source = "manual") {
     source,
     updated_at: new Date().toISOString(),
   };
-  fs.writeFileSync(KEYS_PATH, JSON.stringify(payload, null, 2), { mode: 0o600 });
+  atomicWriteFileSync(KEYS_PATH, JSON.stringify(payload, null, 2), { mode: 0o600 });
   _keysCache = payload.keys;
   loadState().currentIndex = 0;
   saveState();
@@ -169,7 +170,7 @@ export function persistEnvKeys(envPath = repoPath(".env")) {
   for (const [k, v] of Object.entries(fields)) {
     if (!seen.has(k)) out.push(`${k}=${v}`);
   }
-  fs.writeFileSync(envPath, out.join("\n") + "\n", { mode: 0o600 });
+  atomicWriteFileSync(envPath, out.join("\n") + "\n", { mode: 0o600 });
   return true;
 }
 

@@ -1,12 +1,15 @@
 /**
  * meridian Discord listener
- * Watches configured channels for Metlex Pool Bot messages and queues pool signals.
+ * Watches configured channels for signal bot messages (default: Rick) and queues pool signals.
  *
  * Env vars (from ../.env):
- *   DISCORD_BOT_TOKEN      — bot token from Developer Portal (preferred)
- *   DISCORD_USER_TOKEN     — personal account token (legacy selfbot)
+ *   DISCORD_BOT_TOKEN      — bot token from Developer Portal
+ *   DISCORD_USER_TOKEN     — personal account token (selfbot / secondary account)
+ *   DISCORD_AUTH_MODE      — "bot" (default) or "user" — which token to use when both are set
  *   DISCORD_GUILD_ID       — server ID
  *   DISCORD_CHANNEL_IDS    — comma-separated channel IDs to monitor
+ *   DISCORD_SIGNAL_BOT_IDS — comma-separated bot user IDs (preferred, e.g. Rick)
+ *   DISCORD_SIGNAL_BOTS    — comma-separated bot display names fallback (default: Rick)
  *   DISCORD_MIN_FEES_SOL   — minimum pool fees threshold (default: 5)
  */
 import fs from "fs";
@@ -23,7 +26,31 @@ dotenv.config({ path: path.join(ROOT, ".env") });
 import { runPreChecks } from "./pre-checks.js";
 
 const SIGNALS_FILE = path.join(ROOT, "discord-signals.json");
-const METLEX_BOT_USERNAME = "Metlex Pool Bot";
+
+function signalBotIds() {
+  const raw = process.env.DISCORD_SIGNAL_BOT_IDS?.trim() || "";
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function signalBotNames() {
+  const raw = process.env.DISCORD_SIGNAL_BOTS?.trim() || "Rick";
+  return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function isSignalBot(author) {
+  if (!author) return false;
+  const ids = signalBotIds();
+  if (ids.length > 0) return ids.includes(author.id);
+  if (!author.bot) return false;
+  const allowed = signalBotNames();
+  const names = [
+    author.username,
+    author.globalName,
+    author.displayName,
+    author.tag,
+  ].filter(Boolean).map((n) => String(n).toLowerCase());
+  return names.some((name) => allowed.some((bot) => name === bot || name.startsWith(`${bot}#`)));
+}
 
 const SOL_ADDR_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 const FALSE_POSITIVE_SKIP = new Set([
@@ -96,6 +123,9 @@ function attachHandlers(client, mode) {
       });
       console.log(`Channels: ${channelNames.join(", ")}`);
     }
+    const botIds = signalBotIds();
+    if (botIds.length > 0) console.log(`Signal bot IDs: ${botIds.join(", ")}`);
+    else console.log(`Signal bots: ${signalBotNames().join(", ")}`);
     console.log(`\nStreaming messages... (Ctrl+C to stop)\n`);
   });
 
@@ -103,7 +133,7 @@ function attachHandlers(client, mode) {
     if (message.guildId !== GUILD_ID) return;
     if (!CHANNEL_IDS.includes(message.channelId)) return;
     if (message.author?.id === client.user?.id) return;
-    if (authorName(message.author) !== METLEX_BOT_USERNAME) return;
+    if (!isSignalBot(message.author)) return;
 
     const content = message.content || "";
     const embeds = message.embeds?.map((e) => `${e.title || ""} ${e.description || ""}`).join(" ") || "";
@@ -145,7 +175,10 @@ async function main() {
     process.exit(1);
   }
 
-  if (BOT_TOKEN) {
+  const authMode = (process.env.DISCORD_AUTH_MODE || "bot").toLowerCase();
+  const useUser = authMode === "user" || authMode === "selfbot";
+
+  if (!useUser && BOT_TOKEN) {
     const { Client, GatewayIntentBits, Partials } = await import("discord.js");
     const client = new Client({
       intents: [
@@ -158,6 +191,11 @@ async function main() {
     attachHandlers(client, "bot");
     await client.login(BOT_TOKEN);
     return;
+  }
+
+  if (!USER_TOKEN) {
+    console.error("ERROR: DISCORD_AUTH_MODE=user but DISCORD_USER_TOKEN is empty");
+    process.exit(1);
   }
 
   const { Client } = await import("discord.js-selfbot-v13");

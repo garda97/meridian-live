@@ -45,6 +45,7 @@ const TIMEFRAME_MINUTES = {
 };
 import { log, logAction } from "../logger.js";
 import { notifyDeploy, notifyClose, notifySwap } from "../telegram.js";
+import { atomicWriteFileSync } from "../utils/atomic-write.js";
 
 function numberOrNull(value) {
   const n = Number(value);
@@ -408,6 +409,7 @@ const toolMap = {
       partialTpClosePct: ["management", "partialTpClosePct"],
       partialTpMinRemainUsd: ["management", "partialTpMinRemainUsd"],
       pnlSanityMaxDiffPct: ["management", "pnlSanityMaxDiffPct"],
+      dailyLossLimitUsd: ["management", "dailyLossLimitUsd"],
       noDeployAfterHour: ["schedule", "noDeployAfterHour"],
       noDeployBeforeHour: ["schedule", "noDeployBeforeHour"],
       // pnl poller
@@ -596,7 +598,7 @@ const toolMap = {
       }
     }
     userConfig._lastAgentTune = new Date().toISOString();
-    fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(userConfig, null, 2));
+    atomicWriteFileSync(USER_CONFIG_PATH, JSON.stringify(userConfig, null, 2));
 
     // Restart cron jobs if intervals changed
     const intervalChanged = applied.managementIntervalMin != null || applied.screeningIntervalMin != null || applied.pnlPollIntervalSec != null;

@@ -1,29 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-03T20:46:00.000000+00:00_
-
-## 2026-07-02 22:57 UTC | claude → grok
-
-**Summary:** Review commit 2ddfea2 selesai — verdict FIX FIRST (2 P1: spot bias override breakdown/pump, filter-autotune vs evolveThresholds tug-of-war)
-
-**Tasks:** none
-
-**Assignee:** grok
-
-**Status:** closed
-
-**Done:** notes/PROFIT_PRESET_REVIEW.md; filter-autotune.js; pool-memory.js; strategy-router.js; chart-indicators.js; index.js; test-filter-autotune.js — 2 P1 + 3 P2 findings, detail di chat Grok
-
-## 2026-07-02 22:57 UTC | grok → hermes
-
-**Summary:** Hermes API down (9router mati) — review strategy profit preset ditunda, tunggu 9router hidup
-
-**Tasks:** Baca notes/PROFIT_PRESET_REVIEW.md + respons Claude di HANDOFF; saat 9router hidup, jawab 7 pertanyaan section 4 (strategy/risk); handoff balik ke grok
-
-**Assignee:** hermes
-
-**Priority:** P1
-
-**Status:** open
+_Updated: 2026-07-03T20:59:39.945218+00:00_
 
 ## 2026-07-02 23:03 UTC | hermes → grok
 
@@ -364,4 +340,16 @@ _Updated: 2026-07-03T20:46:00.000000+00:00_
 **Status:** closed
 
 **Done:** commit f15129d; 8 test suites PASS; dlmm.js ladder extract verified mekanis (logic identik); user-config.json untouched; daemon inactive per owner; rekomendasi enable: noDeployAfterHour 22 + noDeployBeforeHour 6 (opsional); evilPandaMacdExitEnabled + maxBundledWalletHolderPct biarkan off
+
+## 2026-07-03 20:59 UTC | claude → grok
+
+**Summary:** Session 3 selesai — atomic state writes + daily loss kill-switch, SAFE TO DEPLOY, 10 suite pass
+
+**Tasks:** KONTEKS: Lanjutan review arsitektur Claude ke owner — dua gap prioritas tertinggi dikerjakan sebagai session 3. [S3-1 ATOMIC WRITES SAFE] Masalah: semua store persisten pakai fs.writeFileSync langsung — crash/OOM di tengah write = JSON korup, dan load() yang catch→{} artinya state.json korup = bot LUPA SEMUA POSISI TERBUKA diam-diam di live mode. Fix: utils/atomic-write.js baru — atomicWriteFileSync(path, contents, options): write ke .basename.pid.ts.tmp di dir yang sama lalu renameSync (atomic POSIX), unlink tmp on rename failure, support {mode} untuk file 0600. Dimigrasi 16 file: state.js, pool-memory.js, decision-log.js, signal-weights.js, strategy-library.js, smart-wallets.js, token-blacklist.js, dev-blocklist.js, filter-autotune.js (state+user-config), lessons.js (lessons+user-config evolve), hivemind.js (cache), envcrypt.js (.env!), tools/sol-regime.js, tools/executor.js (update_config), telegram.js (HANYA write user-config chatId — manifest/binary/pending-image TIDAK disentuh), utils/helius-rotator.js (3 write, mode 0o600 dipertahankan). setup.js & cli.js SKILL.md sengaja skip (interactive wizard / file trivial). Test test-atomic-write.js: fresh/overwrite/no-tmp-leftover/mode-0600/cleanup-on-rename-fail. Regression: test-external-close (state.js), test-filter-autotune (user-config+state), test-strategy-matrix (pool-memory) semua pass — round-trip via atomic path verified. [S3-2 DAILY LOSS KILL-SWITCH SAFE, default OFF] Masalah: SL per posisi ada tapi tidak ada cap portofolio harian — death-by-thousand-cuts (banyak loss kecil beruntun) tidak ada yang menghentikan. Fix: utils/daily-loss.js pure — dayStartMs (kalender WIB, UTC+7), sumRealizedPnlUsd (sum metrics.pnl_usd dari decision type close+partial_close sejak WIB midnight; deploy/skip/null-pnl/bad-ts diabaikan), checkDailyLossGate (blocked saat realized <= -limit; limit null/0/negatif = OFF). Wired di screening cycle PALING DEPAN (sebelum time gate & sol regime): skip + decision-log reason=daily_loss_gate + metrics (realized_pnl_usd_today, limit, day_start). Management/SL/trailing TIDAK tersentuh — posisi existing tetap dikelola penuh, cuma deploy baru yang pause. Reset otomatis WIB midnight; resume lebih awal = owner naikkan/clear dailyLossLimitUsd. Config management.dailyLossLimitUsd default null=OFF (config.js + CONFIG_MAP + example — 1 key baru saja). Sumber data: decision-log rolling 100 — cukup untuk 1 hari; CATATAN: external close dengan PnL unknown (null) tidak masuk sum, konservatif ke arah tidak-block. Test test-daily-loss.js 14 assert: WIB day math + rollover midnight, filter type/ts, limit semantics (0/null/negatif off, tepat di limit block, profit day tidak block, kemarin tidak kebawa). VERIFIED: 10 test suite pass (8 existing + 2 baru) + npm run test:syntax 0 error. CONSTRAINT: user-config.json tidak disentuh (dryRun:false utuh), daemon tetap inactive, tidak ada threshold strategi yang berubah — S3-2 default off, S3-1 murni infrastruktur. REKOMENDASI OWNER (2): (1) setelah commit+restart, set dailyLossLimitUsd ~3-5 USD (≈3-4% dari wallet 11) via node cli.js config set dailyLossLimitUsd 4 — ini menutup tail risk terbesar dengan biaya nol; (2) atomic write tidak butuh konfigurasi apa pun, langsung aktif. File diff: utils/atomic-write.js (baru), utils/daily-loss.js (baru), test/test-atomic-write.js (baru), test/test-daily-loss.js (baru), 16 file migrasi write + config.js + tools/executor.js + user-config.example.json + index.js (gate wiring). Grok: review diff (migrasi mekanis — cek import path & tidak ada writeFileSync yang kelewat di jalur state), commit, restart daemon sesuai owner.
+
+**Assignee:** grok
+
+**Status:** closed
+
+**Done:** Atomic write semua JSON store + daily realized-loss gate (default off)
 

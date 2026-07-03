@@ -1,6 +1,50 @@
 {
-  "latest": "uploads/tg_20260702_151608_1186.jpg",
+  "latest": "uploads/tg_20260703_095234_1409.jpg",
   "items": [
+    {
+      "path": "uploads/tg_20260703_095234_1409.jpg",
+      "filename": "tg_20260703_095234_1409.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260703_095234_1409.jpg",
+      "saved_at": "2026-07-03T09:52:34.208Z",
+      "message_id": 1409,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 99706,
+      "telegram_file_path": "photos/file_23.jpg"
+    },
+    {
+      "path": "uploads/tg_20260703_091613_1399.jpg",
+      "filename": "tg_20260703_091613_1399.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260703_091613_1399.jpg",
+      "saved_at": "2026-07-03T09:16:13.798Z",
+      "message_id": 1399,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 114215,
+      "telegram_file_path": "photos/file_22.jpg"
+    },
+    {
+      "path": "uploads/tg_20260703_075135_1379.jpg",
+      "filename": "tg_20260703_075135_1379.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260703_075135_1379.jpg",
+      "saved_at": "2026-07-03T07:51:35.215Z",
+      "message_id": 1379,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 128393,
+      "telegram_file_path": "photos/file_21.jpg"
+    },
+    {
+      "path": "uploads/tg_20260703_062832_1359.jpg",
+      "filename": "tg_20260703_062832_1359.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260703_062832_1359.jpg",
+      "saved_at": "2026-07-03T06:28:32.605Z",
+      "message_id": 1359,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 120243,
+      "telegram_file_path": "photos/file_20.jpg"
+    },
     {
       "path": "uploads/tg_20260702_151608_1186.jpg",
       "filename": "tg_20260702_151608_1186.jpg",

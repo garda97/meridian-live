@@ -803,7 +803,7 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     if (eligible.length < before) log("screening", `Rugcheck removed ${before - eligible.length} candidate(s)`);
   }
 
-  if (config.indicators.enabled && eligible.length > 0) {
+  if (config.indicators.enabled && config.indicators.entryEnabled !== false && eligible.length > 0) {
     const confirmations = await Promise.all(
       eligible.map(async (pool) => {
         try {

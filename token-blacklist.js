@@ -8,6 +8,7 @@
 import fs from "fs";
 import { log } from "./logger.js";
 import { repoPath } from "./repo-root.js";
+import { atomicWriteFileSync } from "./utils/atomic-write.js";
 
 const BLACKLIST_FILE = repoPath("token-blacklist.json");
 
@@ -22,7 +23,7 @@ function load() {
 }
 
 function save(data) {
-  fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(data, null, 2));
+  atomicWriteFileSync(BLACKLIST_FILE, JSON.stringify(data, null, 2));
 }
 
 // ─── Check ─────────────────────────────────────────────────────
