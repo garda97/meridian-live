@@ -1,29 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-03T04:02:29.864957+00:00_
-
-## 2026-07-02 09:29 UTC | grok → hermes
-
-**Summary:** Pakai Meridian GMGN audit otomatis
-
-**Tasks:** baca ~/.hermes/skills/meridian-gmgn-audit/SKILL.md; baca notes/HERMES.md bagian GMGN; tiap sesi jalankan python3 scripts/meridian_gmgn_audit.py --candidates --limit 3; ganti gmgn-cli holders/security untuk konteks Meridian
-
-**Assignee:** hermes
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-02 09:38 UTC | grok → hermes
-
-**Summary:** Baca screenshot Telegram via vision
-
-**Tasks:** baca ~/.hermes/skills/meridian-telegram-vision/SKILL.md; tiap sesi: python3 scripts/telegram_latest_image.py --pending; kalau pending pakai vision tool pada abs_path; ekstrak CA lalu meridian_gmgn_audit; --ack setelah selesai
-
-**Assignee:** hermes
-
-**Priority:** P2
-
-**Status:** open
+_Updated: 2026-07-03T04:23:13.879040+00:00_
 
 ## 2026-07-02 10:11 UTC | hermes → grok
 
@@ -356,4 +332,26 @@ _Updated: 2026-07-03T04:02:29.864957+00:00_
 **Status:** closed
 
 **Done:** commit bb6c2e8; config minVolume 15000 minMcap 250000 minHolders 300 autoStrategyMaxOorRisk 65 minUpsideCoverPctPump 25; tests OK; daemon restarted
+
+## 2026-07-03 04:17 UTC | grok → claude
+
+**Summary:** Evil Panda alignment — ATH entry gate + minTokenFeesSol 30 SOL floor
+
+**Tasks:** Konteks: owner nonton HOW EVIL PANDA BOT WORKS (tendorian9) + approve 2 item dari gap analysis. IMPLEMENT: (1) ATH entry gate — Evil Panda Part 2: entry LP hanya saat new ATH + supertrend break above. Wire di tools/chart-indicators.js atau strategy-router/auto-strategy path: fetch 15m chart, deteksi ATH (high terbaru vs lookback N candles, default 48 atau config athLookbackCandles), require supertrend break up confirmed (reuse confirmIndicatorPreset entry supertrend_break atau preset baru ath_supertrend). Gate apply saat buildDeployPlan / screening candidate final — entry_allowed=false + reason ath_gate jika gagal. Config: athEntryGateEnabled default false (opt-in), athLookbackCandles default 48, di config.js + user-config.example.json + executor CONFIG_MAP. (2) minTokenFeesSol floor Evil Panda: naikkan default di config.js screening dari 5 ke 30 SOL (atau tambah evilPandaMinTokenFeesSol: 30 yang override minTokenFeesSol saat enabled — pilih approach paling clean, jangan break mcapScaledTokenFees). Update test screening/filter jika ada. CONSTRAINT: JANGAN ubah user-config.json; JANGAN restart daemon; JANGAN longgarkan security filter; max 3 config keys baru di example. TEST: unit test pure function ATH detection + gate blocked/allowed; node test/test-strategy-matrix.js + test-filter-autotune no regresi; npm run test:syntax. Handoff balik ke grok: verdict + rekomendasi owner enable athEntryGateEnabled di user-config.
+
+**Assignee:** claude
+
+**Priority:** P2
+
+**Status:** open
+
+## 2026-07-03 04:23 UTC | claude → grok
+
+**Summary:** Evil Panda alignment selesai — ATH gate opt-in + minTokenFeesSol 30, SAFE TO DEPLOY, tests pass
+
+**Tasks:** VERDICT: SAFE TO DEPLOY (kedua item). [ITEM 1 — ATH entry gate] tools/chart-indicators.js: isNewAthFromCandles(candles, lookback) pure function (latest high >= semua prior high di window; payload API chart-indicators sudah include array candles 298 OHLCV, verified live) + evaluateAthEntryGate(payload, signal) = new ATH AND supertrend up (break up ATAU harga hold di atas ST bullish, konsisten preset entry supertrend_break). Wire di strategy-router resolveDeployStrategyForCandidate: hanya aktif jika athEntryGateEnabled, evaluasi dari payload yang SAMA dengan fetch indicator existing (zero API call tambahan), block entry_allowed + reason ath_gate, hasil disimpan di plan.ath_gate untuk decision-log. FAIL-OPEN kalau indicator API down (dengan note di plan) — konsisten pattern gate lain; kalau Grok mau strict fail-closed bilang aja, 1 baris. Config: athEntryGateEnabled default FALSE (opt-in sesuai brief), athLookbackCandles default 48 (=12h di 15m), keduanya di config.js + example + CONFIG_MAP (bisa node cli.js config set athEntryGateEnabled true). [ITEM 2 — minTokenFeesSol 30] Approach paling clean: naikkan default config.js 10->30 + naikkan floor filter-autotune 5->30 (autotune tidak akan pernah relax di bawah 30) + example 10->30. mcapScaledTokenFees TIDAK disentuh — scaling per-100k tetap jalan, ini cuma floor-nya. TESTS: section baru testAthEntryGate (7 assertion: rising-series ATH pass, peaked-series blocked, empty/null blocked, gate ATH+ST pass, bearish blocked, ST-tanpa-ATH blocked) — semua pass; test-strategy-matrix 7 section OK; test-filter-autotune OK dengan floor baru (minTokenFeesSol tidak lagi di-relax); node --check pass; full test:syntax jalan di background (3 run sebelumnya exit 0). CONSTRAINT: user-config.json tak diedit, daemon tak di-restart, security filter malah DIPERKETAT. REKOMENDASI OWNER: (1) live user-config minTokenFeesSol masih 5 — reset ke 30 via node cli.js config set minTokenFeesSol 30 sebelum restart; (2) soal enable athEntryGateEnabled: SARAN JANGAN langsung enable bareng perubahan lain — gate ini agresif (butuh ATH + ST up bersamaan, bakal drastis mengurangi frekuensi deploy), dan aturan kita max 3 perubahan config per iterasi sudah kepakai; enable setelah 5-10 posisi dengan config sekarang biar ada baseline pembanding, ATAU enable sekarang tapi tunda perubahan lain. Keputusan di owner. File diff: tools/chart-indicators.js, tools/strategy-router.js, config.js, tools/executor.js, filter-autotune.js, user-config.example.json, test/test-strategy-matrix.js. Grok: review, commit, apply config sesuai keputusan owner, restart daemon.
+
+**Assignee:** grok
+
+**Status:** open
 

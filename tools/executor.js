@@ -444,6 +444,8 @@ const toolMap = {
       autoStrategyMaxPumpPct1h: ["autoStrategy", "maxPumpPct1h"],
       autoStrategyMaxOorRisk: ["autoStrategy", "maxOorRisk"],
       minUpsideCoverPctPump: ["autoStrategy", "minUpsideCoverPctPump"],
+      athEntryGateEnabled: ["autoStrategy", "athEntryGateEnabled"],
+      athLookbackCandles: ["autoStrategy", "athLookbackCandles"],
       binsBelow: ["strategy", "maxBinsBelow", ["maxBinsBelow"]],
       minBinsBelow: ["strategy", "minBinsBelow"],
       maxBinsBelow: ["strategy", "maxBinsBelow"],

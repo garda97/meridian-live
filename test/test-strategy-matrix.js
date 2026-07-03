@@ -14,7 +14,7 @@ import {
   resolveDeployStrategyForCandidate,
 } from "../tools/strategy-router.js";
 import { recordPoolDeploy, isPoolOnCooldown, getPoolCooldownReason } from "../pool-memory.js";
-import { passesChartExitPnlGate } from "../tools/chart-indicators.js";
+import { passesChartExitPnlGate, isNewAthFromCandles, evaluateAthEntryGate } from "../tools/chart-indicators.js";
 import { config } from "../config.js";
 
 const POOL_MEMORY_PATH = repoPath("pool-memory.json");
@@ -243,6 +243,41 @@ async function testVolatileRecall() {
   }
 }
 
+// ── ATH entry gate (Evil Panda) ────────────────────────────────
+function testAthEntryGate() {
+  const candle = (high) => ({ high, open: high * 0.99, low: high * 0.98, close: high * 0.995 });
+
+  // Rising series: latest candle sets a new high over the window
+  const rising = [...Array(47)].map((_, i) => candle(100 + i)).concat([candle(150)]);
+  const athYes = isNewAthFromCandles(rising, 48);
+  assert(athYes.isNewAth, `rising series should be new ATH: ${athYes.reason}`);
+
+  // Peak in the middle: latest high below window high
+  const peaked = [...Array(20)].map((_, i) => candle(100 + i)).concat([candle(200)], [...Array(27)].map(() => candle(120)));
+  const athNo = isNewAthFromCandles(peaked, 48);
+  assert(!athNo.isNewAth, `peaked series must not be new ATH: ${athNo.reason}`);
+
+  // Degenerate inputs never pass
+  assert(!isNewAthFromCandles([], 48).isNewAth, "empty candles must not pass");
+  assert(!isNewAthFromCandles(null, 48).isNewAth, "null candles must not pass");
+
+  // Full gate: ATH + supertrend up → pass
+  const bullSignal = { supertrendBreakUp: true, supertrendDirection: "bullish", close: 150, supertrendValue: 140 };
+  const gatePass = evaluateAthEntryGate({ candles: rising }, bullSignal, 48);
+  assert(gatePass.pass, `ATH + ST-up must pass: ${gatePass.reason}`);
+
+  // ATH but supertrend bearish → blocked
+  const bearSignal = { supertrendBreakUp: false, supertrendDirection: "bearish", close: 150, supertrendValue: 160 };
+  const gateBearish = evaluateAthEntryGate({ candles: rising }, bearSignal, 48);
+  assert(!gateBearish.pass, "ATH without supertrend confirmation must be blocked");
+
+  // Supertrend up but no ATH → blocked
+  const gateNoAth = evaluateAthEntryGate({ candles: peaked }, bullSignal, 48);
+  assert(!gateNoAth.pass, "supertrend up without new ATH must be blocked");
+
+  console.log("  ath gate: new-ATH+ST pass, no-ATH blocked, bearish blocked, degenerate blocked OK");
+}
+
 async function main() {
   testOorRisk();
   testStrategyMatrix();
@@ -250,6 +285,7 @@ async function main() {
   testChartExitPnlGate();
   testPumpUpsideCoverGate();
   await testVolatileRecall();
+  testAthEntryGate();
   console.log("test-strategy-matrix: OK");
 }
 
