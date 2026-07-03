@@ -22,6 +22,8 @@
   "autoStrategyPreferSpotHighFee": true,
   "autoStrategySpotFeeTvlMin": 2,
   "autoStrategyMaxBins": 200,
+  "autoStrategyMaxOorRisk": 65,
+  "minUpsideCoverPctPump": 25,
   "minBinsBelow": 35,
   "maxBinsBelow": 69,
   "defaultBinsBelow": 69,

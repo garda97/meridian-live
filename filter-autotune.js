@@ -19,20 +19,23 @@ const RELAX_FACTOR = 0.85;
 // Quality bar keys are owned by evolveThresholds() — never auto-relax them.
 const EVOLVE_OWNED_KEYS = new Set(["minOrganic", "minQuoteOrganic", "minFeeActiveTvlRatio"]);
 
+// Floors sit at the profit-preset line (mcap $250K, holders 300) so a dry
+// spell can't erode the preset back to learning-phase looseness. By 2026-07-03
+// autotune had already walked minVolume 15000→5658 and minMcap 250K→150K live.
 const STATIC_FLOORS = {
-  minMcap: 150_000,
-  minHolders: 200,
+  minMcap: 250_000,
+  minHolders: 300,
   minTokenFeesSolPer100kMcap: 6,
   minTokenFeesSol: 5,
 };
 
-/** Floors scale with screening timeframe — 5m minVolume floor is ~250, not 300k. */
+/** Floors scale with screening timeframe — minVolume floor is the full scaled default (1h = 10000), not half. */
 export function getFloorsForConfig(userConfig = {}) {
   const tf = normalizeTimeframe(userConfig.timeframe);
   const scaled = getScreeningDefaultsForTimeframe(tf);
   return {
     ...STATIC_FLOORS,
-    minVolume: Math.max(250, Math.round(scaled.minVolume * 0.5)),
+    minVolume: Math.max(250, Math.round(scaled.minVolume)),
   };
 }
 

@@ -6,7 +6,13 @@
 
 import fs from "fs";
 import { repoPath } from "../repo-root.js";
-import { classifyMarketView, buildDeployPlan, computeOorRisk } from "../tools/strategy-router.js";
+import {
+  classifyMarketView,
+  buildDeployPlan,
+  computeOorRisk,
+  applyPumpUpsideCoverGate,
+  resolveDeployStrategyForCandidate,
+} from "../tools/strategy-router.js";
 import { recordPoolDeploy, isPoolOnCooldown, getPoolCooldownReason } from "../pool-memory.js";
 import { passesChartExitPnlGate } from "../tools/chart-indicators.js";
 import { config } from "../config.js";
@@ -170,12 +176,81 @@ function testChartExitPnlGate() {
   }
 }
 
-function main() {
+// ── Pump upside-cover gate ─────────────────────────────────────
+function testPumpUpsideCoverGate() {
+  const savedMin = config.autoStrategy.minUpsideCoverPctPump;
+  try {
+    config.autoStrategy.minUpsideCoverPctPump = 25;
+
+    // pump view, zero upside cover → blocked
+    const blocked = applyPumpUpsideCoverGate({
+      market_view: "pump", bins_below: 80, bins_above: 0, entry_allowed: true, entry_reason: "ok",
+    });
+    assert(!blocked.entry_allowed, "pump with 0% upside cover must be blocked");
+    assert(blocked.upside_cover_pct === 0, `cover should be 0, got ${blocked.upside_cover_pct}`);
+
+    // pump view, balanced 50/50 → allowed
+    const allowed = applyPumpUpsideCoverGate({
+      market_view: "pump", bins_below: 48, bins_above: 48, entry_allowed: true, entry_reason: "ok",
+    });
+    assert(allowed.entry_allowed, "pump with 50% upside cover must pass");
+
+    // non-pump view with 0 cover → untouched (gate is pump-only)
+    const retrace = applyPumpUpsideCoverGate({
+      market_view: "retracement", bins_below: 100, bins_above: 0, entry_allowed: true, entry_reason: "ok",
+    });
+    assert(retrace.entry_allowed, "retracement bid_ask below must not be blocked by pump gate");
+
+    console.log("  pump-cover gate: 0% blocked, 50% allowed, non-pump untouched OK");
+  } finally {
+    config.autoStrategy.minUpsideCoverPctPump = savedMin;
+  }
+}
+
+// ── Volatile-pool recall (force spot on recent pump-OOR close) ─
+async function testVolatileRecall() {
+  const saved = backup(POOL_MEMORY_PATH);
+  const savedFetch = config.autoStrategy.fetchIndicators;
+  const pool = "TEST_POOL_VOLATILE_RECALL_333333333333333333";
+  try {
+    fs.writeFileSync(POOL_MEMORY_PATH, "{}");
+    config.autoStrategy.fetchIndicators = false; // no network in tests
+
+    // Record a FABLE-style close: win but pumped far above range
+    recordPoolDeploy(pool, {
+      pool_name: "TESTV-SOL",
+      pnl_pct: 0.19,
+      close_reason: "pumped far above range",
+    });
+
+    // Redeploy attempt on the same pool: plan must be forced to spot
+    const plan = await resolveDeployStrategyForCandidate({
+      pool: { pool, volatility: 3, price_change_1h: -20, fee_active_tvl_ratio: 0.5 },
+    });
+    assert(plan.strategy === "spot", `volatile-recall plan must be spot, got ${plan.strategy}`);
+    assert(plan.bins_above > 0, `volatile-recall plan needs upside cover, got bins_above=${plan.bins_above}`);
+
+    // Fresh pool with same market data keeps its normal (bid_ask) plan
+    const fresh = await resolveDeployStrategyForCandidate({
+      pool: { pool: "TEST_POOL_FRESH_4444444444444444444444444444", volatility: 3, price_change_1h: -20, fee_active_tvl_ratio: 0.5 },
+    });
+    assert(fresh.strategy === "bid_ask", `fresh pool should keep bid_ask retracement plan, got ${fresh.strategy}`);
+
+    console.log(`  volatile recall: forced spot(${plan.bins_below}/${plan.bins_above}), fresh pool keeps bid_ask OK`);
+  } finally {
+    config.autoStrategy.fetchIndicators = savedFetch;
+    restore(POOL_MEMORY_PATH, saved);
+  }
+}
+
+async function main() {
   testOorRisk();
   testStrategyMatrix();
   testCooldownStacking();
   testChartExitPnlGate();
+  testPumpUpsideCoverGate();
+  await testVolatileRecall();
   console.log("test-strategy-matrix: OK");
 }
 
-main();
+await main();
