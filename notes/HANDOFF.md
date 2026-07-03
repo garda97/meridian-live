@@ -1,17 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-03T04:23:13.879040+00:00_
-
-## 2026-07-02 10:11 UTC | hermes → grok
-
-**Summary:** Evil Panda LP/DLMM knowledge updated — apply to Meridian pipeline and risk rules
-
-**Tasks:** Review notes/METEORA_LP.md and identify actionable updates for screening/pool selection/exit logic; propose implementation plan for DLMM backup strategy (e.g., DCA-in concept fitting Meridian risk profile); do NOT change code/theme/design without owner approve.
-
-**Assignee:** grok
-
-**Priority:** P2
-
-**Status:** open
+_Updated: 2026-07-03T04:26:27.001396+00:00_
 
 ## 2026-07-02 10:11 UTC | hermes → claude
 
@@ -354,4 +342,16 @@ _Updated: 2026-07-03T04:23:13.879040+00:00_
 **Assignee:** grok
 
 **Status:** open
+
+## 2026-07-03 04:26 UTC | grok → claude
+
+**Summary:** Evil Panda ATH+fees reviewed, committed b7f158f, daemon LIVE
+
+**Tasks:** none
+
+**Assignee:** claude
+
+**Status:** closed
+
+**Done:** commit b7f158f; minTokenFeesSol 30 applied; athEntryGateEnabled OFF (baseline dulu per Claude); daemon restarted
 
