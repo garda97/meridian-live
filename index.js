@@ -217,7 +217,9 @@ async function executeManagementActions(actionPositions, actionMap, { liveMessag
       await liveMessage?.toolFinish("rebalance_position", res, ok);
       lines.push(`${p.pair}: ${ok
         ? `rebalanced (${act.plan?.rebalance_type}, ${res.rebalance_path}) → bins ${res.bin_range?.min}→${res.bin_range?.max}`
-        : `rebalance FAILED — ${res?.error || "unknown"}${res?.position_closed ? " (position closed, funds in wallet)" : ""}`}`);
+        : res?.blocked
+          ? `rebalance SKIPPED — ${res?.error || "blocked"}`
+          : `rebalance FAILED — ${res?.error || "unknown"}${res?.position_closed ? " (position closed, funds in wallet)" : ""}`}`);
     } else if (act.action === "CLAIM") {
       await liveMessage?.toolStart("claim_fees");
       const res = await executeTool("claim_fees", { position_address: p.position }).catch(e => ({ error: e.message }));
@@ -1001,7 +1003,9 @@ Summarize the current portfolio health, total fees earned, and performance of al
               _managementBusy = true;
               try {
                 const res = await rebalancePosition({ position_address: p.position, plan: reb.plan, reason: reb.reason });
-                log("state", `[PnL poll] ${p.pair}: rebalance ${res?.success ? `OK (${reb.plan.rebalance_type}, ${res.rebalance_path})` : `FAILED — ${res?.error || "unknown"}`}`);
+                log("state", `[PnL poll] ${p.pair}: rebalance ${res?.success
+                  ? `OK (${reb.plan.rebalance_type}, ${res.rebalance_path})`
+                  : res?.blocked ? `SKIPPED — ${res?.error || "blocked"}` : `FAILED — ${res?.error || "unknown"}`}`);
               } catch (e) {
                 log("cron_error", `Poll-triggered rebalance failed: ${e.message}`);
               } finally {
