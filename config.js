@@ -283,6 +283,7 @@ export const config = {
     requireEntryConfirm: u.autoStrategyRequireEntryConfirm ?? false,
     preferSpotHighFee: u.autoStrategyPreferSpotHighFee !== false,
     spotFeeTvlMin: Number(u.autoStrategySpotFeeTvlMin ?? 2),
+    maxPumpPct1h: Number(u.autoStrategyMaxPumpPct1h ?? 20),
   },
 
   indicators: {
