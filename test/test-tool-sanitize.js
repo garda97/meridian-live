@@ -25,6 +25,12 @@ assert(r.known && r.name === "get_top_candidates", `prefix strip failed: ${r.nam
 r = sanitizeToolName("CompatGetTopCandidates8964");
 assert(r.known && r.name === "get_top_candidates" && r.corrected, `compat fuzzy match failed: ${r.name}`);
 
+// Compat + hex hash suffix (live screening failure pattern)
+r = sanitizeToolName("CompatDeployPositionebdf59");
+assert(r.known && r.name === "deploy_position" && r.corrected, `deploy hash suffix failed: ${r.name}`);
+r = sanitizeToolName("CompatGetPoolMemoryeff2f4");
+assert(r.known && r.name === "get_pool_memory" && r.corrected, `pool memory hash suffix failed: ${r.name}`);
+
 // Camel-case without prefix
 r = sanitizeToolName("GetWalletBalance");
 assert(r.known && r.name === "get_wallet_balance", `camelCase fuzzy match failed: ${r.name}`);
