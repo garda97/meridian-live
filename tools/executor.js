@@ -442,6 +442,8 @@ const toolMap = {
       autoStrategyPreferSpotHighFee: ["autoStrategy", "preferSpotHighFee"],
       autoStrategySpotFeeTvlMin: ["autoStrategy", "spotFeeTvlMin"],
       autoStrategyMaxPumpPct1h: ["autoStrategy", "maxPumpPct1h"],
+      autoStrategyMaxOorRisk: ["autoStrategy", "maxOorRisk"],
+      minUpsideCoverPctPump: ["autoStrategy", "minUpsideCoverPctPump"],
       binsBelow: ["strategy", "maxBinsBelow", ["maxBinsBelow"]],
       minBinsBelow: ["strategy", "minBinsBelow"],
       maxBinsBelow: ["strategy", "maxBinsBelow"],

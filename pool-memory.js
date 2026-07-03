@@ -309,6 +309,25 @@ export function getPoolCooldownReason(poolAddress) {
   return getPoolCooldownInfo(poolAddress)?.reason ?? null;
 }
 
+/**
+ * True when the pool's most recent close (within `hours`) was the volatile-pump
+ * pattern: price ran above the range (OOR) — either flagged "pumped far above
+ * range" or a win that still ended OOR. Strategy router uses this to force
+ * spot-only redeploys with upside cover.
+ */
+export function hasRecentVolatileOorClose(poolAddress, hours = 24) {
+  if (!poolAddress) return false;
+  const entry = load()[poolAddress];
+  const last = entry?.deploys?.[entry.deploys.length - 1];
+  if (!last) return false;
+  const closedAt = last.closed_at ? new Date(last.closed_at) : null;
+  if (!closedAt || Number.isNaN(closedAt.getTime())) return false;
+  if (Date.now() - closedAt.getTime() > hours * 60 * 60 * 1000) return false;
+  const reason = String(last.close_reason || "").toLowerCase();
+  if (reason.includes("pumped far above range")) return true;
+  return Number(last.pnl_pct) >= 0 && isOorCloseReason(last.close_reason);
+}
+
 export function getBaseMintCooldownReason(baseMint) {
   return getBaseMintCooldownInfo(baseMint)?.reason ?? null;
 }

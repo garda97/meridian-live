@@ -285,7 +285,8 @@ export const config = {
     requireEntryConfirm: u.autoStrategyRequireEntryConfirm ?? false,
     preferSpotHighFee: u.autoStrategyPreferSpotHighFee !== false,
     spotFeeTvlMin: Number(u.autoStrategySpotFeeTvlMin ?? 2),
-    maxOorRisk: Number(u.autoStrategyMaxOorRisk ?? 70), // 0-100; block deploy above this, 0/null disables
+    maxOorRisk: Number(u.autoStrategyMaxOorRisk ?? 65), // 0-100; block deploy above this, 0/null disables
+    minUpsideCoverPctPump: Number(u.minUpsideCoverPctPump ?? 25), // pump-view deploys need this % of range above active bin
     maxPumpPct1h: Number(u.autoStrategyMaxPumpPct1h ?? 20),
   },
 

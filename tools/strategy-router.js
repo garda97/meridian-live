@@ -7,6 +7,7 @@
 import { config } from "../config.js";
 import { log } from "../logger.js";
 import { fetchChartIndicatorsForMint, buildSignalSummary } from "./chart-indicators.js";
+import { hasRecentVolatileOorClose } from "../pool-memory.js";
 
 const pendingPlans = new Map();
 
@@ -110,6 +111,25 @@ function shouldPreferSpotForHighFee(pool) {
   const feeTvl = Number(pool?.fee_active_tvl_ratio);
   const minFee = Number(config.autoStrategy?.spotFeeTvlMin ?? 2);
   return Number.isFinite(feeTvl) && feeTvl >= minFee;
+}
+
+/** Rebuild a plan as balanced spot (50/50 around active bin) with a note. */
+function convertPlanToBalancedSpot(plan, { baseBins, note }) {
+  const total = clampInt(
+    Math.max(baseBins, config.strategy.minBinsBelow),
+    config.strategy.minBinsBelow,
+    config.autoStrategy?.maxBins ?? 200,
+  );
+  const binsBelow = clampInt(total * 0.5, Math.ceil(config.strategy.minBinsBelow * 0.5), total);
+  return {
+    ...plan,
+    strategy: "spot",
+    deposit_side: "sol_balanced",
+    bins_below: binsBelow,
+    bins_above: Math.max(0, total - binsBelow),
+    wide_range: total > 69,
+    notes: [...(plan.notes || []), note],
+  };
 }
 
 const SPOT_BIAS_VIEWS = new Set(["sideways", "flat", "retracement"]);
@@ -269,6 +289,31 @@ export function buildDeployPlan({ pool, classification, signal, fibHint }) {
   return biased;
 }
 
+/**
+ * Sets plan.upside_cover_pct (share of range above active bin) and blocks
+ * pump-view deploys without meaningful upside cover — they OOR on the next leg.
+ * Mutates and returns the plan.
+ */
+export function applyPumpUpsideCoverGate(plan) {
+  const planTotalBins = (plan.bins_below || 0) + (plan.bins_above || 0);
+  plan.upside_cover_pct = planTotalBins > 0
+    ? Math.round(((plan.bins_above || 0) / planTotalBins) * 1000) / 10
+    : 0;
+
+  const minUpsideCover = Number(config.autoStrategy?.minUpsideCoverPctPump ?? 25);
+  if (
+    plan.entry_allowed &&
+    plan.market_view === "pump" &&
+    Number.isFinite(minUpsideCover) &&
+    minUpsideCover > 0 &&
+    plan.upside_cover_pct < minUpsideCover
+  ) {
+    plan.entry_allowed = false;
+    plan.entry_reason = `Pump view with upside cover ${plan.upside_cover_pct}% < ${minUpsideCover}% — would OOR on next leg`;
+  }
+  return plan;
+}
+
 export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}) {
   const mint = pool?.base?.mint || tokenInfo?.mint;
   let signal = null;
@@ -293,7 +338,7 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   if (signal?.supertrendBreakUp) classification.bullishBreak = true;
 
   const fibHint = indicatorOk ? inferFibBins(signal) : null;
-  const plan = buildDeployPlan({ pool, classification, signal, fibHint });
+  let plan = buildDeployPlan({ pool, classification, signal, fibHint });
 
   const maxPumpPct = Number(config.autoStrategy?.maxPumpPct1h ?? 20);
   const pump1h = Number(priceChange1h);
@@ -310,17 +355,42 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
     plan.notes = [...(plan.notes || []), `Pump gate: skip SOL-below deploy after +${pump1h.toFixed(1)}% 1h`];
   }
 
+  // Volatile-pool recall: last close (within 24h) was a pump-above-range —
+  // force balanced spot with upside cover instead of repeating the same
+  // one-sided range that just broke.
+  const volatileRecall = pool?.pool ? hasRecentVolatileOorClose(pool.pool) : false;
+  if (volatileRecall && plan.strategy !== "spot") {
+    if (config.autoStrategy?.allowSpot !== false) {
+      plan = convertPlanToBalancedSpot(plan, {
+        baseBins: volatilityScaledBins(pool?.volatility),
+        note: "Volatile-pool recall (recent pump-OOR close) — forced balanced spot",
+      });
+    } else if (plan.entry_allowed) {
+      plan.entry_allowed = false;
+      plan.entry_reason = "Volatile-pool recall — spot redeploy required but spot is disabled; skip";
+    }
+  }
+
+  applyPumpUpsideCoverGate(plan);
+
   plan.oor_risk = computeOorRisk({
     volatility: pool?.volatility,
     priceChange1h,
     binsBelow: plan.bins_below,
     binsAbove: plan.bins_above,
   });
-  const maxOorRisk = Number(config.autoStrategy?.maxOorRisk ?? 70);
+  const maxOorRisk = Number(config.autoStrategy?.maxOorRisk ?? 65);
   if (plan.entry_allowed && Number.isFinite(maxOorRisk) && maxOorRisk > 0 && plan.oor_risk > maxOorRisk) {
     plan.entry_allowed = false;
     plan.entry_reason = `OOR risk ${plan.oor_risk} > ${maxOorRisk} — range likely breaks before fees cover the cycle`;
     plan.notes = [...(plan.notes || []), `OOR risk gate: ${plan.oor_risk}/100`];
+  }
+
+  // Volatile-recall pools keep a hard 65 ceiling even if the global gate is
+  // looser or disabled — this pool already proved it breaks ranges.
+  if (volatileRecall && plan.entry_allowed && plan.oor_risk > 65) {
+    plan.entry_allowed = false;
+    plan.entry_reason = `Volatile-pool recall with OOR risk ${plan.oor_risk} > 65 — skip redeploy`;
   }
 
   plan.pool = pool?.pool ?? null;

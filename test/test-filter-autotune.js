@@ -41,18 +41,27 @@ function main() {
   const r1 = computeRelaxation(strict);
   assert(r1, "should produce relaxation for strict config");
   assert(r1.changes.minVolume < strict.minVolume, "minVolume should drop");
-  assert(r1.changes.minVolume >= 300_000, "minVolume should respect floor");
   assert(!("minOrganic" in r1.changes), "minOrganic is evolve-owned — must not relax");
   assert(!("minFeeActiveTvlRatio" in r1.changes), "minFeeActiveTvlRatio is evolve-owned — must not relax");
+  assert(!("minMcap" in r1.changes), "minMcap already at profit-preset floor 250K — must not relax");
 
+  // Floors sit at the profit-preset line: full scaled minVolume, mcap 250K, holders 300
   const floors1h = getFloorsForConfig({ timeframe: "1h" });
-  assert(floors1h.minVolume === 5000, `1h minVolume floor should be 5000, got ${floors1h.minVolume}`);
+  assert(floors1h.minVolume === 10_000, `1h minVolume floor should be 10000, got ${floors1h.minVolume}`);
+  assert(floors1h.minMcap === 250_000, `minMcap floor should be 250000, got ${floors1h.minMcap}`);
+  assert(floors1h.minHolders === 300, `minHolders floor should be 300, got ${floors1h.minHolders}`);
   const floors5m = getFloorsForConfig({ timeframe: "5m" });
-  assert(floors5m.minVolume === 250, `5m minVolume floor should be 250, got ${floors5m.minVolume}`);
+  assert(floors5m.minVolume === 500, `5m minVolume floor should be 500, got ${floors5m.minVolume}`);
 
-  const atFloor = { timeframe: "1h", ...strict, minVolume: floors1h.minVolume, minMcap: 150_000, minOrganic: 45, minQuoteOrganic: 45, minHolders: 200, minFeeActiveTvlRatio: 0.04, minTokenFeesSolPer100kMcap: 6, minTokenFeesSol: 5 };
+  // Profit-preset erosion scenario: values at/below the new floors must not relax further
+  const atFloor = { timeframe: "1h", ...strict, minVolume: floors1h.minVolume, minMcap: 250_000, minOrganic: 45, minQuoteOrganic: 45, minHolders: 300, minFeeActiveTvlRatio: 0.04, minTokenFeesSolPer100kMcap: 6, minTokenFeesSol: 5 };
   const r2 = computeRelaxation(atFloor);
   assert(r2 === null, "at-floor config should not relax further");
+
+  // Already-eroded live values (below new floors) must never be relaxed deeper
+  const eroded = { timeframe: "1h", minVolume: 5658, minMcap: 150_000, minHolders: 200, minTokenFeesSolPer100kMcap: 6, minTokenFeesSol: 5 };
+  const r3 = computeRelaxation(eroded);
+  assert(r3 === null, `already-eroded config must not relax deeper, got ${JSON.stringify(r3?.changes)}`);
 
   console.log("test-filter-autotune: OK");
   console.log("  1h floors:", JSON.stringify(floors1h));
