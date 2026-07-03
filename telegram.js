@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { log } from "./logger.js";
 import { repoPath } from "./repo-root.js";
+import { atomicWriteFileSync } from "./utils/atomic-write.js";
 
 const USER_CONFIG_PATH = repoPath("user-config.json");
 const UPLOADS_DIR = repoPath("uploads");
@@ -59,7 +60,7 @@ function saveChatId(id) {
       ? JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"))
       : {};
     cfg.telegramChatId = id;
-    fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(cfg, null, 2));
+    atomicWriteFileSync(USER_CONFIG_PATH, JSON.stringify(cfg, null, 2));
   } catch (e) {
     log("telegram_error", `Failed to persist chatId: ${e.message}`);
   }

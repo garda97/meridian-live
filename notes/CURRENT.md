@@ -2,27 +2,34 @@
 
 ## Phase
 
-**learning_dry_run** — belajar Meteora DLMM + familiarisasi Meridian sebelum live deploy.
+**Phase 2 live** — Meteora DLMM dengan gate ATH + SOL regime. Verifikasi `dryRun` di `user-config.json` tiap sesi.
 
 **Trio aktif:** Hermes (monitor+analisis) · Grok (infra+daemon) · Claude (review agent loop, on-demand)
+
+## Startup ritual (sesi baru)
+
+1. Baca `notes/SESSION_START.md`
+2. Hermes: skill `meridian-session-startup`
+3. Claude: slash `/session-start`
 
 ## Owner decisions
 
 - screening_g97 di-decommission; backup ada di GitHub (`garda97/screening_g97`) + `/root/screening_g97_final_backup/`
-- Project baru: fork [yunus-0x/meridian](https://github.com/yunus-0x/meridian) di `/root/meridian`
-- Mode awal: **DRY_RUN=true** — tidak ada transaksi on-chain
+- Project: fork [yunus-0x/meridian](https://github.com/yunus-0x/meridian) di `/root/meridian`
+- Phase 2: `dryRun: false`, `athEntryGateEnabled: true`, `solRegimeGateEnabled: true`
 - Trio agent: Hermes (otak) + Grok (eksekutor) + Claude (ace card, on-demand)
+- X scrape harian: cron 05:00 UTC → `notes/x-scrape/`
 
-## Perubahan terbaru
+## Perubahan terbaru (Jul 2026)
 
-- Clone Meridian repo ke `/root/meridian`
-- Scaffold trio bridge: `scripts/agent_sync.py`, `scripts/hermes_bridge.py`
-- Notes: `BRIDGE.md`, `HANDOFF.md`, `HERMES.md`, `GROK.md`
+- `SESSION_START.md` — ritual awal sesi seragam Hermes + Claude
+- Skill `meridian-session-startup` menggantikan `hermes-session-startup` (screening_g97 legacy)
+- `METEORA_LP.md` + x-scrape pipeline untuk belajar LP dari X
+- Discord listener `meridian-discord` + Rick bot MeteoraIDN
+- Gates: ATH entry, SOL dump 1h ≤ -3%, minTokenFeesSol 30
 
 ## Next steps
 
-1. ~~`npm install`~~ ✅
-2. ~~`user-config.json` + `.env`~~ ✅ (DRY_RUN=true; wallet key perlu format base58 — GMGN PEM tidak compatible)
-3. `npm run dev` — jalankan daemon dry-run, pelajari screening/management cycle
-4. Hermes: `hermes chat` dari `/root/meridian`, baca `notes/HERMES.md`
-5. Owner: siapkan `WALLET_PRIVATE_KEY` base58 kalau mau test balance/deploy dry-run penuh
+1. Hermes: jalankan startup ritual tiap `hermes chat` baru dari `/root/meridian`
+2. Claude: `/session-start` saat sesi on-demand dibuka
+3. Owner: pantau screening cycle + posisi live via Hermes report

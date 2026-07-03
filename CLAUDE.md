@@ -11,6 +11,7 @@ Autonomous DLMM liquidity provider agent for Meteora pools on Solana.
 
 ## TL;DR (read this first)
 
+- **New session?** Run `/session-start` or read `notes/SESSION_START.md` first — bridge, live state, LP material.
 - **What it is**: Node 22+ ESM service that runs an LLM-driven loop
   (OpenAI-compatible) to screen Meteora DLMM pools, deploy SOL into
   long/short positions, monitor them, and close them — all without a human

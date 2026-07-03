@@ -11,6 +11,7 @@
 import fs from "fs";
 import { log } from "./logger.js";
 import { repoPath } from "./repo-root.js";
+import { atomicWriteFileSync } from "./utils/atomic-write.js";
 
 const STATE_FILE = repoPath("state.json");
 
@@ -43,7 +44,7 @@ function load() {
 function save(state) {
   try {
     state.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+    atomicWriteFileSync(STATE_FILE, JSON.stringify(state, null, 2));
   } catch (err) {
     log("state_error", `Failed to write state.json: ${err.message}`);
   }

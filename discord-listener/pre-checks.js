@@ -1,6 +1,6 @@
 /**
  * Discord signal pre-check pipeline
- * Stages: dedup → blacklist → pool resolution → rug check → deployer check → fees check
+ * Stages: dedup → blacklist → pool resolution → rug check → deployer check → fees check → screening gate
  */
 import fs from "fs";
 import path from "path";
@@ -9,6 +9,106 @@ import axios from "axios";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
+const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
+
+function loadScreeningConfig() {
+  const defaults = {
+    timeframe: "1h",
+    category: "trending",
+    excludeHighSupplyConcentration: true,
+    minTvl: 20_000,
+    maxTvl: 230_000,
+    minVolume: 12_750,
+    minOrganic: 60,
+    minQuoteOrganic: 60,
+    minHolders: 300,
+    minMcap: 250_000,
+    maxMcap: 1_500_000,
+    minBinStep: 80,
+    maxBinStep: 125,
+    minFeeActiveTvlRatio: 0.04,
+    minTokenAgeHours: null,
+    maxTokenAgeHours: null,
+    allowedLaunchpads: [],
+    blockedLaunchpads: [],
+  };
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, "user-config.json"), "utf8"));
+    return { ...defaults, ...cfg };
+  } catch {
+    return defaults;
+  }
+}
+
+function numeric(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function includesCaseInsensitive(list, value) {
+  if (!Array.isArray(list) || !value) return false;
+  const needle = String(value).toLowerCase();
+  return list.some((item) => String(item).toLowerCase() === needle);
+}
+
+function getPoolLaunchpad(pool) {
+  return pool?.base_token_launchpad || pool?.token_x?.launchpad || pool?.token_x?.launchpad_platform || null;
+}
+
+function screeningRejectReason(pool, s) {
+  const base = pool?.token_x || {};
+  const quote = pool?.token_y || {};
+  const holders = numeric(pool?.base_token_holders ?? base?.holder_count ?? base?.holders);
+  const volume = numeric(pool?.volume ?? pool?.[`volume_${s.timeframe}`]);
+  const tvl = numeric(pool?.tvl ?? pool?.active_tvl);
+  const binStep = numeric(pool?.bin_step);
+  const feeActiveTvlRatio = numeric(pool?.fee_active_tvl_ratio);
+  const volatility = numeric(pool?.volatility ?? pool?.[`volatility_${s.timeframe}`]);
+  const mcap = numeric(base?.market_cap);
+  const baseOrganic = numeric(base?.organic_score);
+  const quoteOrganic = numeric(quote?.organic_score);
+  const launchpad = getPoolLaunchpad(pool);
+  const createdAt = numeric(base?.created_at);
+
+  if (s.excludeHighSupplyConcentration && pool?.base_token_has_high_supply_concentration === true) {
+    return "base token has high supply concentration";
+  }
+  if (pool?.base_token_has_critical_warnings === true) return "base token has critical warnings";
+  if (pool?.quote_token_has_critical_warnings === true) return "quote token has critical warnings";
+  if (pool?.base_token_has_high_single_ownership === true) return "base token has high single ownership";
+  if (pool?.pool_type && pool.pool_type !== "dlmm") return `pool_type ${pool.pool_type} is not dlmm`;
+  if (mcap == null || mcap < s.minMcap) return `mcap ${mcap ?? "unknown"} below minMcap ${s.minMcap}`;
+  if (mcap > s.maxMcap) return `mcap ${mcap} above maxMcap ${s.maxMcap}`;
+  if (holders == null || holders < s.minHolders) return `holders ${holders ?? "unknown"} below minHolders ${s.minHolders}`;
+  if (volume == null || volume < s.minVolume) return `volume ${volume ?? "unknown"} below minVolume ${s.minVolume}`;
+  if (tvl == null || tvl < s.minTvl) return `TVL ${tvl ?? "unknown"} below minTvl ${s.minTvl}`;
+  if (s.maxTvl != null && tvl > s.maxTvl) return `TVL ${tvl} above maxTvl ${s.maxTvl}`;
+  if (binStep == null || binStep < s.minBinStep) return `bin_step ${binStep ?? "unknown"} below minBinStep ${s.minBinStep}`;
+  if (binStep > s.maxBinStep) return `bin_step ${binStep} above maxBinStep ${s.maxBinStep}`;
+  if (feeActiveTvlRatio == null || feeActiveTvlRatio < s.minFeeActiveTvlRatio) {
+    return `fee/active-TVL ${feeActiveTvlRatio ?? "unknown"} below minFeeActiveTvlRatio ${s.minFeeActiveTvlRatio}`;
+  }
+  if (volatility == null || volatility <= 0) return `volatility ${volatility ?? "unknown"} is unusable`;
+  if (baseOrganic == null || baseOrganic < s.minOrganic) {
+    return `base organic ${baseOrganic ?? "unknown"} below minOrganic ${s.minOrganic}`;
+  }
+  if (quoteOrganic == null || quoteOrganic < s.minQuoteOrganic) {
+    return `quote organic ${quoteOrganic ?? "unknown"} below minQuoteOrganic ${s.minQuoteOrganic}`;
+  }
+  if (includesCaseInsensitive(s.blockedLaunchpads, launchpad)) return `blocked launchpad (${launchpad})`;
+  if (Array.isArray(s.allowedLaunchpads) && s.allowedLaunchpads.length > 0 && launchpad && !includesCaseInsensitive(s.allowedLaunchpads, launchpad)) {
+    return `launchpad ${launchpad} not in allow-list`;
+  }
+  if (s.minTokenAgeHours != null) {
+    const maxCreatedAt = Date.now() - s.minTokenAgeHours * 3_600_000;
+    if (createdAt == null || createdAt > maxCreatedAt) return `token age below minTokenAgeHours ${s.minTokenAgeHours}`;
+  }
+  if (s.maxTokenAgeHours != null) {
+    const minCreatedAt = Date.now() - s.maxTokenAgeHours * 3_600_000;
+    if (createdAt == null || createdAt < minCreatedAt) return `token age above maxTokenAgeHours ${s.maxTokenAgeHours}`;
+  }
+  return null;
+}
 
 // In-memory dedup: address → timestamp
 const recentSeen = new Map();
@@ -173,6 +273,33 @@ export async function feesCheck(mint) {
   }
 }
 
+// Stage 7: Screening gate — same thresholds as main screener before queueing
+export async function screeningGateCheck(poolAddress) {
+  const s = loadScreeningConfig();
+  try {
+    const url = `${POOL_DISCOVERY_BASE}/pools?` +
+      `page_size=1` +
+      `&filter_by=${encodeURIComponent(`pool_address=${poolAddress}`)}` +
+      `&timeframe=${s.timeframe}` +
+      `&category=${s.category}`;
+    const res = await axios.get(url, { timeout: 10_000 });
+    const pool = (res.data?.data || [])[0];
+    if (!pool) return { pass: false, reason: "pool not found in discovery API" };
+    const reason = screeningRejectReason(pool, s);
+    if (reason) return { pass: false, reason: `screening: ${reason}` };
+    return { pass: true };
+  } catch (e) {
+    console.warn(`  [screening] discovery API error: ${e.message} — passing`);
+    return { pass: true };
+  }
+}
+
+function rejectStage(stage, result, pool = null) {
+  const { pass: _pass, ...stageRest } = result;
+  const { pass: _poolPass, ...poolRest } = pool || {};
+  return { pass: false, ...poolRest, ...stageRest };
+}
+
 // Run the full pipeline
 export async function runPreChecks(address) {
   console.log(`\n[pre-check] ${address}`);
@@ -196,16 +323,20 @@ export async function runPreChecks(address) {
   }
 
   const rug = await rugCheck(pool.base_mint);
-  if (!rug.pass) { console.log(`  REJECT [rug] ${rug.reason}`); return { pass: false, ...rug, ...pool }; }
+  if (!rug.pass) { console.log(`  REJECT [rug] ${rug.reason}`); return rejectStage("rug", rug, pool); }
   console.log(`  OK [rug] score=${rug.rug_score ?? "n/a"}`);
 
   const deployer = await deployerCheck(pool.pool_address);
-  if (!deployer.pass) { console.log(`  REJECT [deployer] ${deployer.reason}`); return { pass: false, ...deployer, ...pool }; }
+  if (!deployer.pass) { console.log(`  REJECT [deployer] ${deployer.reason}`); return rejectStage("deployer", deployer, pool); }
   console.log(`  OK [deployer]`);
 
   const fees = await feesCheck(pool.base_mint);
-  if (!fees.pass) { console.log(`  REJECT [fees] ${fees.reason}`); return { pass: false, ...fees, ...pool }; }
+  if (!fees.pass) { console.log(`  REJECT [fees] ${fees.reason}`); return rejectStage("fees", fees, pool); }
   console.log(`  OK [fees] global_fees=${fees.global_fees_sol ?? "n/a"} SOL`);
+
+  const screening = await screeningGateCheck(pool.pool_address);
+  if (!screening.pass) { console.log(`  REJECT [screening] ${screening.reason}`); return rejectStage("screening", screening, pool); }
+  console.log(`  OK [screening] passed user-config thresholds`);
 
   console.log(`  PASS → queuing signal (token age: ${pool.token_age_minutes ?? "unknown"} min)`);
   return {
@@ -214,7 +345,7 @@ export async function runPreChecks(address) {
     base_mint: pool.base_mint,
     symbol: pool.symbol,
     rug_score: rug.rug_score,
-    total_fees_sol: fees.total_fees_sol,
+    total_fees_sol: fees.global_fees_sol,
     token_age_minutes: pool.token_age_minutes,
   };
 }

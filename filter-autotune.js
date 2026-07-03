@@ -8,6 +8,7 @@ import { log } from "./logger.js";
 import { reloadScreeningThresholds } from "./config.js";
 import { getScreeningDefaultsForTimeframe, normalizeTimeframe } from "./screening-scales.js";
 import { repoPath } from "./repo-root.js";
+import { atomicWriteFileSync } from "./utils/atomic-write.js";
 
 const USER_CONFIG_PATH = repoPath("user-config.json");
 const STATE_PATH = repoPath("filter-autotune-state.json");
@@ -62,7 +63,7 @@ function loadState() {
 }
 
 function saveState(state) {
-  fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+  atomicWriteFileSync(STATE_PATH, JSON.stringify(state, null, 2));
 }
 
 function loadUserConfig() {
@@ -131,7 +132,7 @@ function applyChangesToUserConfig(userConfig, changes) {
   Object.assign(userConfig, changes);
   userConfig._lastFilterRelaxed = new Date().toISOString();
   userConfig._filterRelaxCount = (userConfig._filterRelaxCount ?? 0) + 1;
-  fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(userConfig, null, 2));
+  atomicWriteFileSync(USER_CONFIG_PATH, JSON.stringify(userConfig, null, 2));
   reloadScreeningThresholds();
 }
 

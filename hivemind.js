@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { log } from "./logger.js";
 import { config } from "./config.js";
 import { repoPath } from "./repo-root.js";
+import { atomicWriteFileSync } from "./utils/atomic-write.js";
 
 const USER_CONFIG_PATH = repoPath("user-config.json");
 const CACHE_PATH = repoPath("hivemind-cache.json");
@@ -21,7 +22,7 @@ function readJson(filePath, fallback) {
 }
 
 function writeJson(filePath, value) {
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+  atomicWriteFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
 function sanitizeText(text, maxLen = 400) {

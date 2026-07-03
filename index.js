@@ -43,7 +43,8 @@ import {
 } from "./tools/strategy-router.js";
 import { getWeightsSummary } from "./signal-weights.js";
 import { bootstrapHiveMind, ensureAgentId, getHiveMindPullMode, isHiveMindEnabled, pullHiveMindLessons, pullHiveMindPresets, registerHiveMindAgent, startHiveMindBackgroundSync } from "./hivemind.js";
-import { appendDecision, enrichDecisionEntry } from "./decision-log.js";
+import { appendDecision, enrichDecisionEntry, getRecentDecisions } from "./decision-log.js";
+import { checkDailyLossGate } from "./utils/daily-loss.js";
 
 import { REPO_ROOT, repoPath } from "./repo-root.js";
 
@@ -418,6 +419,29 @@ export async function runScreeningCycle({ silent = false } = {}) {
       log("cron_error", `Screening pre-check failed: ${e.message}`);
       screenReport = `Screening pre-check failed: ${e.message}`;
       outcome.skipped = true;
+      return screenReport;
+    }
+
+    const dailyLoss = checkDailyLossGate({
+      decisions: getRecentDecisions(100),
+      limitUsd: config.management.dailyLossLimitUsd,
+    });
+    if (dailyLoss.blocked) {
+      const reason = `Daily loss gate: realized ${dailyLoss.realizedPnlUsd} USD today <= -${dailyLoss.limitUsd} USD limit`;
+      log("cron", `Screening skipped — ${reason} (existing positions still managed)`);
+      screenReport = `Screening skipped — ${reason}. New deploys paused until WIB midnight.`;
+      outcome.skipped = true;
+      appendDecision({
+        type: "skip",
+        actor: "SCREENER",
+        summary: "Screening skipped",
+        reason: "daily_loss_gate",
+        metrics: {
+          realized_pnl_usd_today: dailyLoss.realizedPnlUsd,
+          daily_loss_limit_usd: dailyLoss.limitUsd,
+          day_start: dailyLoss.dayStartIso,
+        },
+      });
       return screenReport;
     }
 

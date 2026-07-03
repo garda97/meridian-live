@@ -457,3 +457,147 @@ Video ini adalah sesi Advanced Boot Camp #7 dengan Logical TA (aka Evil Panda) y
 | Spot vs bid-ask | auto-router: sideways→spot, dump→bid_ask |
 | Range 241–250 bins | `autoStrategyMaxBins: 200` (wide path di `tools/dlmm.js`) |
 
+## [2026-07-03] LP Army — The Printboard (Top Fee-Printing Pools)
+
+*Sumber: https://x.com/i/status/2072809384783020393 (@met_lparmy, 2 Jul 2026)*
+
+### Apa itu Printboard?
+- Leaderboard harian dari **LP Army** — "Top performing pools on meteora.ag".
+- Judul post: *"Top 5 fee-printing pools LPs are entering on @MeteoraAG in the last 24 hours"*.
+- **Bukan** rekomendasi deploy langsung — ini **heat map** di mana fee sedang mengalir.
+- Ranking berdasarkan **absolute 24h fee ($)** yang dikumpulkan pool, bukan safety score atau fee/TVL per LP.
+- CTA: Discord [discord.gg/lparmy](https://discord.gg/lparmy) untuk alpha terbaru; Academy [lparmy.com/academy](https://www.lparmy.com/academy).
+
+### Top 5 (2 Jul 2026) — data dari gambar Printboard
+
+| # | Pool | Bin / Fee | Vol 24h | Fee 24h |
+|---|------|-----------|---------|---------|
+| 1 | ANSEM-SOL | 20 / 0.2% | 16.3M | $36.88K |
+| 2 | manlet-SOL | 100 / 2% | 909K | $23.35K |
+| 3 | SOL-USDC | 4 / 0.04% | 5.46M | $15.55K |
+| 4 | ANSEM-SOL | 100 / 2% | 774K | $14.54K |
+| 5 | Jotchua-SOL | 50 / 0.5% | 2.38M | $12.45K |
+
+### Verifikasi live (Meteora API, ~3 Jul 2026)
+
+| Pool | TVL | Vol 24h | Fee 24h | Fee/TVL 24h | Mcap token |
+|------|-----|---------|---------|-------------|------------|
+| ANSEM 20/0.2% | ~$1.77M | ~$10.9M | ~$21.3K | ~1.2% | ~$181M |
+| manlet 100/2% | ~$56K | ~$664K | ~$16.8K | **~30%** | ~$2.3M |
+| ANSEM 100/2% | ~$494K | ~$411K | ~$7.5K | ~1.5% | ~$181M |
+| Jotchua 50/0.5% | ~$718K | ~$1.6M | ~$8.3K | ~1.2% | ~$9.2M |
+
+*Catatan: angka API bisa sedikit beda dari Printboard (timing snapshot berbeda).*
+
+### Pola yang terlihat
+1. **Mega-volume + tight bin** (ANSEM 20/0.2%) mendominasi absolute fee — butuh TVL besar & volume ekstrem.
+2. **High-fee bin** (100/2%) muncul 2× (manlet, ANSEM) — LPs chase fee tier tinggi saat vol ada.
+3. **Blue-chip pair** (SOL-USDC) selalu masuk leaderboard — fee stabil, risiko IL berbeda dari meme.
+4. **Satu token, banyak pool** — ANSEM punya entry di #1 dan #4; LPs pilih bin step sesuai toleransi volatilitas.
+5. Printboard = **crowd flow indicator** ("where LPs are entering"), bukan substitute untuk GMGN/rugcheck.
+
+### Mapping vs Meridian Phase 2 (user-config saat ini)
+
+| Check | Printboard bias | Meridian config |
+|-------|-----------------|-----------------|
+| Ranking metric | Absolute fee 24h | `minFeePerTvl24h: 8`, `minFeeActiveTvlRatio: 0.04` |
+| Mcap range | $2M–$181M (semua ukuran) | `minMcap: 200k`, `maxMcap: 1.5M` |
+| TVL range | $56K–$1.77M | `minTvl: 20k`, `maxTvl: 380k` |
+| Bin step | 4–100 (bervariasi) | `minBinStep: 80`, `maxBinStep: 125` |
+| Entry gate | Tidak ada (flow only) | `athEntryGateEnabled: true` + SOL regime gate |
+| Strategy | Mixed (spot/curve/bid-ask) | `bid_ask` SOL below default |
+
+### Apakah ada yang lolos Meridian auto-deploy?
+
+| Pool | Hasil |
+|------|-------|
+| ANSEM 20/0.2% | **FAIL** — mcap/TVL jauh di atas ceiling, bin 20 < minBinStep 80 |
+| manlet 100/2% | **Hampir** — bin & fee/TVL bagus, tapi mcap $2.3M > maxMcap $1.5M |
+| SOL-USDC 4/0.04% | **N/A** — bukan target meme screening (`solMode: false`, bin 4) |
+| ANSEM 100/2% | **FAIL** — mcap/TVL di atas ceiling |
+| Jotchua 50/0.5% | **FAIL** — mcap/TVL di atas ceiling, bin 50 < minBinStep 80 |
+
+**Kesimpulan:** Tidak ada pool Printboard yang akan auto-deploy Meridian Phase 2. Ini expected — Printboard = fee heatmap market-wide; Meridian = conservative meme LP dengan gate ketat.
+
+### Rekomendasi untuk Hermes / owner
+1. **Gunakan Printboard sebagai watchlist manual**, bukan sinyal deploy otomatis.
+2. **manlet 100/2%** paling dekat profil Meridian — layak GMGN audit manual jika mcap ceiling dilonggarkan sementara.
+3. **Jangan chase ANSEM 20/0.2%** dengan modal kecil (0.5 SOL) — dominasi fee butuh TVL whale; IL risk berbeda skala.
+4. Printboard berkala (post serupa tiap ~2 minggu dari @met_lparmy) — pantau pola bin step yang repeat (100/2%, 50/0.5%).
+5. LP Army Academy sudah overlap dengan Evil Panda / MeteoraFR di file ini — fokus tambahan: lesson **Finding Opportunities** & **Managing Positions and Fees** di lparmy.com/academy.
+
+**Hermes:** skill `meridian-lp-strategy` + `meridian-gmgn-audit` saat owner minta deep-dive token dari Printboard.
+
+## [2026-07-03] Akun X Penting — Scraping & Reference
+
+Daftar akun untuk pantau materi LP Meteora. Scrape otomatis: `python3 scripts/x_scrape_lp.py` → output di `notes/x-scrape/`.
+
+### Koreksi handle
+
+| Disebut | Benar | Catatan |
+|---------|-------|---------|
+| @EvilPanda | **@tendorian9** | Logical TA — profil kadang private |
+| @chichetamdefi | ⚠️ low signal | Tidak jelas fokus DLMM di bio |
+| @Oran_fi | ⚠️ unverified | Tidak jelas fokus Meteora LP |
+
+### Tier 1 — Harian (scrape default)
+
+| Akun | Fokus |
+|------|-------|
+| [@met_lparmy](https://x.com/met_lparmy) | Printboard, bounty, academy |
+| [@MeteoraAG](https://x.com/MeteoraAG) | Update produk resmi |
+| [@web3probe](https://x.com/web3probe) | Mega-thread DLMM + meme strategy |
+| [@Jaypee_Sol](https://x.com/Jaypee_Sol) | LP Army content threads |
+| [@MeteoraIDN](https://x.com/MeteoraIDN) | Komunitas LP Indonesia |
+
+### Tier 2 — Mingguan (strategi)
+
+| Akun | Fokus |
+|------|-------|
+| [@Heavymetalcook6](https://x.com/Heavymetalcook6) | Lead bootcamp LP Army |
+| [@tendorian9](https://x.com/tendorian9) | Evil Panda — ATH + wide range |
+| [@bengsharksol](https://x.com/bengsharksol) | Zen bid-ask, IL protection |
+| [@MeteoraFR](https://x.com/MeteoraFR) | 5 checks anti-rug, bin step |
+| [@GeekLad](https://x.com/GeekLad) | DLMM screener + simulator |
+| [@Friday_SOL](https://x.com/Friday_SOL) | Market structure HH/HL |
+| [@0xSoju](https://x.com/0xSoju) | Co-Lead Meteora macro |
+| [@0xmiir](https://x.com/0xmiir) | Product changelog Meteora |
+
+### Tier 3 — Automation / bot builder
+
+| Akun | Produk |
+|------|--------|
+| [@meridian_agent](https://x.com/meridian_agent) | Autonomous DLMM agent (kita) |
+| [@met_engine](https://x.com/met_engine) | Copy LP, Telegram, DAMM v2 |
+| [@liquid_nova](https://x.com/liquid_nova) | Auto-rebalance, wallet copy |
+| [@SOL_Decoder](https://x.com/SOL_Decoder) | DLMM farmer Discord |
+| [@ponkexchange](https://x.com/ponkexchange) | Ponk Clouds autonomous LP |
+| [@UnifaiNetwork](https://x.com/UnifaiNetwork) | AI agent infra (umum) |
+| [@UseUltraLP](https://x.com/UseUltraLP) | PnL copilot |
+| [@DLMMAlert](https://x.com/DLMMAlert) | Alert Telegram read-only |
+| [@RocketScan_fun](https://x.com/RocketScan_fun) | Pool scanner on-chain |
+
+### Keyword GetXAPI (`advanced_search`, param `q`)
+
+```
+from:met_lparmy Printboard
+from:met_lparmy fee printing
+"autonomous DLMM" OR "Meteora bot"
+"rebalance bot" Meteora
+from:web3probe Meteora
+from:bengsharksol Meteora
+```
+
+### CLI scrape
+
+```bash
+cd /root/meridian
+python3 scripts/x_scrape_lp.py                  # Tier 1 harian + search
+python3 scripts/x_scrape_lp.py --tier all       # semua tier
+python3 scripts/x_scrape_lp.py --threads          # + resolve thread/pinned
+python3 scripts/x_scrape_lp.py --user web3probe --count 15
+python3 scripts/x_thread.py <url>                 # single thread manual
+```
+
+**Hermes & Claude:** baca `notes/x-scrape/YYYY-MM-DD.md` tiap sesi via `notes/SESSION_START.md`; skill `meridian-lp-strategy` Langkah 0 wajib. Cron: `05:00 UTC` via `scripts/run_x_scrape_cron.sh` (Minggu + `--threads`).
+

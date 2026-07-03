@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import { repoPath } from "./repo-root.js";
+import { atomicWriteFileSync } from "./utils/atomic-write.js";
 
 const DEFAULT_ENV_PATH = repoPath(".env");
 const DEFAULT_KEY_PATH = repoPath(".envrypt");
@@ -116,7 +117,7 @@ export function encryptEnvRaw({
     }
   }
 
-  fs.writeFileSync(outPath, `${lines.join("\n").replace(/\n+$/, "")}\n`);
+  atomicWriteFileSync(outPath, `${lines.join("\n").replace(/\n+$/, "")}\n`);
   return { rawPath, outPath };
 }
 

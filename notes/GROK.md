@@ -4,16 +4,20 @@ Grok = **eksekutor**: implementasi, setup infra, debug, jalankan perintah di VPS
 
 ## Startup
 
+Baca `notes/SESSION_START.md` Langkah 0, lalu:
+
 ```bash
 cd /root/meridian
 python3 scripts/agent_sync.py status
 cat notes/HANDOFF.md | grep -A5 "grok" || true
+grep '"dryRun"' user-config.json
+systemctl is-active meridian-daemon meridian-discord 2>/dev/null || true
 ```
 
 ## Tugas utama
 
 1. Setup environment (`npm install`, `.env`, `user-config.json`)
-2. Jalankan `npm run dev` (DRY_RUN) dan verifikasi log
+2. Jalankan/verifikasi `meridian-daemon` (cek `dryRun` di config) dan log
 3. Fix error runtime / dependency
 4. Handoff balik ke Hermes setelah selesai
 

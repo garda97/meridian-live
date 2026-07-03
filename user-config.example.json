@@ -86,6 +86,7 @@
   "trailingTriggerPct": 3,
   "trailingDropPct": 1.5,
   "pnlSanityMaxDiffPct": 5,
+  "dailyLossLimitUsd": null,
   "partialTpEnabled": false,
   "partialTpTriggerPct": 5,
   "partialTpClosePct": 50,

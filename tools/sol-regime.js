@@ -2,6 +2,7 @@ import fs from "fs";
 import { log } from "../logger.js";
 import { repoPath } from "../repo-root.js";
 import { config } from "../config.js";
+import { atomicWriteFileSync } from "../utils/atomic-write.js";
 
 const SNAPSHOT_FILE = repoPath("sol-regime-snapshots.json");
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -22,7 +23,7 @@ function saveSnapshots(snapshots) {
     .filter((s) => s?.price > 0 && s?.ts > 0)
     .sort((a, b) => a.ts - b.ts)
     .slice(-500);
-  fs.writeFileSync(SNAPSHOT_FILE, JSON.stringify({ snapshots: pruned }, null, 2));
+  atomicWriteFileSync(SNAPSHOT_FILE, JSON.stringify({ snapshots: pruned }, null, 2));
 }
 
 /**
