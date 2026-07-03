@@ -150,6 +150,12 @@ export const config = {
     trailingTriggerPct:    u.trailingTriggerPct    ?? 3,    // activate trailing at X% PnL
     trailingDropPct:       u.trailingDropPct       ?? 1.5,  // close when drops X% from peak
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
+    // Partial take-profit (DCA-out) — one-time partial liquidity removal at profit,
+    // position account stays open and keeps running under SL/trailing
+    partialTpEnabled:      u.partialTpEnabled      ?? false,
+    partialTpTriggerPct:   u.partialTpTriggerPct   ?? 5,    // fire once when confirmed PnL reaches X%
+    partialTpClosePct:     u.partialTpClosePct     ?? 50,   // % of liquidity to remove (clamped 1-99)
+    partialTpMinRemainUsd: u.partialTpMinRemainUsd ?? 10,   // skip if remaining value would fall below this (SOL units when solMode)
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
   },
@@ -296,6 +302,7 @@ export const config = {
 
   indicators: {
     enabled: indicatorUserConfig.enabled ?? false,
+    entryEnabled: indicatorUserConfig.entryEnabled !== false,
     entryPreset: indicatorUserConfig.entryPreset ?? "supertrend_break",
     exitPreset: indicatorUserConfig.exitPreset ?? "supertrend_break",
     rsiLength: indicatorUserConfig.rsiLength ?? 2,

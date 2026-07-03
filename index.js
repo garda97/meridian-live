@@ -5,14 +5,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
-import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
+import { getMyPositions, closePosition, partialClosePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates, degenScore } from "./tools/screening.js";
 import { checkPositionChartExit } from "./tools/chart-indicators.js";
 import { config, reloadScreeningThresholds, computeDeployAmount, minTokenFeesSolForMcap } from "./config.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
 import { recordScreeningOutcome } from "./filter-autotune.js";
-import { executeTool, registerCronRestarter } from "./tools/executor.js";
+import { executeTool, registerCronRestarter, swapBaseToSolWithRetry } from "./tools/executor.js";
 import {
   startPolling,
   stopPolling,
@@ -28,7 +28,7 @@ import {
   createLiveMessage,
 } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
-import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, confirmPeak, registerExitSignal } from "./state.js";
+import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, confirmPeak, registerExitSignal, shouldPartialTakeProfit } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -833,7 +833,31 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
         // Require N consecutive confirming ticks before acting.
         const { fire } = registerExitSignal(p.position, signal, confirmTicks);
-        if (!signal || !fire) continue;
+        if (!signal || !fire) {
+          // No exit signal this tick — check the one-time partial TP (DCA-out).
+          // Exits always win: partial only runs when nothing else fired. Anti-noise
+          // comes from requiring the CONFIRMED peak >= trigger (confirmPeak ticks).
+          if (!signal && config.management.partialTpEnabled) {
+            const partial = shouldPartialTakeProfit(getTrackedPosition(p.position), p, config.management);
+            if (partial) {
+              log("state", `[PnL poll] PARTIAL_TP: ${p.pair} — ${partial.reason}`);
+              _managementBusy = true;
+              try {
+                const res = await partialClosePosition({ position_address: p.position, close_pct: partial.close_pct, reason: partial.reason });
+                if (res?.success && config.management.autoSwapAfterClose && res.base_mint && res.base_mint !== config.tokens.SOL) {
+                  await swapBaseToSolWithRetry(res.base_mint, "post-partial-close");
+                }
+                log("state", `[PnL poll] ${p.pair}: partial close ${res?.success ? `OK (${partial.close_pct}%)` : `FAILED — ${res?.error || "unknown"}`}`);
+              } catch (e) {
+                log("cron_error", `Poll-triggered partial close failed: ${e.message}`);
+              } finally {
+                _managementBusy = false;
+              }
+              break; // one action per tick
+            }
+          }
+          continue;
+        }
 
         log("state", `[PnL poll] ${signal} confirmed (${confirmTicks} ticks): ${p.pair} — ${reason} — closing directly`);
         // Hold the management lock so the cron cycle can't double-act on this position.
