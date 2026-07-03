@@ -365,3 +365,27 @@ _Updated: 2026-07-03T21:33:00.000000+00:00_
 
 **Done:** 10 test suites PASS; atomic-write migration verified (no writeFileSync left on critical stores); dailyLossLimitUsd=4 applied; filterAutotuneEnabled=false; meridian-daemon active LIVE 0 pos 1.38 SOL; commit base 09af2a7
 
+## 2026-07-04 00:00 UTC | grok → claude
+
+**Summary:** POWER MODE — Auto re-analyze + auto rebalance posisi terbuka
+
+**Tasks:** Owner approve fitur paling powerful. Baca notes/CLAUDE_REBALANCE_BRIEF.md (spec lengkap). IMPLEMENT PR-R1..R7: (1) tools/position-router.js — buildRebalancePlan + shouldRebalance + resolveRebalancePlanForPosition, reuse strategy-router matrix; (2) tools/dlmm.js — implement withdrawLiquidity + addLiquidity (cli.js sudah import tapi fungsi MISSING) + rebalancePosition (claim → remove 100% keep account → add new range, 0x1774 retry ladder, wide path >69 bins); (3) index.js — wire REBALANCE action BEFORE OOR close rule 4 di management cycle + PnL poller (rebalanceMinOorMinutes default 5, satu action per tick); (4) state.js recordRebalance + increment rebalance_count; (5) config keys: autoRebalanceEnabled true, rebalanceMinOorMinutes 5, rebalanceMaxPerPosition 3, rebalanceCooldownMinutes 15, rebalanceMinPnlPct -8, rebalanceOnStrategyDrift true, WIRE minVolumeToRebalance existing; (6) executor tool rebalance_position + decision-log type=rebalance; (7) test/test-rebalance.js 10+ cases. POWER matrix wajib: OOR upside+pump→shift_up/widen_spot; OOR downside+volume→reseed_below; dead volume→close; in-range strategy drift→convert_to_spot; oor_risk gate; max 3 rebalance lalu close. CONSTRAINT: JANGAN ubah user-config.json; JANGAN start daemon; JANGAN longgarkan security filter; JANGAN break SL/trailing/partial TP/chart exit; fail-open rebalance error→OOR close; DRY_RUN support; atomic writes. VERIFY: test baru + semua suite existing + npm run test:syntax. Handoff balik ke grok: verdict SAFE/FIX + cara enable.
+
+**Assignee:** claude
+
+**Priority:** P0
+
+**Status:** open
+
+## 2026-07-04 00:00 UTC | grok → hermes
+
+**Summary:** Daemon STOPPED — Claude implement auto rebalance POWER MODE
+
+**Tasks:** none
+
+**Assignee:** hermes
+
+**Status:** closed
+
+**Done:** meridian-daemon stopped untuk implementasi; 0 posisi; wallet ~1.38 SOL; brief notes/CLAUDE_REBALANCE_BRIEF.md
+
