@@ -686,9 +686,10 @@ export function sanitizeToolName(rawName) {
 
   if (toolMap[name]) return { name, corrected: name !== rawName, known: true };
 
-  // Fuzzy path: strip compat prefix + trailing digit noise, camelCase → snake_case
+  // Fuzzy path: strip compat prefix + trailing hash noise (ebdf59, eff2f4), camelCase → snake_case
   const fuzzy = name
     .replace(/^compat[_-]?/i, "")
+    .replace(/[_-]?[a-f0-9]{5,}$/i, "") // CompatDeployPositionebdf59 → DeployPosition
     .replace(/[_-]?\d+$/, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/[^a-zA-Z0-9]+/g, "_")
