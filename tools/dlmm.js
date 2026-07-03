@@ -21,6 +21,8 @@ import {
   recordClose,
   recordPartialTpAttempt,
   markPartialTpDone,
+  recordRebalance,
+  recordRebalanceAttempt,
   getTrackedPosition,
   minutesOutOfRange,
   syncOpenPositions,
@@ -1852,6 +1854,438 @@ export async function partialClosePosition({ position_address, close_pct = 50, r
     };
   } catch (error) {
     log("partial_close_error", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// ─── Liquidity primitives (used by cli.js + rebalance) ─────────
+
+async function resolveStrategyType(strategy) {
+  const { StrategyType } = await getDLMM();
+  const map = { spot: StrategyType.Spot, curve: StrategyType.Curve, bid_ask: StrategyType.BidAsk };
+  const type = map[strategy];
+  if (type === undefined) throw new Error(`Invalid strategy: ${strategy}. Use spot, curve, or bid_ask.`);
+  return type;
+}
+
+/**
+ * Remove liquidity from an existing position without closing the account.
+ * bps 10000 = 100%. Returns the pre-withdraw X/Y amounts (raw lamport strings)
+ * so callers (rebalance) know the re-add budget.
+ */
+export async function withdrawLiquidity({ position_address, pool_address, bps = 10000, claim_fees = true }) {
+  position_address = normalizeMint(position_address);
+  const clampedBps = Math.min(Math.max(Math.round(Number(bps) || 10000), 1), 10000);
+  if (process.env.DRY_RUN === "true") {
+    return { dry_run: true, would_withdraw: position_address, bps: clampedBps, message: "DRY RUN — no transaction sent" };
+  }
+  try {
+    const wallet = getWallet();
+    const poolAddress = pool_address || (await lookupPoolForPosition(position_address, wallet.publicKey.toString()));
+    poolCache.delete(String(poolAddress));
+    const pool = await getPool(poolAddress);
+    const positionPubKey = new PublicKey(position_address);
+
+    const claimTxHashes = [];
+    if (claim_fees) {
+      try {
+        const positionData = await pool.getPosition(positionPubKey);
+        const claimTxs = await pool.claimSwapFee({ owner: wallet.publicKey, position: positionData });
+        for (const tx of claimTxs || []) {
+          claimTxHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
+        }
+        if (claimTxHashes.length) recordClaim(position_address);
+      } catch (e) {
+        log("withdraw_warn", `Claim before withdraw failed or nothing to claim: ${e.message}`);
+      }
+    }
+
+    const positionForRemove = await pool.getPosition(positionPubKey);
+    const processed = positionForRemove?.positionData;
+    const fromBinId = processed?.lowerBinId ?? -887272;
+    const toBinId = processed?.upperBinId ?? 887272;
+    const withdrawnX = String(processed?.totalXAmount ?? "0");
+    const withdrawnY = String(processed?.totalYAmount ?? "0");
+
+    const removeTx = await pool.removeLiquidity({
+      user: wallet.publicKey,
+      position: positionPubKey,
+      fromBinId,
+      toBinId,
+      bps: new BN(clampedBps),
+      shouldClaimAndClose: false,
+    });
+    const removeTxHashes = [];
+    for (const tx of Array.isArray(removeTx) ? removeTx : [removeTx]) {
+      removeTxHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
+    }
+    _positionsCacheAt = 0;
+    log("withdraw", `Removed ${clampedBps / 100}% liquidity from ${position_address.slice(0, 8)}: ${removeTxHashes.join(", ")}`);
+
+    return {
+      success: true,
+      position: position_address,
+      pool: String(poolAddress),
+      bps: clampedBps,
+      claim_txs: claimTxHashes,
+      remove_txs: removeTxHashes,
+      withdrawn_x: withdrawnX,
+      withdrawn_y: withdrawnY,
+      lower_bin: fromBinId,
+      upper_bin: toBinId,
+      base_mint: pool.lbPair.tokenXMint.toString(),
+    };
+  } catch (error) {
+    log("withdraw_error", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Add liquidity to an EXISTING position at its current bin range.
+ * amount_x / amount_y in human units; amount_x_lamports / amount_y_lamports
+ * (BN-able) override them for exact re-adds.
+ */
+export async function addLiquidity({
+  position_address,
+  pool_address,
+  amount_x = 0,
+  amount_y = 0,
+  strategy = "spot",
+  single_sided_x = false,
+  amount_x_lamports = null,
+  amount_y_lamports = null,
+}) {
+  position_address = normalizeMint(position_address);
+  if (process.env.DRY_RUN === "true") {
+    return { dry_run: true, would_add_to: position_address, amount_x, amount_y, strategy, message: "DRY RUN — no transaction sent" };
+  }
+  try {
+    const wallet = getWallet();
+    const poolAddress = pool_address || (await lookupPoolForPosition(position_address, wallet.publicKey.toString()));
+    poolCache.delete(String(poolAddress));
+    const pool = await getPool(poolAddress);
+    const positionPubKey = new PublicKey(position_address);
+    const strategyType = await resolveStrategyType(strategy);
+
+    const existing = await pool.getPosition(positionPubKey);
+    const minBinId = existing?.positionData?.lowerBinId;
+    const maxBinId = existing?.positionData?.upperBinId;
+    if (minBinId == null || maxBinId == null) throw new Error("Position bin range unavailable");
+
+    let totalXAmount = new BN(0);
+    if (amount_x_lamports != null) {
+      totalXAmount = new BN(String(amount_x_lamports));
+    } else if (amount_x > 0) {
+      const mintInfo = await getConnection().getParsedAccountInfo(new PublicKey(pool.lbPair.tokenXMint));
+      const decimals = mintInfo.value?.data?.parsed?.info?.decimals ?? 9;
+      totalXAmount = new BN(Math.floor(amount_x * Math.pow(10, decimals)));
+    }
+    let totalYAmount = amount_y_lamports != null
+      ? new BN(String(amount_y_lamports))
+      : new BN(Math.floor((single_sided_x ? 0 : amount_y) * 1e9));
+
+    const isWide = maxBinId - minBinId + 1 > 69;
+    const txHashes = [];
+    const params = {
+      positionPubKey,
+      user: wallet.publicKey,
+      totalXAmount,
+      totalYAmount,
+      strategy: { minBinId, maxBinId, strategyType },
+      slippage: 10,
+    };
+    if (isWide) {
+      const txs = await pool.addLiquidityByStrategyChunkable(params);
+      for (const tx of Array.isArray(txs) ? txs : [txs]) {
+        txHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
+      }
+    } else {
+      const tx = await pool.addLiquidityByStrategy({ ...params, slippage: 1000 });
+      for (const t of Array.isArray(tx) ? tx : [tx]) {
+        txHashes.push(await sendAndConfirmTransaction(getConnection(), t, [wallet]));
+      }
+    }
+    _positionsCacheAt = 0;
+    log("add_liquidity", `Added liquidity to ${position_address.slice(0, 8)} (${strategy}, bins ${minBinId}→${maxBinId}): ${txHashes.join(", ")}`);
+    return { success: true, position: position_address, pool: String(poolAddress), txs: txHashes, min_bin: minBinId, max_bin: maxBinId, strategy };
+  } catch (error) {
+    log("add_liquidity_error", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// ─── Rebalance (POWER MODE) ────────────────────────────────────
+
+/**
+ * Reposition an open position to a fresh range from a position-router plan:
+ * claim → remove 100% (account kept) → re-add at the new range.
+ *
+ * DLMM position accounts have a FIXED bin allocation set at creation, so a
+ * range that still fits the old account re-adds in place ("in_place" path);
+ * a shifted range migrates to a new account and reclaims the old rent
+ * ("migrate" path — the common case for shift_up / reseed_below).
+ *
+ * Fail-open: if the re-add fails after the 0x1774 ladder, the withdrawn funds
+ * stay in the wallet, the empty account is reclaimed, and the position is
+ * marked closed with reason "rebalance failed" — the screener redeploys later.
+ */
+export async function rebalancePosition({ position_address, plan, reason }) {
+  position_address = normalizeMint(position_address);
+  if (!plan || (plan.bins_below == null && plan.bins_above == null)) {
+    return { success: false, error: "rebalance plan with bins_below/bins_above required" };
+  }
+  if (process.env.DRY_RUN === "true") {
+    return {
+      dry_run: true,
+      would_rebalance: position_address,
+      rebalance_type: plan.rebalance_type,
+      strategy: plan.strategy,
+      bins: `${plan.bins_below}/${plan.bins_above}`,
+      message: "DRY RUN — no transaction sent",
+    };
+  }
+
+  const tracked = getTrackedPosition(position_address);
+  if (tracked?.closed) return { success: false, error: "Position already closed" };
+
+  // Cooldown stamp up front — a failing rebalance must not retry every tick
+  recordRebalanceAttempt(position_address);
+
+  try {
+    const wallet = getWallet();
+    const poolAddress = await lookupPoolForPosition(position_address, wallet.publicKey.toString());
+    const poolMeta = await getPoolMetadata(poolAddress);
+    poolCache.delete(String(poolAddress));
+    const pool = await getPool(poolAddress);
+    try {
+      await pool.refetchStates(); // 0x1774 lesson: never anchor to a stale active bin
+    } catch (e) {
+      log("rebalance_warn", `refetchStates failed (${e.message}) — using getActiveBin only`);
+    }
+
+    // Step 1+2: claim + remove 100%, capture the re-add budget
+    const withdrawn = await withdrawLiquidity({ position_address, pool_address: String(poolAddress), bps: 10000, claim_fees: true });
+    if (!withdrawn.success) {
+      return { success: false, error: `Withdraw failed: ${withdrawn.error}` };
+    }
+    const oldLower = withdrawn.lower_bin;
+    const oldUpper = withdrawn.upper_bin;
+    let budgetX = new BN(withdrawn.withdrawn_x || "0");
+    let budgetY = new BN(withdrawn.withdrawn_y || "0");
+
+    // Token-heavy after a dump-through: give the withdrawn token an ask side
+    // to sell into the bounce (single_sided_reseed doctrine).
+    let binsBelow = Math.max(0, Number(plan.bins_below) || 0);
+    let binsAbove = Math.max(0, Number(plan.bins_above) || 0);
+    if (budgetX.gt(new BN(0)) && binsAbove === 0) {
+      binsAbove = Math.max(1, Math.ceil(binsBelow / 3));
+      log("rebalance", `Withdrawn base-token budget > 0 with no ask side — extending ${binsAbove} bins above for the bounce`);
+    }
+
+    const spotFeeTvlMin = Number(config.autoStrategy?.spotFeeTvlMin ?? 2);
+    let runStrategy = plan.strategy || "bid_ask";
+    let runBinsBelow = binsBelow;
+    let runBinsAbove = binsAbove;
+    let added = null;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= 3; attempt++) {
+      if (attempt > 0) {
+        const step = planBinSlippageRetry(attempt, {
+          strategy: runStrategy,
+          binsBelow: runBinsBelow,
+          binsAbove: runBinsAbove,
+          feeTvlRatio: plan.fee_tvl_ratio ?? null,
+          minBinsBelow: config.strategy.minBinsBelow,
+          spotFeeTvlMin,
+        });
+        if (step.action === "stop") {
+          log("rebalance", `0x1774 ladder exhausted — ${step.reason}`);
+          break;
+        }
+        runStrategy = step.strategy;
+        runBinsBelow = step.binsBelow;
+        runBinsAbove = step.binsAbove;
+        try { await pool.refetchStates(); } catch { /* fresh bin below still re-fetched */ }
+      }
+
+      const freshBin = await pool.getActiveBin();
+      const minBinId = freshBin.binId - runBinsBelow;
+      const maxBinId = freshBin.binId + runBinsAbove;
+      const strategyType = await resolveStrategyType(runStrategy);
+      const fitsOldAccount = minBinId >= oldLower && maxBinId <= oldUpper;
+      const isWide = maxBinId - minBinId + 1 > 69;
+
+      try {
+        await assertRangeDoesNotRequireBinArrayInitialization(pool, minBinId, maxBinId);
+        const txHashes = [];
+        let newPositionAddress = position_address;
+        let path;
+
+        if (fitsOldAccount) {
+          // In-place: same account, new distribution (convert_to_spot case)
+          path = "in_place";
+          const params = {
+            positionPubKey: new PublicKey(position_address),
+            user: wallet.publicKey,
+            totalXAmount: budgetX,
+            totalYAmount: budgetY,
+            strategy: { minBinId, maxBinId, strategyType },
+          };
+          const txs = isWide
+            ? await pool.addLiquidityByStrategyChunkable({ ...params, slippage: 10 })
+            : await pool.addLiquidityByStrategy({ ...params, slippage: 1000 });
+          for (const tx of Array.isArray(txs) ? txs : [txs]) {
+            txHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
+          }
+        } else {
+          // Migrate: new account at the shifted range, then reclaim old rent
+          path = "migrate";
+          const newPosition = Keypair.generate();
+          newPositionAddress = newPosition.publicKey.toString();
+          if (isWide) {
+            const createTxs = await pool.createExtendedEmptyPosition(minBinId, maxBinId, newPosition.publicKey, wallet.publicKey);
+            const createTxArray = Array.isArray(createTxs) ? createTxs : [createTxs];
+            for (let i = 0; i < createTxArray.length; i++) {
+              txHashes.push(await sendAndConfirmTransaction(getConnection(), createTxArray[i], i === 0 ? [wallet, newPosition] : [wallet]));
+            }
+            const addTxs = await pool.addLiquidityByStrategyChunkable({
+              positionPubKey: newPosition.publicKey,
+              user: wallet.publicKey,
+              totalXAmount: budgetX,
+              totalYAmount: budgetY,
+              strategy: { minBinId, maxBinId, strategyType },
+              slippage: 10,
+            });
+            for (const tx of Array.isArray(addTxs) ? addTxs : [addTxs]) {
+              txHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
+            }
+          } else {
+            const tx = await pool.initializePositionAndAddLiquidityByStrategy({
+              positionPubKey: newPosition.publicKey,
+              user: wallet.publicKey,
+              totalXAmount: budgetX,
+              totalYAmount: budgetY,
+              strategy: { minBinId, maxBinId, strategyType },
+              slippage: 1000,
+            });
+            txHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet, newPosition]));
+          }
+          // Old account is now empty — reclaim its rent (best effort)
+          try {
+            const orphan = await pool.getPosition(new PublicKey(position_address));
+            const closeTx = await pool.closePositionIfEmpty({ owner: wallet.publicKey, position: orphan });
+            if (closeTx) {
+              txHashes.push(await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]));
+              log("rebalance", `Reclaimed old position account ${position_address.slice(0, 8)}`);
+            }
+          } catch (e) {
+            log("rebalance_warn", `Could not reclaim old account ${position_address.slice(0, 8)}: ${e.message}`);
+          }
+        }
+
+        added = {
+          txHashes,
+          path,
+          newPositionAddress,
+          minBinId,
+          maxBinId,
+          activeBinId: freshBin.binId,
+          strategy: runStrategy,
+          binsBelow: runBinsBelow,
+          binsAbove: runBinsAbove,
+          retries: attempt,
+        };
+        break;
+      } catch (error) {
+        lastError = error;
+        if (!isBinSlippageError(error)) break;
+        log("rebalance", `Bin slippage (0x1774) on rebalance attempt ${attempt}: ${error.message}`);
+      }
+    }
+
+    _positionsCacheAt = 0;
+
+    if (!added) {
+      // Fail-open: withdrawn funds are in the wallet; reclaim the empty
+      // account and hand the pool back to the screener.
+      const failMsg = lastError?.message ?? "re-add exhausted the retry ladder";
+      log("rebalance_error", `Re-add failed after withdraw (${failMsg}) — closing empty account, funds stay in wallet`);
+      try {
+        const orphan = await pool.getPosition(new PublicKey(position_address));
+        const closeTx = await pool.closePositionIfEmpty({ owner: wallet.publicKey, position: orphan });
+        if (closeTx) await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]);
+      } catch (e) {
+        log("rebalance_warn", `Empty-account reclaim failed: ${e.message}`);
+      }
+      recordClose(position_address, `rebalance failed after withdraw (${failMsg}) — funds returned to wallet`);
+      appendDecision({
+        type: "close",
+        actor: "MANAGER",
+        pool: String(poolAddress),
+        pool_name: tracked?.pool_name || poolMeta.name || String(poolAddress).slice(0, 8),
+        position: position_address,
+        summary: "Rebalance failed after withdraw — position closed, funds in wallet",
+        reason: reason || plan.reason || "rebalance failed",
+        metrics: { exit_signal_type: "rebalance_failed", rebalance_type: plan.rebalance_type },
+      });
+      return { success: false, error: `Rebalance re-add failed: ${failMsg}`, funds_withdrawn: true, position_closed: true };
+    }
+
+    const updated = recordRebalance(position_address, {
+      plan: {
+        ...plan,
+        strategy: added.strategy,
+        bins_below: added.binsBelow,
+        bins_above: added.binsAbove,
+        min_bin: added.minBinId,
+        max_bin: added.maxBinId,
+      },
+      tx_hashes: added.txHashes,
+      new_position: added.newPositionAddress !== position_address ? added.newPositionAddress : null,
+    });
+
+    appendDecision({
+      type: "rebalance",
+      actor: "MANAGER",
+      pool: String(poolAddress),
+      pool_name: tracked?.pool_name || poolMeta.name || String(poolAddress).slice(0, 8),
+      position: added.newPositionAddress,
+      summary: `Rebalanced (${plan.rebalance_type}, ${added.path}): ${added.strategy} ${added.binsBelow}/${added.binsAbove} @ bin ${added.activeBinId}`,
+      reason: reason || plan.reason || "rebalance",
+      metrics: {
+        rebalance_type: plan.rebalance_type,
+        rebalance_path: added.path,
+        rebalance_count: updated?.rebalance_count ?? null,
+        market_view: plan.market_view ?? null,
+        oor_direction: plan.oor_direction ?? null,
+        oor_risk: plan.oor_risk ?? null,
+        bins_used: added.binsBelow + added.binsAbove,
+        min_bin: added.minBinId,
+        max_bin: added.maxBinId,
+        active_bin: added.activeBinId,
+        deploy_retries: added.retries,
+        old_position: added.newPositionAddress !== position_address ? position_address : null,
+      },
+    });
+
+    log("rebalance", `SUCCESS (${added.path}) — ${plan.rebalance_type}: ${added.strategy} ${added.binsBelow}/${added.binsAbove} @ ${added.activeBinId}, ${added.txHashes.length} tx(s)`);
+    return {
+      success: true,
+      position: added.newPositionAddress,
+      old_position: position_address,
+      pool: String(poolAddress),
+      pool_name: tracked?.pool_name || poolMeta.name || null,
+      rebalance_type: plan.rebalance_type,
+      rebalance_path: added.path,
+      strategy: added.strategy,
+      bin_range: { min: added.minBinId, max: added.maxBinId, active: added.activeBinId },
+      txs: added.txHashes,
+      retries: added.retries,
+    };
+  } catch (error) {
+    log("rebalance_error", error.message);
     return { success: false, error: error.message };
   }
 }

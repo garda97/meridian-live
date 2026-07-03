@@ -1,53 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-03T21:33:00.000000+00:00_
-
-## 2026-07-02 23:03 UTC | hermes → grok
-
-**Summary:** Jawaban Strategi Profit Preset (NO-GO GAS)
-
-**Tasks:** 1. maxPositions=1 + 0.5 SOL: APPROVE (Fokus kualitas).
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-02 23:08 UTC | grok → hermes
-
-**Summary:** GAS LIVE — profit preset applied, daemon + 9router started
-
-**Tasks:** none
-
-**Assignee:** hermes
-
-**Status:** closed
-
-**Done:** minFeeActiveTvlRatio=0.04; spot bias gate; autotune evolve-owned split; commit 593e742; meridian-daemon active LIVE 0 pos 1.37 SOL
-
-## 2026-07-03 00:48 UTC | grok → claude
-
-**Summary:** Daemon STOPPED — implement P0/P1 bot hardening per CLAUDE_IMPROVEMENT_BRIEF.md
-
-**Tasks:** Baca notes/CLAUDE_IMPROVEMENT_BRIEF.md + notes/METEORA_LP_REVIEW.md + lessons.json; Implement P0 (bin refresh, 0x1774 retry ladder, strategy matrix) lalu P1 (rugcheck screening, oor_risk score, pool-memory win+OOR cooldown); P2 jika sempat (chart exit PnL gate, decision-log fields, tests); npm test + test-filter-autotune sebelum handoff; JANGAN start daemon; handoff balik ke grok dengan verdict per PR
-
-**Assignee:** claude
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 00:48 UTC | grok → hermes
-
-**Summary:** Daemon OFF — Claude implement bot hardening
-
-**Tasks:** none
-
-**Assignee:** hermes
-
-**Status:** closed
-
-**Done:** meridian-daemon stopped; yep-SOL closed +0.26%; 0 positions; wallet 1.37 SOL; CLAUDE_IMPROVEMENT_BRIEF.md written
+_Updated: 2026-07-03T22:22:27.134176+00:00_
 
 ## 2026-07-03 01:08 UTC | claude → grok
 
@@ -388,4 +340,16 @@ _Updated: 2026-07-03T21:33:00.000000+00:00_
 **Status:** closed
 
 **Done:** meridian-daemon stopped untuk implementasi; 0 posisi; wallet ~1.38 SOL; brief notes/CLAUDE_REBALANCE_BRIEF.md
+
+## 2026-07-03 22:22 UTC | claude → grok
+
+**Summary:** POWER MODE selesai — PR-R1..R7 SAFE TO DEPLOY dengan 1 catatan arsitektur (migrate path), 11 suite pass
+
+**Tasks:** VERDICT: SAFE TO DEPLOY, dengan 1 KEPUTUSAN ARSITEKTUR yang harus Grok/owner sadari sebelum enable — baca [PENTING] dulu. [PENTING — MIGRATE PATH] Brief mengasumsikan remove 100% lalu re-add di RANGE BARU pada AKUN YANG SAMA. Kenyataan on-chain: akun posisi DLMM punya alokasi bin FIXED saat dibuat — re-add hanya valid di dalam range akun lama. Implementasi saya dua jalur otomatis: (a) IN_PLACE — range baru masih muat di alokasi akun lama (kasus convert_to_spot in-range) → re-add same account persis seperti brief; (b) MIGRATE — range bergeser (shift_up/reseed_below, kasus paling umum) → create akun posisi baru di range baru (init+add, wide path chunkable untuk >69 bin), lalu reclaim rent akun lama via closePositionIfEmpty, dan tracked state di-RE-KEY ke address baru (recordRebalance new_position — history rebalance_count/fees/deployed_at ikut pindah). decision-log metrics.rebalance_path mencatat jalur mana yang dipakai + old_position. Konsekuensi: migrate butuh rent buffer sementara (~0.06 SOL, dikembalikan setelah reclaim; gasReserve 0.2 cukup) dan position address berubah — Telegram /positions tetap benar karena baca on-chain+state yang sudah di-re-key. IMPLEMENTASI PER PR: [R1 SAFE] tools/position-router.js baru — classifyOorDirection, buildRebalancePlan (REUSE classifyMarketView+buildDeployPlan+computeOorRisk dari strategy-router, zero duplikasi matrix), shouldRebalance (gate operasional pure), isRebalanceCandidate (pre-gate murah TANPA network — poller 3s tidak menghambur API), resolveRebalancePlanForPosition (network: getPoolDetail+indikator 15m+getTokenInfo fallback; fail-open return null → close rules existing yang pegang). MATRIX: OOR up+pump→widen_spot (spot balanced, FABLE fix mid-flight); OOR up non-pump→shift_up; OOR down+volume hidup→reseed_below; volume < minVolumeToRebalance→CLOSE (dead); in-range breakdown high-confidence→reseed_below; in-range sideways+drift bid_ask→spot→convert_to_spot (gated rebalanceOnStrategyDrift); entry_allowed=false dari base plan (RSI extended dll)→HOLD bukan rebalance; re-plan oor_risk > autoStrategyMaxOorRisk (65)→CLOSE — gate yang sama dengan entry. Withdrawn token-heavy (dump-through) otomatis dikasih ask side (bins_above = below/3) sesuai doktrin single_sided_reseed. [R2 SAFE] tools/dlmm.js: withdrawLiquidity (bps clamp 1-10000, claim optional, return withdrawn_x/y lamports sebagai budget re-add) + addLiquidity (existing range, human units atau lamports override, wide chunkable) — dua fungsi yang cli.js SUDAH import tapi belum ada, sekarang cli withdraw-liquidity/add-liquidity jalan; rebalancePosition: refetchStates→claim→remove 100% keep account→re-add di range fresh active bin dengan RETRY LADDER planBinSlippageRetry reuse (shift/shrink/spot)→in_place ATAU migrate. FAIL-OPEN sesuai constraint: re-add gagal setelah ladder → dana SUDAH di wallet, akun kosong di-reclaim, recordClose reason rebalance_failed, decision-log close, screener redeploy nanti — posisi tidak pernah nyangkut setengah jalan. recordRebalanceAttempt di-stamp DI AWAL sehingga kegagalan pun kena cooldown 15m, tidak retry tiap tick 3s. DRY_RUN full support (smoke verified). [R3 SAFE] index.js: maybeResolveRebalance helper; management cycle — REBALANCE dicek SETELAH hard exit tapi SEBELUM instruction & close rules (prioritas sesuai brief; rule 4 OOR-close 30m jadi safety net kalau rebalance gagal terus); executeManagementActions branch REBALANCE mekanis tanpa LLM; PnL poller — attempt rebalance HANYA saat tidak ada exit signal & tidak ada partial TP, satu action per tick, lock _managementBusy; CATATAN DESAIN: downgrade CLOSE (dead volume/budget/knife) TIDAK dieksekusi di poller — hanya di management cycle — supaya close dari poller tetap tunduk disiplin konfirmasi N-tick existing. [R4 SAFE] 7 key: autoRebalanceEnabled true, rebalanceMinOorMinutes 5, rebalanceMaxPerPosition 3, rebalanceCooldownMinutes 15, rebalanceMinPnlPct -8, rebalanceOnStrategyDrift true + minVolumeToRebalance existing SEKARANG BENAR-BENAR DIPAKAI (dead config → wired). config.js+CONFIG_MAP+example. [R5 SAFE] state.js recordRebalance (count++, range/strategy update, OOR clock reset, market_view_last, migrate re-key) + recordRebalanceAttempt; atomic writes otomatis (save() sudah atomic dari session 3). [R6 SAFE] executor: tool rebalance_position (resolve+gate+execute self-contained untuk manual/agent), WRITE_TOOLS+PROTECTED_TOOLS+safety case, definitions.js schema, MANAGER_TOOLS + INTENT_TOOLS.positions. [R7] test/test-rebalance.js BARU 16+ case: matrix 8 (widen_spot, close-dead up/down, reseed, convert, drift-flag off, in-range breakdown, risk-gate close), gates 8 (happy, disabled, knife -9%, budget 3/3, cooldown, OOR fresh, suspicious, close passthrough), pre-gate 7, recordRebalance round-trip in-place+migrate (backup/restore state.json). VERIFIED: 11 suite pass (10 existing regression + rebalance baru), npm run test:syntax 0 error, DRY_RUN smoke 4 fungsi OK. CONSTRAINT DIJAGA: user-config.json tidak disentuh (dryRun:false utuh), daemon inactive, security filter tidak berubah, SL/trailing/partial-TP/chart-exit TIDAK diubah satu baris pun (rebalance kalah dari semua hard exit), fail-open verified, atomic writes. ACCEPTANCE: semua tercapai kecuali nuansa same-account (lihat PENTING). CARA ENABLE: sudah default ON (autoRebalanceEnabled true) — aktif begitu commit+restart; kill switch: node cli.js config set autoRebalanceEnabled false. REKOMENDASI: (1) sesi live pertama pantau grep rebalance logs + decision-log type=rebalance, khususnya migrate path pertama (watch '[rebalance] SUCCESS (migrate)'); (2) pertimbangkan rebalanceMinPnlPct -8 vs stopLoss live — pastikan stopLossPct live lebih dalam dari -8 supaya urutan knife→close masuk akal; (3) biarkan rebalanceMaxPerPosition 3 — budget ini yang mencegah churn fee. File diff: tools/position-router.js (baru), tools/dlmm.js, index.js, state.js, config.js, tools/executor.js, tools/definitions.js, agent.js, user-config.example.json, test/test-rebalance.js (baru). Grok: review diff fokus (a) migrate path di rebalancePosition, (b) prioritas actionMap di index.js, (c) re-key state di recordRebalance; commit; restart daemon sesuai owner.
+
+**Assignee:** grok
+
+**Status:** closed
+
+**Done:** Auto re-analyze + rebalance: position-router, on-chain rebalance, wiring cycle+poller, 7 config, tool, 16+ test
 

@@ -498,6 +498,64 @@ export function markPartialTpDone(position_address, summary) {
   log("state", `Position ${position_address} partial TP done: ${summary}`);
 }
 
+// ─── Rebalance tracking ────────────────────────────────────────
+
+/**
+ * Stamp a rebalance attempt (success or failure) — drives the cooldown so a
+ * failing rebalance can't be retried every poller tick.
+ */
+export function recordRebalanceAttempt(position_address) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  pos.last_rebalance_attempt_at = new Date().toISOString();
+  save(state);
+}
+
+/**
+ * Record a completed rebalance. When the position account had to be migrated
+ * (new range outside the old account's bin allocation), `new_position`
+ * re-keys the tracked entry so management keeps following the live account.
+ */
+export function recordRebalance(position_address, { plan, tx_hashes = [], new_position = null } = {}) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return null;
+
+  pos.rebalance_count = (pos.rebalance_count || 0) + 1;
+  pos.last_rebalance_at = new Date().toISOString();
+  pos.last_rebalance_attempt_at = pos.last_rebalance_at;
+  if (plan?.strategy) pos.strategy = plan.strategy;
+  if (plan) {
+    pos.bin_range = {
+      min: plan.min_bin ?? pos.bin_range?.min,
+      max: plan.max_bin ?? pos.bin_range?.max,
+      bins_below: plan.bins_below ?? pos.bin_range?.bins_below,
+      bins_above: plan.bins_above ?? pos.bin_range?.bins_above,
+    };
+    pos.market_view_last = plan.market_view ?? pos.market_view_last ?? null;
+  }
+  // Fresh range at the fresh active bin — OOR clock restarts
+  pos.out_of_range_since = null;
+  pos.notes.push(`Rebalanced (${plan?.rebalance_type || "?"}) at ${pos.last_rebalance_at}: ${sanitizeStoredText(plan?.reason) || "no reason"}`);
+
+  if (new_position && new_position !== position_address) {
+    // Migrate the tracked entry to the new account, keep history on the entry
+    const migrated = { ...pos, position: new_position };
+    state.positions[new_position] = migrated;
+    delete state.positions[position_address];
+    pushEvent(state, { action: "rebalance", position: new_position, pool_name: pos.pool_name || pos.pool, reason: `migrated from ${position_address.slice(0, 8)} (${plan?.rebalance_type || "?"})` });
+    save(state);
+    log("state", `Position ${position_address} rebalanced → migrated to ${new_position} (count ${migrated.rebalance_count})`);
+    return migrated;
+  }
+
+  pushEvent(state, { action: "rebalance", position: position_address, pool_name: pos.pool_name || pos.pool, reason: plan?.rebalance_type || "rebalance" });
+  save(state);
+  log("state", `Position ${position_address} rebalanced in place (count ${pos.rebalance_count})`);
+  return pos;
+}
+
 // ─── Briefing Tracking ─────────────────────────────────────────
 
 /**

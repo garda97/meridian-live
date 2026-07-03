@@ -5,7 +5,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
-import { getMyPositions, closePosition, partialClosePosition, getActiveBin } from "./tools/dlmm.js";
+import { getMyPositions, closePosition, partialClosePosition, rebalancePosition, getActiveBin } from "./tools/dlmm.js";
+import { isRebalanceCandidate, resolveRebalancePlanForPosition, shouldRebalance } from "./tools/position-router.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { checkSolRegimeGate } from "./tools/sol-regime.js";
 import { isWithinDeployWindow } from "./utils/deploy-window.js";
@@ -169,6 +170,26 @@ function stopCronJobs() {
  * free-text condition JS can't parse, are handed to the MANAGER LLM. Returns a
  * one-line-per-position result string.
  */
+/**
+ * POWER MODE: cheap-gate, resolve, and decide a rebalance for one position.
+ * Returns an actionMap-shaped entry: REBALANCE (with plan), CLOSE (downgrade:
+ * dead volume / max count / deep PnL / risky re-plan), or null (hold — fall
+ * through to the existing deterministic rules).
+ */
+async function maybeResolveRebalance(p) {
+  const tracked = getTrackedPosition(p.position);
+  if (!isRebalanceCandidate({ position: p, tracked })) return null;
+  const plan = await resolveRebalancePlanForPosition({ position: p, tracked }).catch((e) => {
+    log("cron_error", `Rebalance plan resolution failed for ${p.pair}: ${e.message}`);
+    return null;
+  });
+  if (!plan) return null;
+  const decision = shouldRebalance({ plan, position: p, tracked });
+  if (decision.action === "rebalance") return { action: "REBALANCE", plan, reason: decision.reason };
+  if (decision.action === "close") return { action: "CLOSE", rule: "rebalance", reason: decision.reason };
+  return null;
+}
+
 async function executeManagementActions(actionPositions, actionMap, { liveMessage = null, cur = "$" } = {}) {
   const lines = [];
   const instructionPositions = [];
@@ -189,6 +210,14 @@ async function executeManagementActions(actionPositions, actionMap, { liveMessag
       const ok = res?.success !== false && !res?.error && !res?.blocked;
       await liveMessage?.toolFinish("close_position", res, ok);
       lines.push(`${p.pair}: ${ok ? `closed (${reason})` : `close FAILED — ${res?.error || res?.reason || "unknown"}`}`);
+    } else if (act.action === "REBALANCE") {
+      await liveMessage?.toolStart("rebalance_position");
+      const res = await rebalancePosition({ position_address: p.position, plan: act.plan, reason: act.reason }).catch(e => ({ error: e.message }));
+      const ok = res?.success === true;
+      await liveMessage?.toolFinish("rebalance_position", res, ok);
+      lines.push(`${p.pair}: ${ok
+        ? `rebalanced (${act.plan?.rebalance_type}, ${res.rebalance_path}) → bins ${res.bin_range?.min}→${res.bin_range?.max}`
+        : `rebalance FAILED — ${res?.error || "unknown"}${res?.position_closed ? " (position closed, funds in wallet)" : ""}`}`);
     } else if (act.action === "CLAIM") {
       await liveMessage?.toolStart("claim_fees");
       const res = await executeTool("claim_fees", { position_address: p.position }).catch(e => ({ error: e.message }));
@@ -283,6 +312,15 @@ export async function runManagementCycle({ silent = false } = {}) {
       if (exitMap.has(p.position)) {
         actionMap.set(p.position, { action: "CLOSE", rule: "exit", reason: exitMap.get(p.position) });
         continue;
+      }
+      // POWER MODE: re-analyze + reposition BEFORE the OOR close rule gets a
+      // chance to burn the position. Hold falls through to the rules below.
+      if (config.management.autoRebalanceEnabled !== false) {
+        const reb = await maybeResolveRebalance(p);
+        if (reb) {
+          actionMap.set(p.position, reb);
+          continue;
+        }
       }
       // Instruction-set — pass to LLM, can't parse in JS
       if (p.instruction) {
@@ -945,6 +983,27 @@ Summarize the current portfolio health, total fees earned, and performance of al
                 log("state", `[PnL poll] ${p.pair}: partial close ${res?.success ? `OK (${partial.close_pct}%)` : `FAILED — ${res?.error || "unknown"}`}`);
               } catch (e) {
                 log("cron_error", `Poll-triggered partial close failed: ${e.message}`);
+              } finally {
+                _managementBusy = false;
+              }
+              break; // one action per tick
+            }
+          }
+          // POWER MODE: no exit and no partial — attempt a rebalance once the
+          // OOR window + cooldown allow it (isRebalanceCandidate pre-gates so
+          // the 3s tick doesn't hammer APIs). Only the REBALANCE action runs
+          // here; close downgrades wait for the management cycle so poller
+          // closes keep their N-tick confirmation discipline.
+          if (!signal && config.management.autoRebalanceEnabled !== false) {
+            const reb = await maybeResolveRebalance(p).catch(() => null);
+            if (reb?.action === "REBALANCE") {
+              log("state", `[PnL poll] REBALANCE: ${p.pair} — ${reb.reason}`);
+              _managementBusy = true;
+              try {
+                const res = await rebalancePosition({ position_address: p.position, plan: reb.plan, reason: reb.reason });
+                log("state", `[PnL poll] ${p.pair}: rebalance ${res?.success ? `OK (${reb.plan.rebalance_type}, ${res.rebalance_path})` : `FAILED — ${res?.error || "unknown"}`}`);
+              } catch (e) {
+                log("cron_error", `Poll-triggered rebalance failed: ${e.message}`);
               } finally {
                 _managementBusy = false;
               }

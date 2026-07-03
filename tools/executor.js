@@ -7,12 +7,14 @@ import {
   getPositionPnl,
   claimFees,
   closePosition,
+  rebalancePosition,
   searchPools,
 } from "./dlmm.js";
+import { resolveRebalancePlanForPosition, shouldRebalance } from "./position-router.js";
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
-import { setPositionInstruction } from "../state.js";
+import { setPositionInstruction, getTrackedPosition } from "../state.js";
 
 import { getPoolMemory, addPoolNote } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
@@ -269,6 +271,31 @@ const toolMap = {
   check_smart_wallets_on_pool: checkSmartWalletsOnPool,
   claim_fees: claimFees,
   close_position: closePosition,
+  rebalance_position: async ({ position_address, reason }) => {
+    if (!position_address) return { error: "position_address required" };
+    const tracked = getTrackedPosition(position_address);
+    const live = await getMyPositions({ force: true, silent: true }).catch(() => null);
+    const position = live?.positions?.find((p) => p.position === position_address);
+    if (!position) return { error: `Position ${position_address} not found on-chain` };
+
+    const plan = await resolveRebalancePlanForPosition({ position, tracked });
+    if (!plan) return { error: "Could not resolve a rebalance plan (pool/indicator data unavailable)" };
+
+    const decision = shouldRebalance({ plan, position, tracked });
+    if (decision.action !== "rebalance") {
+      return {
+        success: false,
+        decision: decision.action,
+        reason: decision.reason,
+        market_view: plan.market_view,
+        plan_action: plan.action,
+        note: decision.action === "close"
+          ? "Router recommends CLOSE, not rebalance — use close_position."
+          : "Router says hold — no rebalance executed.",
+      };
+    }
+    return rebalancePosition({ position_address, plan, reason: reason || decision.reason });
+  },
   get_wallet_balance: getWalletBalances,
   swap_token: swapToken,
   get_top_lpers: studyTopLPers,
@@ -398,6 +425,12 @@ const toolMap = {
       winRedeployCooldownEnabled: ["management", "winRedeployCooldownEnabled"],
       winRedeployCooldownHours: ["management", "winRedeployCooldownHours"],
       minVolumeToRebalance: ["management", "minVolumeToRebalance"],
+      autoRebalanceEnabled: ["management", "autoRebalanceEnabled"],
+      rebalanceMinOorMinutes: ["management", "rebalanceMinOorMinutes"],
+      rebalanceMaxPerPosition: ["management", "rebalanceMaxPerPosition"],
+      rebalanceCooldownMinutes: ["management", "rebalanceCooldownMinutes"],
+      rebalanceMinPnlPct: ["management", "rebalanceMinPnlPct"],
+      rebalanceOnStrategyDrift: ["management", "rebalanceOnStrategyDrift"],
       stopLossPct: ["management", "stopLossPct"],
       takeProfitPct: ["management", "takeProfitPct"],
       takeProfitFeePct: ["management", "takeProfitPct"],
@@ -626,6 +659,7 @@ const WRITE_TOOLS = new Set([
   "deploy_position",
   "claim_fees",
   "close_position",
+  "rebalance_position",
   "swap_token",
 ]);
 const PROTECTED_TOOLS = new Set([
@@ -978,6 +1012,16 @@ async function runSafetyChecks(name, args) {
     case "swap_token": {
       // Basic check — prevent swapping when DRY_RUN is true
       // (handled inside swapToken itself, but belt-and-suspenders)
+      return { pass: true };
+    }
+
+    case "rebalance_position": {
+      const tracked = getTrackedPosition(args.position_address);
+      if (tracked?.closed) {
+        return { pass: false, reason: "Position is already closed — nothing to rebalance." };
+      }
+      // Plan-level gates (volume, PnL floor, budget, cooldown, OOR risk) run
+      // inside the tool via shouldRebalance — this is just the hard stop.
       return { pass: true };
     }
 
