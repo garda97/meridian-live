@@ -14,8 +14,13 @@ import {
   isRebalanceCandidate,
 } from "../tools/position-router.js";
 import { trackPosition, recordRebalance, getTrackedPosition } from "../state.js";
+import { config } from "../config.js";
 
 const STATE_PATH = repoPath("state.json");
+
+// Pin: buildRebalancePlan reuses buildDeployPlan, so a live user-config with
+// spot disabled (owner interim toggle) would turn widen_spot plans into holds.
+config.autoStrategy.allowSpot = true;
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);

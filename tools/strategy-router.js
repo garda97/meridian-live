@@ -357,6 +357,65 @@ export function applyTgeOverride(plan, { pool } = {}) {
   return next;
 }
 
+/**
+ * maxPumpPct1h cap for ALL strategies (FABLE lesson): the cap used to fire
+ * only on bid_ask sol_below plans, so pump-view spot top-ticked a +34% 1h run.
+ * Chasing is chasing regardless of shape — bid_ask below OORs on the next leg,
+ * spot eats the retrace as IL. Pure; returns a new plan.
+ */
+export function applyPumpChaseCap(plan, { priceChange1h } = {}) {
+  if (!plan.entry_allowed) return plan;
+  const maxPumpPct = Number(config.autoStrategy?.maxPumpPct1h ?? 20);
+  const pump1h = Number(priceChange1h);
+  if (!Number.isFinite(maxPumpPct) || maxPumpPct <= 0) return plan;
+  if (!Number.isFinite(pump1h) || pump1h <= maxPumpPct) return plan;
+  return {
+    ...plan,
+    entry_allowed: false,
+    entry_reason: `1h pump +${pump1h.toFixed(1)}% > ${maxPumpPct}% cap — chasing (${plan.strategy}); wait retracement`,
+    notes: [...(plan.notes || []), `Pump gate: +${pump1h.toFixed(1)}% 1h > ${maxPumpPct}% cap (${plan.strategy})`],
+  };
+}
+
+/**
+ * Universal fee floor for spot deploys (SEMAN/FABLE lesson): spot takes
+ * immediate token exposure, so the fee tier must pay for the retrace risk —
+ * the spotFeeTvlMin doctrine used to be checked only on the high-fee bias
+ * path, letting pump/sideways/flat native-spot plans through at any fee.
+ * Below the floor: pump-view and volatile-recall plans are blocked (their
+ * matrices forbid bid_ask sol_below), other views fall back to bid_ask below.
+ * TGE plans keep their own tgeMinFeePct gate. Missing fee data fails open,
+ * consistent with the other indicator gates. Pure; returns a new plan.
+ */
+export function applySpotFeeFloor(plan, { pool, volatileRecall = false } = {}) {
+  if (plan.strategy !== "spot" || plan.tge || !plan.entry_allowed) return plan;
+  const minFee = Number(config.autoStrategy?.spotFeeTvlMin ?? 2);
+  if (!Number.isFinite(minFee) || minFee <= 0) return plan;
+  const feeTvl = Number(pool?.fee_active_tvl_ratio ?? pool?.fee_tvl_ratio);
+  if (!Number.isFinite(feeTvl)) {
+    return { ...plan, notes: [...(plan.notes || []), "Spot fee floor: fee/TVL unknown — floor skipped (fail-open)"] };
+  }
+  if (feeTvl >= minFee) return plan;
+  if (plan.market_view === "pump" || volatileRecall) {
+    return {
+      ...plan,
+      entry_allowed: false,
+      entry_reason: `Spot fee floor: fee/TVL ${feeTvl.toFixed(2)} < ${minFee} — fee tier can't pay for token exposure (${volatileRecall ? "volatile recall" : plan.market_view}); skip`,
+      notes: [...(plan.notes || []), `Spot fee floor: ${feeTvl.toFixed(2)} < ${minFee} — blocked`],
+    };
+  }
+  const binsBelow = volatilityScaledBins(pool?.volatility);
+  return {
+    ...plan,
+    strategy: "bid_ask",
+    deposit_side: "sol_below",
+    bins_below: binsBelow,
+    bins_above: 0,
+    wide_range: binsBelow > 69,
+    notes: [...(plan.notes || []), `Spot fee floor: fee/TVL ${feeTvl.toFixed(2)} < ${minFee} — fell back to bid_ask below`],
+  };
+}
+
 export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}) {
   const mint = pool?.base?.mint || tokenInfo?.mint;
   let signal = null;
@@ -387,20 +446,7 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   const fibHint = indicatorOk ? inferFibBins(signal) : null;
   let plan = buildDeployPlan({ pool, classification, signal, fibHint });
 
-  const maxPumpPct = Number(config.autoStrategy?.maxPumpPct1h ?? 20);
-  const pump1h = Number(priceChange1h);
-  if (
-    Number.isFinite(maxPumpPct) &&
-    maxPumpPct > 0 &&
-    Number.isFinite(pump1h) &&
-    pump1h > maxPumpPct &&
-    plan.strategy === "bid_ask" &&
-    plan.deposit_side === "sol_below"
-  ) {
-    plan.entry_allowed = false;
-    plan.entry_reason = `1h pump +${pump1h.toFixed(1)}% > ${maxPumpPct}% cap — bid_ask below would OOR; wait retracement`;
-    plan.notes = [...(plan.notes || []), `Pump gate: skip SOL-below deploy after +${pump1h.toFixed(1)}% 1h`];
-  }
+  plan = applyPumpChaseCap(plan, { priceChange1h });
 
   // Volatile-pool recall: last close (within 24h) was a pump-above-range —
   // force balanced spot with upside cover instead of repeating the same
@@ -419,6 +465,8 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   }
 
   plan = applyTgeOverride(plan, { pool });
+
+  plan = applySpotFeeFloor(plan, { pool, volatileRecall });
 
   applyPumpUpsideCoverGate(plan);
 
