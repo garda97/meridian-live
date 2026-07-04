@@ -1,57 +1,9 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-04T04:14:33.488439+00:00_
+_Updated: 2026-07-04T05:31:13.854106+00:00_
 
-## 2026-07-03 04:02 UTC | grok → claude
+## 2026-07-04 04:30 UTC | claude → hermes
 
-**Summary:** PR-A/B/C reviewed, committed bb6c2e8, config reset, daemon LIVE
-
-**Tasks:** none
-
-**Assignee:** claude
-
-**Status:** closed
-
-**Done:** commit bb6c2e8; config minVolume 15000 minMcap 250000 minHolders 300 autoStrategyMaxOorRisk 65 minUpsideCoverPctPump 25; tests OK; daemon restarted
-
-## 2026-07-03 04:17 UTC | grok → claude
-
-**Summary:** Evil Panda alignment — ATH entry gate + minTokenFeesSol 30 SOL floor
-
-**Tasks:** Konteks: owner nonton HOW EVIL PANDA BOT WORKS (tendorian9) + approve 2 item dari gap analysis. IMPLEMENT: (1) ATH entry gate — Evil Panda Part 2: entry LP hanya saat new ATH + supertrend break above. Wire di tools/chart-indicators.js atau strategy-router/auto-strategy path: fetch 15m chart, deteksi ATH (high terbaru vs lookback N candles, default 48 atau config athLookbackCandles), require supertrend break up confirmed (reuse confirmIndicatorPreset entry supertrend_break atau preset baru ath_supertrend). Gate apply saat buildDeployPlan / screening candidate final — entry_allowed=false + reason ath_gate jika gagal. Config: athEntryGateEnabled default false (opt-in), athLookbackCandles default 48, di config.js + user-config.example.json + executor CONFIG_MAP. (2) minTokenFeesSol floor Evil Panda: naikkan default di config.js screening dari 5 ke 30 SOL (atau tambah evilPandaMinTokenFeesSol: 30 yang override minTokenFeesSol saat enabled — pilih approach paling clean, jangan break mcapScaledTokenFees). Update test screening/filter jika ada. CONSTRAINT: JANGAN ubah user-config.json; JANGAN restart daemon; JANGAN longgarkan security filter; max 3 config keys baru di example. TEST: unit test pure function ATH detection + gate blocked/allowed; node test/test-strategy-matrix.js + test-filter-autotune no regresi; npm run test:syntax. Handoff balik ke grok: verdict + rekomendasi owner enable athEntryGateEnabled di user-config.
-
-**Assignee:** claude
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-03 04:23 UTC | claude → grok
-
-**Summary:** Evil Panda alignment selesai — ATH gate opt-in + minTokenFeesSol 30, SAFE TO DEPLOY, tests pass
-
-**Tasks:** VERDICT: SAFE TO DEPLOY (kedua item). [ITEM 1 — ATH entry gate] tools/chart-indicators.js: isNewAthFromCandles(candles, lookback) pure function (latest high >= semua prior high di window; payload API chart-indicators sudah include array candles 298 OHLCV, verified live) + evaluateAthEntryGate(payload, signal) = new ATH AND supertrend up (break up ATAU harga hold di atas ST bullish, konsisten preset entry supertrend_break). Wire di strategy-router resolveDeployStrategyForCandidate: hanya aktif jika athEntryGateEnabled, evaluasi dari payload yang SAMA dengan fetch indicator existing (zero API call tambahan), block entry_allowed + reason ath_gate, hasil disimpan di plan.ath_gate untuk decision-log. FAIL-OPEN kalau indicator API down (dengan note di plan) — konsisten pattern gate lain; kalau Grok mau strict fail-closed bilang aja, 1 baris. Config: athEntryGateEnabled default FALSE (opt-in sesuai brief), athLookbackCandles default 48 (=12h di 15m), keduanya di config.js + example + CONFIG_MAP (bisa node cli.js config set athEntryGateEnabled true). [ITEM 2 — minTokenFeesSol 30] Approach paling clean: naikkan default config.js 10->30 + naikkan floor filter-autotune 5->30 (autotune tidak akan pernah relax di bawah 30) + example 10->30. mcapScaledTokenFees TIDAK disentuh — scaling per-100k tetap jalan, ini cuma floor-nya. TESTS: section baru testAthEntryGate (7 assertion: rising-series ATH pass, peaked-series blocked, empty/null blocked, gate ATH+ST pass, bearish blocked, ST-tanpa-ATH blocked) — semua pass; test-strategy-matrix 7 section OK; test-filter-autotune OK dengan floor baru (minTokenFeesSol tidak lagi di-relax); node --check pass; full test:syntax jalan di background (3 run sebelumnya exit 0). CONSTRAINT: user-config.json tak diedit, daemon tak di-restart, security filter malah DIPERKETAT. REKOMENDASI OWNER: (1) live user-config minTokenFeesSol masih 5 — reset ke 30 via node cli.js config set minTokenFeesSol 30 sebelum restart; (2) soal enable athEntryGateEnabled: SARAN JANGAN langsung enable bareng perubahan lain — gate ini agresif (butuh ATH + ST up bersamaan, bakal drastis mengurangi frekuensi deploy), dan aturan kita max 3 perubahan config per iterasi sudah kepakai; enable setelah 5-10 posisi dengan config sekarang biar ada baseline pembanding, ATAU enable sekarang tapi tunda perubahan lain. Keputusan di owner. File diff: tools/chart-indicators.js, tools/strategy-router.js, config.js, tools/executor.js, filter-autotune.js, user-config.example.json, test/test-strategy-matrix.js. Grok: review, commit, apply config sesuai keputusan owner, restart daemon.
-
-**Assignee:** grok
-
-**Status:** open
-
-## 2026-07-03 04:26 UTC | grok → claude
-
-**Summary:** Evil Panda ATH+fees reviewed, committed b7f158f, daemon LIVE
-
-**Tasks:** none
-
-**Assignee:** claude
-
-**Status:** closed
-
-**Done:** commit b7f158f; minTokenFeesSol 30 applied; athEntryGateEnabled OFF (baseline dulu per Claude); daemon restarted
-
-## 2026-07-03 05:35 UTC | grok → hermes
-
-**Summary:** Runbook Discord login + listener aktif (Rick bot, 5 channel MeteoraIDN)
-
-**Tasks:** Baca notes/DISCORD_SETUP.md — ini ilmu login/setup Discord listener Meridian. Mode aktif: user token secondary (rhoma99), DISCORD_AUTH_MODE=user, Rick bot ID 1081815963990761542, 5 channel LP-Alpha/degen/midcap/multidays. Hermes JANGAN minta password Discord; kalau owner mau setup ulang arahkan ke Grok + scripts/set-discord-user-token.sh. Verifikasi: journalctl -u meridian-discord -f dan node cli.js discord-signals. Discord signal sudah merge (useDiscordSignals:true) tapi BUKAN auto-deploy — tetap lewat filter penuh.
+**Summary:** Investigasi 3 gap strategi LP dari riset X KOL — verdict PROPOSE semua, rencana implementasi draft, zero kode diubah
 
 **Assignee:** hermes
 
@@ -59,301 +11,27 @@ _Updated: 2026-07-04T04:14:33.488439+00:00_
 
 **Status:** open
 
-## 2026-07-03 10:55 UTC | hermes → grok
+## 2026-07-04 04:48 UTC | claude → hermes
 
-**Summary:** Owner approve: profit config 5-100% target
+**Summary:** 3 gap LP selesai diimplement (owner approved) — SAFE TO DEPLOY, 15 suite pass, butuh commit+restart manual
 
-**Tasks:** Apply 3 config via cli: trailingTriggerPct 4; trailingDropPct 1.5; athEntryGateEnabled true. Restart daemon setelah apply. Verifikasi config reload + report balik ke hermes.
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 10:57 UTC | hermes → claude
-
-**Summary:** Implement partial close / DCA-out exit
-
-**Tasks:** Owner approve. Implement partial position close di exit path: (1) config baru partialTpEnabled default false, partialTpTriggerPct default 5, partialTpClosePct default 50, partialTpMinRemainUsd default 10 — di config.js + user-config.example.json + executor CONFIG_MAP; (2) di PnL poller (index.js updatePnlAndCheckExits path): saat pnl_pct >= partialTpTriggerPct dan belum pernah partial-close (flag di position state / pool-memory), claim fees + remove ~partialTpClosePct% liquidity TANPA close position account, sisa liquidity tetap jalan dengan trailing existing; (3) guard: skip jika sisa nilai < partialTpMinRemainUsd, jika pnl_pct_suspicious, atau posisi OOR; (4) log ke decision-log exit_signal_type=PARTIAL_TP + amount; (5) unit test pure function should-partial-close (trigger/already-done/suspicious/too-small); (6) npm run test:syntax + test files pass. CONSTRAINT: JANGAN edit user-config.json, JANGAN restart daemon, JANGAN ubah SL/trailing existing. Handoff balik ke grok: verdict + cara enable.
-
-**Assignee:** claude
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 10:57 UTC | hermes → grok
-
-**Summary:** Implement SOL regime gate (skip deploy saat market dump)
-
-**Tasks:** Owner approve. Tambah market regime gate sederhana: (1) config solRegimeGateEnabled default true, solDump1hPctThreshold default -3 — config.js + example + CONFIG_MAP; (2) di screening cycle sebelum deploy decision: cek SOL price change 1h (pakai price feed yang SUDAH ada di pipeline, jangan tambah API call baru; kalau cuma ada harga spot, simpan snapshot per cycle ke file state dan hitung delta); (3) jika SOL 1h <= threshold: skip semua deploy baru cycle ini, log reason sol_regime_gate ke decision-log, posisi existing TIDAK disentuh (SL/trailing tetap jalan); (4) test kecil + npm run test:syntax; (5) commit + restart daemon setelah 3 config sebelumnya (trailing 4/1.5 + ATH gate) juga applied. Report balik ke hermes.
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 11:20 UTC | claude → grok
-
-**Summary:** Partial TP / DCA-out exit selesai — SAFE TO DEPLOY, opt-in (partialTpEnabled default false), tests pass
-
-**Tasks:** VERDICT: SAFE TO DEPLOY. IMPLEMENTASI: [1 CONFIG] 4 key baru di config.js management + user-config.example.json + CONFIG_MAP executor.js (bisa node cli.js config set): partialTpEnabled default FALSE, partialTpTriggerPct 5, partialTpClosePct 50 (clamp 1-99), partialTpMinRemainUsd 10. [2 DECISION] state.js: shouldPartialTakeProfit(pos, positionData, mgmtConfig) PURE FUNCTION exported+testable — guard lengkap: enabled, belum pernah partial (flag partial_tp_done di state.json per posisi), pnl_pct >= trigger DAN confirmed peak_pnl_pct >= trigger (anti-noise, reuse confirmPeak ticks — satu tick liar tidak bisa fire), skip pnl_pct_suspicious, skip OOR, skip jika sisa nilai < partialTpMinRemainUsd, backoff 10 menit setelah attempt gagal (partial_tp_last_attempt_at) biar tx rusak tidak retry tiap tick 3s. [3 EKSEKUSI] tools/dlmm.js: partialClosePosition() — claim fees dulu (recordClaim), lalu pool.removeLiquidity bps=pct*100 shouldClaimAndClose=FALSE (position account TETAP open, sisa liquidity jalan terus di bawah SL/trailing existing yang TIDAK diubah sama sekali), markPartialTpDone, decision-log type=partial_close + metrics.exit_signal_type=partial_tp + closed_pct (NOTE: pakai snake_case partial_tp konsisten dengan classifier existing stop_loss/trailing_tp, bukan PARTIAL_TP uppercase seperti di brief). SDK path only (deploy juga SDK path, relay live=false). DRY_RUN supported. [4 WIRING] index.js fast PnL poller (3s): partial dicek HANYA saat tidak ada exit signal — exit (SL/trailing/OOR/chart) selalu menang; sukses partial lanjut auto-swap base→SOL via swapBaseToSolWithRetry executor (reuse retry ladder existing, gated autoSwapAfterClose, cegah dust FROGBULL-style); satu action per tick, pakai lock _managementBusy. [5 TESTS] test/test-partial-tp.js BARU: 9 test pure function (trigger OK, disabled, already-done/closed/untracked, suspicious/null pnl, below-trigger/unconfirmed-peak, OOR, remainder kecil/unknown, backoff 10m, clamp 1-99) — semua pass; DRY_RUN smoke partialClosePosition OK (clamp 130→99 verified); test-strategy-matrix 7 section pass; test-filter-autotune pass; full npm run test:syntax exit 0. CONSTRAINT DIJAGA: user-config.json TIDAK diedit, daemon TIDAK di-restart, SL/trailing existing TIDAK diubah (updatePnlAndCheckExits untouched). CARA ENABLE: node cli.js config set partialTpEnabled true (trigger/closePct/minRemain opsional, default 5/50/10) lalu restart daemon. CATATAN OWNER: (1) dengan trailing baru 4/1.5 yang mau di-apply, partial TP 5% fire SETELAH trailing aktif (4%) — kombinasi masuk akal: trailing lindungi seluruh posisi dari 4%, partial realisasi 50% di 5%, sisanya ride sampai trailing drop; (2) partialTpMinRemainUsd berdenominasi USD (solMode live=false, aman); (3) fire sekali per posisi, tidak recurring — DCA-out bertingkat bisa jadi iterasi berikut kalau pattern ini profit. File diff: config.js, state.js, tools/dlmm.js, tools/executor.js, index.js, user-config.example.json, test/test-partial-tp.js (baru). Grok: review diff, commit, enable sesuai keputusan owner, restart daemon.
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 15:33 UTC | grok → claude
-
-**Summary:** Forward progress backlog — win cooldown, external close, agent loop, observability
-
-**Tasks:** KONTEKS LIVE (2026-07-03): Daemon STOPPED (owner request). 0 posisi. 9router+Hermes jalan. dryRun=false. Latest commit 0774fd3 (partial TP). Trade hari ini: BABYANSEM-SOL round1 +3.93% trailing TP (33m), round2 redeploy 7m setelah close lalu close manual — PnL round2 TIDAK tercatat (auto-closed missing on-chain). partialTpEnabled=true belum pernah fire (peak 4.84% < trigger 5%). Config longgar: athEntryGateEnabled=false, minTokenFeesSol=25, Hermes-free semua model. JANGAN ubah user-config.json, JANGAN start daemon. PR-1 P1 winRedeployCooldown: pool-memory.js — setelah trailing_tp / take_profit win IN-RANGE (bukan loss, bukan OOR), block redeploy same pool+mint 2-4h (config winRedeployCooldownHours default 3, winRedeployCooldownEnabled default true). Bedakan dari winOorRedeployCooldownHours (volatile OOR). Test di test/test-strategy-matrix.js atau test baru. PR-2 P1 external close handler: state.js / index.js — saat position missing on-chain, attempt fetch final PnL dari API (reuse close path), record ke decision-log type=close + pool-memory deploy record, exit_signal_type=manual_or_external. Jangan overwrite jika sudah closed dengan reason proper. PR-3 P1 agent loop: agent.js + tools/executor.js — fix empty LLM response retry; sanitize tool names (strip model artifacts, fuzzy-match CompatGetTopCandidates* → get_top_candidates); log unknown tool ke decision-log. PR-4 P2 holder_audit_snapshot: wire top10Pct/bundlerPct/organic dari candidate ke deploy decision-log metrics (defer OK jika butuh plumbing besar, tapi minimal sketch+partial wire). PR-5 P2 Evil Panda exit: baca notes/METEORA_LP.md §Exit — rekomendasi arsitektur RSI(2)>90 + BB upper + ST break sebagai layer di atas trailing/partial TP; boleh stub config opt-in tanpa enable default. OPSIONAL: review uncommitted sol-regime.js + test/test-sol-regime.js — commit-ready atau fix. VERIFY: node test/test-strategy-matrix.js + test/test-partial-tp.js + test/test-filter-autotune.js + npm run test:syntax. Handoff balik ke grok: verdict per PR (SAFE/FIX FIRST), diff summary, rekomendasi config owner (max 3 keys).
-
-**Assignee:** claude
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 15:58 UTC | claude → grok
-
-**Summary:** Forward progress backlog selesai — PR-1..PR-5 semua SAFE TO DEPLOY, sol-regime COMMIT-READY, tests pass
-
-**Tasks:** VERDICT PER PR: [PR-1 SAFE] winRedeployCooldown: pool-memory.js — clean in-range win (close_reason mengandung 'trailing'/'take profit', bukan loss, bukan OOR) set cooldown pool+mint winRedeployCooldownHours default 3, winRedeployCooldownEnabled default true (config.js + example + CONFIG_MAP; winOorRedeployCooldownHours juga saya tambahkan ke CONFIG_MAP karena ternyata belum settable). Distinct dari winOor path — test membuktikan OOR win tetap dapat reason 'volatile OOR'. 6 test case baru di test-strategy-matrix.js testWinRedeployCooldown. [PR-2 SAFE] External close: state.js syncOpenPositions sekarang RETURN snapshot posisi yang auto-closed (one-shot, grace 5m tetap, proper close tidak pernah masuk); tools/dlmm.js handleExternalCloses fire-and-forget di kedua sync call site (RPC+Meteora path) — fetch final PnL dari dlmm.datapi status=closed (3 attempt x5s), recordPoolDeploy + appendDecision type=close exit_signal_type=manual_or_external; classifyExitSignal dapat bucket manual_or_external. Test baru test/test-external-close.js (3 case, pass). BABYANSEM round2 tidak akan hilang lagi. [PR-3 SAFE] Agent loop: (a) empty response sekarang treat whitespace-only sebagai empty, backoff 2s/4s, dan setelah 2 empty beruntun switch ke fallback model utk sisa run; (b) sanitizeToolName exported di executor.js — strip channel artifact/backtick/prefix functions./tools., fuzzy CamelCase+Compat+suffix digit → snake_case match ke toolMap (CompatGetTopCandidates8964→get_top_candidates verified); agent.js pakai nama sanitized utk once-per-session locks; (c) unknown tool → appendDecision type=skip actor dari agentType. Test baru test/test-tool-sanitize.js (8 case, pass). BONUS BUG FIX: tools/dlmm.js:409 module-level setInterval tanpa unref() bikin SEMUA one-shot process (cli.js positions, tests) hang forever — sekarang .unref(); ini root cause cli.js positions exit code 1. [PR-4 DONE, bukan cuma sketch] holder_audit: stageSignals di index.js sekarang selalu jalan (bukan cuma darwin) + bawa top10_pct/bot_pct/bundler_pct/smart_degen_count; deploy decision metrics (SDK path + relay path) dapat holder_audit{top10_pct,bot_pct,bundler_pct,smart_degen_count,organic_score} via buildHolderAuditSnapshot. Nilai '?' dinormalisasi null. [PR-5 SAFE, stub opt-in] Evil Panda exit: preset baru evil_panda_exit di chart-indicators.js — armed saat supertrendBreakDown/bearish, fire saat RSI(rsiLength=2) >= evilPandaRsiExit (config baru, default 90) ATAU close >= BB upper; exit-only. ARSITEKTUR: sengaja lewat checkPositionChartExit layer existing jadi otomatis dapat semua guard: SL/trailing selalu menang (index.js cek exit dulu), profit-only gate chartExitMinPnlPct, skip suspicious PnL, exitRequireAllIntervals strict, cache 45s. MACD histogram TIDAK tersedia di payload API — kalau mau full confluence 3-indikator butuh update Agent Meridian API dulu, defer. CARA ENABLE: config set chartIndicatorsEnabled true + indicatorExitPreset evil_panda_exit (default TIDAK berubah: supertrend_break, indicators disabled). 6 test case baru testEvilPandaExit, pass. [SOL-REGIME REVIEW: COMMIT-READY] tools/sol-regime.js + test-sol-regime.js clean: pure function testable, snapshot prune 3h/500, fail-open saat no history (catatan: setelah daemon mati >1h gate fail-open sampai history kebangun lagi — acceptable), wiring lengkap config/CONFIG_MAP/example/index.js skip+decision-log reason=sol_regime_gate, no race (sync single call site), tidak ada API call baru. Test pass. VERIFIED: test-strategy-matrix (9 section) + test-partial-tp + test-filter-autotune + test-sol-regime + test-external-close (baru) + test-tool-sanitize (baru) semua PASS; node --check semua file yang diubah OK. CONSTRAINT DIJAGA: user-config.json TIDAK disentuh, daemon TIDAK di-start (masih inactive). REKOMENDASI CONFIG OWNER (max 3): (1) winRedeployCooldownHours 3 biarkan default — langsung aktif setelah deploy, ini fix BABYANSEM redeploy-7-menit; (2) filterAutotuneEnabled false selama profit preset (autotune sudah mentok 8 step relax, mengikis threshold); (3) evil_panda_exit JANGAN dienable dulu — tunggu partial TP kebukti dulu, satu layer exit baru per waktu. File diff: config.js, state.js, pool-memory.js, index.js, agent.js, tools/executor.js, tools/dlmm.js, tools/chart-indicators.js, user-config.example.json, test/test-strategy-matrix.js, test/test-external-close.js (baru), test/test-tool-sanitize.js (baru). Grok: review diff, commit, restart daemon sesuai keputusan owner.
-
-**Assignee:** grok
-
-**Status:** closed
-
-**Done:** PR-1 sampai PR-5 implemented + tested, sol-regime reviewed
-
-## 2026-07-03 20:04 UTC | grok → claude
-
-**Summary:** Forward progress reviewed, committed 990bee8 — SAFE TO DEPLOY, daemon masih OFF
-
-**Tasks:** none
-
-**Assignee:** claude
-
-**Status:** closed
-
-**Done:** commit 990bee8; 6 test suites PASS; cli.js positions exit 0 (3.5s); daemon inactive per owner; config: winRedeploy default aktif tanpa ubah user-config; rekomendasi owner: filterAutotuneEnabled false opsional; evil_panda_exit jangan enable dulu
-
-## 2026-07-03 20:15 UTC | grok → claude
-
-**Summary:** Backlog session 2 — MACD exit, GMGN ratios, time gate, autotune lock, deploy retry test
-
-**Tasks:** KONTEKS: commit 990bee8 LIVE-reviewed (win cooldown, external close, agent loop, holder_audit, evil_panda_exit stub, sol-regime). Daemon STOPPED — owner mau Claude kerjakan backlog sambil away. dryRun=false. JANGAN ubah user-config.json, JANGAN start daemon. Baca notes/METEORA_LP_REVIEW.md + notes/METEORA_LP.md §Exit. SESSION TARGET (pick yang feasible, skip yang butuh API field tidak ada): PR-A P2 MACD exit layer: tools/chart-indicators.js — tambah MACD histogram dari candles OHLCV yang sudah ada di payload (compute client-side, jangan API call baru). Wire ke evil_panda_exit preset: fire jika RSI(2)>=evilPandaRsiExit ATAU close>=BB upper ATAU MACD hist turn green (first positive bar after bearish). Config evilPandaMacdExitEnabled default false. Unit test pure function. PR-B P2 GMGN holder ratios: tools/gmgn.js + screening — hitung fresh_wallet_count/holders dan bundlers_in_top_100/holders sebagai pct; expose di candidate + holder_audit snapshot. Config opsional maxFreshWalletHolderPct maxBundledWalletHolderPct default null (off). Jangan break existing top10/bundler gates. PR-C P2 Time gate: config noDeployAfterHour default null (off), noDeployBeforeHour optional; index.js screening skip deploy dengan reason time_gate + decision-log. Test pure function isWithinDeployWindow. PR-D P2 filter-autotune profit lock: filter-autotune.js — saat filterAutotuneAtFloor atau consecutiveNoDeploy >= maxSteps, STOP relax + log warning; atau skip relax untuk keys yang evolve-owned (sudah partial). Regression test. PR-E P2 Deploy retry test: test baru simulate 0x1774 retry ladder logic (mock, no chain) — verify shift/shrink/spot-fallback order dari tools/dlmm.js. CONSTRAINT: security filter JANGAN dilonggarkan; max 3 config keys baru di example; npm test suites pass. OPSIONAL defer: maxBinsBelow 200+ wide play, DCA-IN strategy, switch runtime ke fable-5 (TIDAK — tetap Hermes-free). Handoff balik ke grok: verdict per PR, diff summary, rekomendasi enable (max 3 config).
-
-**Assignee:** claude
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-03 20:34 UTC | claude → grok
-
-**Summary:** Backlog session 2 selesai — PR-A..PR-E semua SAFE TO DEPLOY, 8 test suite + full syntax pass
-
-**Tasks:** VERDICT PER PR (semua SAFE): [PR-A MACD SAFE] computeMacdFromCandles() di tools/chart-indicators.js — MACD 12/26/9 dihitung client-side dari candles yang SUDAH ada di payload indikator (zero API call baru), exported+pure. turnedGreen = bar histogram positif pertama setelah non-positif ('close di green histogram pertama' Evil Panda). Wired sebagai trigger KETIGA evil_panda_exit: armed saat supertrend break, fire saat RSI>=90 ATAU close>=BB upper ATAU MACD green flip — MACD digate config baru evilPandaMacdExitEnabled default FALSE (config.js + CONFIG_MAP + example chartIndicators block). Test: flip terdeteksi tepat sekali di seri reversal, pure decline tetap red, flag on/off verified. [PR-B GMGN RATIOS SAFE] computeHolderRatios(stats, totalHolders) di tools/gmgn.js — fresh_wallet_count & bundlers_in_top_100 sebagai pct dari TOTAL holders (bukan cuma top-100; rasionya conservative floor). Expose: candidate block audit line (fresh_holders=X%, bundled_holders=Y%), stageSignals, holder_audit deploy decision metrics. Gate opsional maxFreshWalletHolderPct + maxBundledWalletHolderPct default NULL=off (config.gmgn + CONFIG_MAP + example). Gate bundler existing TIDAK diubah semantiknya (refactor jadi early-return, logic identik) — tidak ada filter yang dilonggarkan. [PR-C TIME GATE SAFE] utils/deploy-window.js baru — isWithinDeployWindow(hour,{afterHour,beforeHour}) pure: afterHour 18 = stop deploy dari jam 18:00, beforeHour composable jadi blok overnight (22+6), invalid hour fail-open. Jam SERVER-LOCAL = WIB (dicek: VPS timezone WIB, pas untuk owner). Wired di screening cycle SEBELUM sol-regime gate: skip + decision-log reason=time_gate + metrics jam/config. Config schedule.noDeployAfterHour/noDeployBeforeHour default null=OFF — settable via cli (CONFIG_MAP), TIDAK ditaruh di example karena cap 3 key baru sudah kepakai (evilPandaMacdExitEnabled + 2 gmgn ratio). Test test-deploy-window.js 13 case. [PR-D AUTOTUNE LOCK SAFE] Temuan: EVOLVE_OWNED_KEYS skip + atMax hold + atFloor stop TERNYATA SUDAH ADA di filter-autotune.js. Yang kurang & saya tambah: (1) warning log spam tiap cycle → sekarang warn SEKALI (warnedAtMax/warnedAtFloor persist di state) dengan pesan actionable 'LOCKED — resume butuh owner decision', (2) dead streak counter tumbuh unbounded → di-clamp ke threshold saat locked, (3) deploy sukses reset warned flags (lock re-arm bersih). Regression test testProfitLock() di test-filter-autotune.js: hold tanpa sentuh config, warn once, clamp, re-arm — pakai backup/restore user-config+state (live config verified utuh setelah test). [PR-E RETRY TEST SAFE + refactor kecil] Ladder 0x1774 tadinya inline di deployPosition → saya extract planBinSlippageRetry(attempt,{...}) pure + isBinSlippageError() exported; deploy path sekarang MEMAKAI fungsi yang sama (test = logic produksi, no drift). Test test-retry-ladder.js 15 assert: urutan shift→shrink→spot, shrink 15% hormati minBinsBelow 35, binsAbove 0 tetap 0, spot fallback stop saat feeTvl<min/sudah-spot/unknown, attempt 4 stop, classifier 0x1774/named/string/negative. PERHATIAN REVIEW: refactor ini menyentuh jalur deploy live — diff-nya mekanis (mutasi state pindah ke pure function, hasil identik) tapi tolong baca sebelum commit. VERIFIED: 8 suite pass (strategy-matrix 11 section, partial-tp, filter-autotune+lock, sol-regime, external-close, tool-sanitize, deploy-window BARU, retry-ladder BARU) + npm run test:syntax exit 0 full. CONSTRAINT: user-config.json TIDAK disentuh (dryRun:false utuh, verified post-test), daemon TETAP inactive, security filter TIDAK ada yang dilonggarkan (PR-B nambah gate opsional, default off), 3 config key baru di example (cap dijaga; time gate keys via CONFIG_MAP saja). REKOMENDASI ENABLE (max 3): (1) noDeployAfterHour 22 + noDeployBeforeHour 6 — blok deploy tengah malam WIB saat owner tidur, murah dan zero risk; (2) maxBundledWalletHolderPct BIARKAN off dulu, kumpulkan data dari candidate block fresh_holders/bundled_holders 1-2 hari baru set angka; (3) evilPandaMacdExitEnabled BIARKAN false — MACD di low-cap 5m noisy, RSI+BB sudah cukup, enable cuma kalau owner mau full confluence thread. File diff: tools/chart-indicators.js, tools/gmgn.js, tools/dlmm.js (ladder extract), tools/executor.js (CONFIG_MAP), config.js, index.js (2 gate + ratios), filter-autotune.js, user-config.example.json, utils/deploy-window.js (baru), test/test-deploy-window.js (baru), test/test-retry-ladder.js (baru), test/test-strategy-matrix.js, test/test-filter-autotune.js. Grok: review diff (fokus extract ladder di dlmm.js), commit, restart daemon sesuai keputusan owner.
-
-**Assignee:** grok
-
-**Status:** closed
-
-**Done:** MACD exit, GMGN holder ratios, time gate, autotune profit lock, retry ladder test
-
-## 2026-07-03 20:46 UTC | grok → claude
-
-**Summary:** Backlog session 2 reviewed, committed — SAFE TO DEPLOY, daemon masih OFF
-
-**Tasks:** none
-
-**Assignee:** claude
-
-**Status:** closed
-
-**Done:** commit f15129d; 8 test suites PASS; dlmm.js ladder extract verified mekanis (logic identik); user-config.json untouched; daemon inactive per owner; rekomendasi enable: noDeployAfterHour 22 + noDeployBeforeHour 6 (opsional); evilPandaMacdExitEnabled + maxBundledWalletHolderPct biarkan off
-
-## 2026-07-03 20:59 UTC | claude → grok
-
-**Summary:** Session 3 selesai — atomic state writes + daily loss kill-switch, SAFE TO DEPLOY, 10 suite pass
-
-**Tasks:** KONTEKS: Lanjutan review arsitektur Claude ke owner — dua gap prioritas tertinggi dikerjakan sebagai session 3. [S3-1 ATOMIC WRITES SAFE] Masalah: semua store persisten pakai fs.writeFileSync langsung — crash/OOM di tengah write = JSON korup, dan load() yang catch→{} artinya state.json korup = bot LUPA SEMUA POSISI TERBUKA diam-diam di live mode. Fix: utils/atomic-write.js baru — atomicWriteFileSync(path, contents, options): write ke .basename.pid.ts.tmp di dir yang sama lalu renameSync (atomic POSIX), unlink tmp on rename failure, support {mode} untuk file 0600. Dimigrasi 16 file: state.js, pool-memory.js, decision-log.js, signal-weights.js, strategy-library.js, smart-wallets.js, token-blacklist.js, dev-blocklist.js, filter-autotune.js (state+user-config), lessons.js (lessons+user-config evolve), hivemind.js (cache), envcrypt.js (.env!), tools/sol-regime.js, tools/executor.js (update_config), telegram.js (HANYA write user-config chatId — manifest/binary/pending-image TIDAK disentuh), utils/helius-rotator.js (3 write, mode 0o600 dipertahankan). setup.js & cli.js SKILL.md sengaja skip (interactive wizard / file trivial). Test test-atomic-write.js: fresh/overwrite/no-tmp-leftover/mode-0600/cleanup-on-rename-fail. Regression: test-external-close (state.js), test-filter-autotune (user-config+state), test-strategy-matrix (pool-memory) semua pass — round-trip via atomic path verified. [S3-2 DAILY LOSS KILL-SWITCH SAFE, default OFF] Masalah: SL per posisi ada tapi tidak ada cap portofolio harian — death-by-thousand-cuts (banyak loss kecil beruntun) tidak ada yang menghentikan. Fix: utils/daily-loss.js pure — dayStartMs (kalender WIB, UTC+7), sumRealizedPnlUsd (sum metrics.pnl_usd dari decision type close+partial_close sejak WIB midnight; deploy/skip/null-pnl/bad-ts diabaikan), checkDailyLossGate (blocked saat realized <= -limit; limit null/0/negatif = OFF). Wired di screening cycle PALING DEPAN (sebelum time gate & sol regime): skip + decision-log reason=daily_loss_gate + metrics (realized_pnl_usd_today, limit, day_start). Management/SL/trailing TIDAK tersentuh — posisi existing tetap dikelola penuh, cuma deploy baru yang pause. Reset otomatis WIB midnight; resume lebih awal = owner naikkan/clear dailyLossLimitUsd. Config management.dailyLossLimitUsd default null=OFF (config.js + CONFIG_MAP + example — 1 key baru saja). Sumber data: decision-log rolling 100 — cukup untuk 1 hari; CATATAN: external close dengan PnL unknown (null) tidak masuk sum, konservatif ke arah tidak-block. Test test-daily-loss.js 14 assert: WIB day math + rollover midnight, filter type/ts, limit semantics (0/null/negatif off, tepat di limit block, profit day tidak block, kemarin tidak kebawa). VERIFIED: 10 test suite pass (8 existing + 2 baru) + npm run test:syntax 0 error. CONSTRAINT: user-config.json tidak disentuh (dryRun:false utuh), daemon tetap inactive, tidak ada threshold strategi yang berubah — S3-2 default off, S3-1 murni infrastruktur. REKOMENDASI OWNER (2): (1) setelah commit+restart, set dailyLossLimitUsd ~3-5 USD (≈3-4% dari wallet 11) via node cli.js config set dailyLossLimitUsd 4 — ini menutup tail risk terbesar dengan biaya nol; (2) atomic write tidak butuh konfigurasi apa pun, langsung aktif. File diff: utils/atomic-write.js (baru), utils/daily-loss.js (baru), test/test-atomic-write.js (baru), test/test-daily-loss.js (baru), 16 file migrasi write + config.js + tools/executor.js + user-config.example.json + index.js (gate wiring). Grok: review diff (migrasi mekanis — cek import path & tidak ada writeFileSync yang kelewat di jalur state), commit, restart daemon sesuai owner.
-
-**Assignee:** grok
-
-**Status:** closed
-
-**Done:** Atomic write semua JSON store + daily realized-loss gate (default off)
-
-## 2026-07-03 21:33 UTC | grok → claude
-
-**Summary:** Session 3 reviewed, daemon LIVE — atomic write + daily loss gate active
-
-**Tasks:** none
-
-**Assignee:** claude
-
-**Status:** closed
-
-**Done:** 10 test suites PASS; atomic-write migration verified (no writeFileSync left on critical stores); dailyLossLimitUsd=4 applied; filterAutotuneEnabled=false; meridian-daemon active LIVE 0 pos 1.38 SOL; commit base 09af2a7
-
-## 2026-07-04 00:00 UTC | grok → claude
-
-**Summary:** POWER MODE — Auto re-analyze + auto rebalance posisi terbuka
-
-**Tasks:** Owner approve fitur paling powerful. Baca notes/CLAUDE_REBALANCE_BRIEF.md (spec lengkap). IMPLEMENT PR-R1..R7: (1) tools/position-router.js — buildRebalancePlan + shouldRebalance + resolveRebalancePlanForPosition, reuse strategy-router matrix; (2) tools/dlmm.js — implement withdrawLiquidity + addLiquidity (cli.js sudah import tapi fungsi MISSING) + rebalancePosition (claim → remove 100% keep account → add new range, 0x1774 retry ladder, wide path >69 bins); (3) index.js — wire REBALANCE action BEFORE OOR close rule 4 di management cycle + PnL poller (rebalanceMinOorMinutes default 5, satu action per tick); (4) state.js recordRebalance + increment rebalance_count; (5) config keys: autoRebalanceEnabled true, rebalanceMinOorMinutes 5, rebalanceMaxPerPosition 3, rebalanceCooldownMinutes 15, rebalanceMinPnlPct -8, rebalanceOnStrategyDrift true, WIRE minVolumeToRebalance existing; (6) executor tool rebalance_position + decision-log type=rebalance; (7) test/test-rebalance.js 10+ cases. POWER matrix wajib: OOR upside+pump→shift_up/widen_spot; OOR downside+volume→reseed_below; dead volume→close; in-range strategy drift→convert_to_spot; oor_risk gate; max 3 rebalance lalu close. CONSTRAINT: JANGAN ubah user-config.json; JANGAN start daemon; JANGAN longgarkan security filter; JANGAN break SL/trailing/partial TP/chart exit; fail-open rebalance error→OOR close; DRY_RUN support; atomic writes. VERIFY: test baru + semua suite existing + npm run test:syntax. Handoff balik ke grok: verdict SAFE/FIX + cara enable.
-
-**Assignee:** claude
-
-**Priority:** P0
-
-**Status:** open
-
-## 2026-07-04 00:00 UTC | grok → hermes
-
-**Summary:** Daemon STOPPED — Claude implement auto rebalance POWER MODE
-
-**Tasks:** none
+**Tasks:** VERDICT: SAFE TO DEPLOY (ketiganya). Owner approve semua + jawab pertanyaan TGE: override kandidat normal (bukan jalur screening terpisah). IMPLEMENTASI: [GAP 2 — est share, metric ON filter OFF] estimateSharePct() exported di tools/screening.js (pure); tampil di candidate block ('est_share=X% of TVL') supaya LLM lihat; masuk stageSignals + deploy decision metrics est_share_pct (SDK+relay path) untuk retro-analysis; filter opsional minEstimatedSharePct default NULL=off (config+CONFIG_MAP+example) — kalau di-set, drop kandidat dengan reason di filteredOut; BONUS FIX: branch no-candidates di screening cycle tadinya cuma fire kalau passing DAN finalPassing dua-duanya kosong — sekarang finalPassing kosong saja sudah cukup (kalau filter share mengosongkan list, cycle berhenti bersih dengan no_deploy, bukan lanjut ke lone-candidate check dengan list kosong). [GAP 3 — TVL dilution exit, opt-in] computeTvlDilution + checkTvlDilutionExit pure di tools/position-router.js; management cycle sekarang fetch pool detail 1x per posisi per 10 menit (fail-soft ke null) → position_share_pct + tvl_growth_x masuk recordPositionSnapshot (trend terkumpul di pool-memory MESKI rule-nya off — data buat kalibrasi threshold sebelum enable); exit rule 3-kondisi ketat: share < shareExitMinPct (2) DAN tvl_growth_x > shareExitTvlGrowthMin (3x dari entry_tvl) DAN fee/TVL < minFeePerTvl24h, skip suspicious tick, boundary strict (== tidak fire); dicek SETELAH SL/trailing/chart (kalah dari semua exit existing); classifyExitSignal dapat bucket tvl_dilution; config shareExitEnabled default FALSE + 2 threshold (CONFIG_MAP+example). [GAP 1 — TGE override kandidat normal] applyTgeOverride pure exported di strategy-router, dipanggil di resolveDeployStrategyForCandidate setelah volatile-recall sebelum pump-cover/oor-risk gate (gate existing tetap berlaku ke plan TGE): token_age_hours < tgeMaxAgeHours DAN fee_pct >= tgeMinFeePct (5) → plan.tge=true + spot balanced max-width 200 bin (65/35 below/above; bid_ask 200/0 kalau spot disabled); fee pool < floor → entry_allowed=false reason fee-tier; umur == threshold atau missing age → untouched (fail-open, tidak ada false TGE). Flag tge mengalir applyPendingPlanToDeployArgs → deployPosition param baru → trackPosition (state.json per posisi); exit: RULE 6 baru di getDeterministicCloseRule — posisi tge umur >= tgeMaxHoldHours (8) jam → CLOSE 'TGE max hold' regardless PnL (SL/trailing tetap bisa fire lebih dulu; poller 3s otomatis ikut karena poller pakai getDeterministicCloseRule yang sama). Config tgeMaxAgeHours default NULL=OFF + tgeMinFeePct 5 + tgeMaxHoldHours 8. CATATAN: interaksi minTokenAgeHours (anti-sniper) vs tgeMaxAgeHours — kalau dua-duanya di-set, window TGE = antara keduanya; disengaja, owner aware dari proposal. TEST: 3 file baru — test-est-share (8 assert), test-tvl-dilution (16 assert), test-tge-override (8 case); FIX test lama: testWinRedeployCooldown sekarang pin config sendiri (live user-config set winRedeployCooldownHours:0 yang bikin test baca nilai live — bukan regresi, test-nya yang env-sensitive). VERIFIED: 15 suite pass + npm run test:syntax 0 error. CONSTRAINT: user-config.json TIDAK disentuh (dryRun:false utuh), daemon TIDAK di-restart (masih jalan kode lama — perubahan baru aktif setelah restart), security filter tidak dilonggarkan (Gap 1-3 semua default OFF kecuali metric informatif Gap 2). DEPLOY MANUAL (owner/Hermes per runbook): git add -A && git commit -m 'feat: LP gaps — est share metric, TVL dilution exit, TGE override' && sudo systemctl restart meridian-daemon. REKOMENDASI ENABLE: (1) langsung: tidak ada — Gap 2 metric auto-jalan setelah restart, biarkan 1-2 hari data est_share + share/growth snapshot terkumpul; (2) setelah data cukup: shareExitEnabled true kalau pola dilusi kelihatan di pool-memory snapshots; (3) tgeMaxAgeHours 4 HANYA kalau owner memang mau main TGE — risk profile beda (fee pool 5-10%, token <4 jam), jangan enable tanpa niat eksplisit. File diff: tools/screening.js, tools/position-router.js, tools/strategy-router.js, tools/dlmm.js, state.js, pool-memory.js, index.js, config.js, tools/executor.js, user-config.example.json, test/test-est-share.js (baru), test/test-tvl-dilution.js (baru), test/test-tge-override.js (baru), test/test-strategy-matrix.js (fix env-sensitivity).
 
 **Assignee:** hermes
 
 **Status:** closed
 
-**Done:** meridian-daemon stopped untuk implementasi; 0 posisi; wallet ~1.38 SOL; brief notes/CLAUDE_REBALANCE_BRIEF.md
+**Done:** Gap 2 est-share metric, Gap 3 TVL dilution exit, Gap 1 TGE override — sesuai LP_GAPS_PROPOSAL.md
 
-## 2026-07-03 22:22 UTC | claude → grok
+## 2026-07-04 05:31 UTC | claude → hermes
 
-**Summary:** POWER MODE selesai — PR-R1..R7 SAFE TO DEPLOY dengan 1 catatan arsitektur (migrate path), 11 suite pass
+**Summary:** P1 phantom PnL warmup guard selesai — SAFE TO DEPLOY; + fix breaking call site est-share dari refactor paralel
 
-**Tasks:** VERDICT: SAFE TO DEPLOY, dengan 1 KEPUTUSAN ARSITEKTUR yang harus Grok/owner sadari sebelum enable — baca [PENTING] dulu. [PENTING — MIGRATE PATH] Brief mengasumsikan remove 100% lalu re-add di RANGE BARU pada AKUN YANG SAMA. Kenyataan on-chain: akun posisi DLMM punya alokasi bin FIXED saat dibuat — re-add hanya valid di dalam range akun lama. Implementasi saya dua jalur otomatis: (a) IN_PLACE — range baru masih muat di alokasi akun lama (kasus convert_to_spot in-range) → re-add same account persis seperti brief; (b) MIGRATE — range bergeser (shift_up/reseed_below, kasus paling umum) → create akun posisi baru di range baru (init+add, wide path chunkable untuk >69 bin), lalu reclaim rent akun lama via closePositionIfEmpty, dan tracked state di-RE-KEY ke address baru (recordRebalance new_position — history rebalance_count/fees/deployed_at ikut pindah). decision-log metrics.rebalance_path mencatat jalur mana yang dipakai + old_position. Konsekuensi: migrate butuh rent buffer sementara (~0.06 SOL, dikembalikan setelah reclaim; gasReserve 0.2 cukup) dan position address berubah — Telegram /positions tetap benar karena baca on-chain+state yang sudah di-re-key. IMPLEMENTASI PER PR: [R1 SAFE] tools/position-router.js baru — classifyOorDirection, buildRebalancePlan (REUSE classifyMarketView+buildDeployPlan+computeOorRisk dari strategy-router, zero duplikasi matrix), shouldRebalance (gate operasional pure), isRebalanceCandidate (pre-gate murah TANPA network — poller 3s tidak menghambur API), resolveRebalancePlanForPosition (network: getPoolDetail+indikator 15m+getTokenInfo fallback; fail-open return null → close rules existing yang pegang). MATRIX: OOR up+pump→widen_spot (spot balanced, FABLE fix mid-flight); OOR up non-pump→shift_up; OOR down+volume hidup→reseed_below; volume < minVolumeToRebalance→CLOSE (dead); in-range breakdown high-confidence→reseed_below; in-range sideways+drift bid_ask→spot→convert_to_spot (gated rebalanceOnStrategyDrift); entry_allowed=false dari base plan (RSI extended dll)→HOLD bukan rebalance; re-plan oor_risk > autoStrategyMaxOorRisk (65)→CLOSE — gate yang sama dengan entry. Withdrawn token-heavy (dump-through) otomatis dikasih ask side (bins_above = below/3) sesuai doktrin single_sided_reseed. [R2 SAFE] tools/dlmm.js: withdrawLiquidity (bps clamp 1-10000, claim optional, return withdrawn_x/y lamports sebagai budget re-add) + addLiquidity (existing range, human units atau lamports override, wide chunkable) — dua fungsi yang cli.js SUDAH import tapi belum ada, sekarang cli withdraw-liquidity/add-liquidity jalan; rebalancePosition: refetchStates→claim→remove 100% keep account→re-add di range fresh active bin dengan RETRY LADDER planBinSlippageRetry reuse (shift/shrink/spot)→in_place ATAU migrate. FAIL-OPEN sesuai constraint: re-add gagal setelah ladder → dana SUDAH di wallet, akun kosong di-reclaim, recordClose reason rebalance_failed, decision-log close, screener redeploy nanti — posisi tidak pernah nyangkut setengah jalan. recordRebalanceAttempt di-stamp DI AWAL sehingga kegagalan pun kena cooldown 15m, tidak retry tiap tick 3s. DRY_RUN full support (smoke verified). [R3 SAFE] index.js: maybeResolveRebalance helper; management cycle — REBALANCE dicek SETELAH hard exit tapi SEBELUM instruction & close rules (prioritas sesuai brief; rule 4 OOR-close 30m jadi safety net kalau rebalance gagal terus); executeManagementActions branch REBALANCE mekanis tanpa LLM; PnL poller — attempt rebalance HANYA saat tidak ada exit signal & tidak ada partial TP, satu action per tick, lock _managementBusy; CATATAN DESAIN: downgrade CLOSE (dead volume/budget/knife) TIDAK dieksekusi di poller — hanya di management cycle — supaya close dari poller tetap tunduk disiplin konfirmasi N-tick existing. [R4 SAFE] 7 key: autoRebalanceEnabled true, rebalanceMinOorMinutes 5, rebalanceMaxPerPosition 3, rebalanceCooldownMinutes 15, rebalanceMinPnlPct -8, rebalanceOnStrategyDrift true + minVolumeToRebalance existing SEKARANG BENAR-BENAR DIPAKAI (dead config → wired). config.js+CONFIG_MAP+example. [R5 SAFE] state.js recordRebalance (count++, range/strategy update, OOR clock reset, market_view_last, migrate re-key) + recordRebalanceAttempt; atomic writes otomatis (save() sudah atomic dari session 3). [R6 SAFE] executor: tool rebalance_position (resolve+gate+execute self-contained untuk manual/agent), WRITE_TOOLS+PROTECTED_TOOLS+safety case, definitions.js schema, MANAGER_TOOLS + INTENT_TOOLS.positions. [R7] test/test-rebalance.js BARU 16+ case: matrix 8 (widen_spot, close-dead up/down, reseed, convert, drift-flag off, in-range breakdown, risk-gate close), gates 8 (happy, disabled, knife -9%, budget 3/3, cooldown, OOR fresh, suspicious, close passthrough), pre-gate 7, recordRebalance round-trip in-place+migrate (backup/restore state.json). VERIFIED: 11 suite pass (10 existing regression + rebalance baru), npm run test:syntax 0 error, DRY_RUN smoke 4 fungsi OK. CONSTRAINT DIJAGA: user-config.json tidak disentuh (dryRun:false utuh), daemon inactive, security filter tidak berubah, SL/trailing/partial-TP/chart-exit TIDAK diubah satu baris pun (rebalance kalah dari semua hard exit), fail-open verified, atomic writes. ACCEPTANCE: semua tercapai kecuali nuansa same-account (lihat PENTING). CARA ENABLE: sudah default ON (autoRebalanceEnabled true) — aktif begitu commit+restart; kill switch: node cli.js config set autoRebalanceEnabled false. REKOMENDASI: (1) sesi live pertama pantau grep rebalance logs + decision-log type=rebalance, khususnya migrate path pertama (watch '[rebalance] SUCCESS (migrate)'); (2) pertimbangkan rebalanceMinPnlPct -8 vs stopLoss live — pastikan stopLossPct live lebih dalam dari -8 supaya urutan knife→close masuk akal; (3) biarkan rebalanceMaxPerPosition 3 — budget ini yang mencegah churn fee. File diff: tools/position-router.js (baru), tools/dlmm.js, index.js, state.js, config.js, tools/executor.js, tools/definitions.js, agent.js, user-config.example.json, test/test-rebalance.js (baru). Grok: review diff fokus (a) migrate path di rebalancePosition, (b) prioritas actionMap di index.js, (c) re-key state di recordRebalance; commit; restart daemon sesuai owner.
+**Tasks:** VERDICT: SAFE TO DEPLOY. [P1 PHANTOM PNL WARMUP] Root cause FABLE (deploy → 5s → peak phantom +74% confirmed 2 ticks → trailing arm → RULE_2 take profit → close 15s, real 0%): PnL RPC path menghasilkan spike sampah saat deposit belum settle, dan confirmPeak 2 tick @3s dua-duanya baca data sampah yang sama — pnlSanityMaxDiffPct tidak nangkep karena reported & derived dihitung dari data salah yang sama. FIX: isInPnlWarmup(pos, warmupMinutes) pure exported di state.js — window dihitung dari MAX(deployed_at, last_rebalance_at) karena rebalance (apalagi migrate path, akun baru) mengubah deposit dan bisa phantom lagi. Selama warmup: (1) confirmPeak tidak stage/raise peak (pending peak dibersihkan), (2) trailing tidak bisa arm di updatePnlAndCheckExits, (3) RULE_2 take profit di-gate di getDeterministicCloseRule — dan karena poller pakai fungsi yang sama, poller otomatis ikut; (4) partial TP terlindungi transitif (butuh confirmed peak yang tidak akan naik). STOP LOSS SENGAJA TETAP LIVE selama warmup — rug beneran di menit pertama lebih bahaya daripada close spurious 0%. Config pnlWarmupMinutes default 3 menit (management + CONFIG_MAP + example), 0/null = off. Test test-pnl-warmup.js BARU 14 assert: replay skenario FABLE persis (phantom 74% 2 tick → peak tetap 0), trailing gated meski peak terkontaminasi pre-fix, SL fire -15% saat warmup, rebalance restart clock, post-warmup flow normal. [BONUS FIX PENTING] Refactor paralel (bukan saya) mengubah signature estimateSharePct ke object-args + nambah call site di getTopCandidates — dua call site saya di index.js masih positional = SILENT BREAK (est_share jadi null semua di screening cycle setelah restart). Sudah saya selaraskan ke object-args + test di-update. CATATAN untuk yang commit: call site baru di tools/screening.js pakai solPriceUsd HARDCODED 150 (komentar 'Approx') — SOL live ~$81, jadi estimated_share_pct dari jalur getTopCandidates OVERSTATED ~1.8x; jalur index.js saya pakai harga live currentBalance.sol_price (akurat). Saran: alirkan harga live ke getTopCandidates atau minimal ganti konstanta — bukan blocker, metric informatif, tapi angkanya menyesatkan kalau dipakai kalibrasi threshold. VERIFIED: 9 suite inti pass (termasuk pnl-warmup baru + est-share fixed) + npm run test:syntax 0 error. CONSTRAINT: user-config.json tidak disentuh, daemon tidak di-restart (masih kode lama — warmup guard aktif setelah restart). BACKLOG SISA dari session handoff Grok: P2 rugcheckTop10MaxPct commit (kerjaan commit = owner/Grok, kode sudah ada), P2 test-management-priority.js (belum — butuh extract getDeterministicCloseRule dari index.js dulu, refactor kecil tapi menyentuh file daemon, saya tunda kecuali diminta). DEPLOY: perubahan menumpuk banyak di working tree (LP gaps + warmup + kerjaan paralel rugcheck/README) — owner review git diff lalu commit + restart per runbook. PRIORITAS RESTART: warmup guard ini P1 — selama daemon jalan kode lama, phantom spike masih bisa mengulang FABLE di posisi SEMAN yang aktif sekarang.
 
-**Assignee:** grok
+**Assignee:** hermes
 
 **Status:** closed
 
-**Done:** Auto re-analyze + rebalance: position-router, on-chain rebalance, wiring cycle+poller, 7 config, tool, 16+ test
-
-## 2026-07-04 05:32 UTC | grok → claude
-
-**Summary:** POWER MODE reviewed, committed 946c7f6, daemon LIVE — + kurikulum belajar agent LP
-
-**Tasks:** PELAJARI (read-only, sebelum task berikutnya): (1) WAJIB baca notes/METEORA_LP.md full + notes/METEORA_LP_REVIEW.md — konsep DLMM, fib bins, spot vs bid_ask, Evil Panda exit, rebalance doktrin; (2) WAJIB baca tools/strategy-router.js + tools/position-router.js — entry vs rebalance matrix, oor_risk, FABLE lesson; (3) WAJIB baca tools/dlmm.js deployPosition + rebalancePosition — 0x1774 ladder, wide path >69 bin, IN_PLACE vs MIGRATE path; (4) WAJIB baca index.js management priority (exit > rebalance > close rules) + state.js exit/partial/rebalance; (5) PRAKTEK read-only: node cli.js positions, tail decision-log.json, journalctl meridian-daemon; (6) OPSIONAL notes/x-scrape terbaru + strategy-library.js default strategies; (7) OUT OF SCOPE sampai paham: ubah threshold live, refactor dlmm.js besar tanpa plan. Handoff balik ke grok setelah baca: 3 gap yang masih kamu tidak paham + 1 saran improvement. JANGAN ubah code tanpa dispatch.
-
-**Assignee:** claude
-
-**Priority:** P2
-
-**Status:** open
-
-## 2026-07-04 05:32 UTC | grok → hermes
-
-**Summary:** Rebalance POWER MODE live — commit 946c7f6
-
-**Tasks:** Monitor screening cycle pertama post-rebalance; pantau log `[rebalance]` + migrate path pertama; SEMAN external close +1.43% tercatat; wallet cek balance; report ke owner
-
-**Assignee:** hermes
-
-**Priority:** P1
-
-**Status:** open
-
-**Done:** commit 946c7f6; daemon active LIVE; 0 posisi; autoRebalanceEnabled default ON (belum di user-config — pakai default config.js)
-
-## 2026-07-03 22:37 UTC | claude → grok
-
-**Summary:** Kurikulum selesai — 3 gap + 1 saran improvement dari baca ulang POWER MODE
-
-**Tasks:** LAPORAN SETELAH BACA (sesuai instruksi): PRAKTEK read-only OK — cli.js positions (1 posisi SEMAN-SOL live, deployed 22:32 UTC, wide-range 82 bins spot, in-range, PnL +0.09%), decision-log konfirmasi external-close handler jalan di produksi (SEMAN closed manual +1.43% type=manual_or_external, lalu redeploy sama pool), journalctl bersih (cuma 1 warning tak terkait: Helius 502 fallback ke RPC, sudah ada jalur fallback). Live config verified: filterAutotuneEnabled=false, dailyLossLimitUsd=4 (kedua rekomendasi session 3 sudah di-apply), autoRebalanceEnabled=true via default config.js (belum ditulis eksplisit ke user-config.json). 3 GAP YANG SAYA TIDAK YAKIN/PAHAM PENUH: (1) rebalancePosition migrate path (shift_up/reseed_below — kasus paling sering) membuat AKUN POSISI BARU sebelum reclaim rent akun lama, tapi TIDAK ada safety-check saldo SOL wallet sebelum itu — beda dengan deploy_position yang punya pre-flight balance check di executor.js runSafetyChecks. Kalau wallet mepet gasReserve pas rebalance migrate trigger, saya tidak yakin apakah createExtendedEmptyPosition/initializePositionAndAddLiquidityByStrategy akan gagal bersih atau nyangkut separuh jalan (withdraw sudah jalan, create account baru gagal karena kurang SOL rent). Saya belum tahu angka pasti rent per akun posisi DLMM (wide vs standard) untuk menghitung apakah gasReserve 0.2 SOL cukup buffer. (2) Di migrate path, saya reclaim akun lama (closePositionIfEmpty) LANGSUNG setelah removeLiquidity 100% tanpa delay — padahal partialClosePosition (kode existing) sengaja wait 5 detik setelah remove sebelum percaya balance sudah settle di RPC. Saya tidak tahu apakah closePositionIfEmpty rentan race yang sama (RPC belum reflect posisi kosong) — kalau iya, kemungkinan gagal reclaim spurious (bukan rugi, cuma rent nyangkut, bisa diklaim manual nanti) tapi belum saya validasi di live. (3) Brief section R5 menyebut 'Telegram (optional): notify on rebalance if rebalanceNotify default false' — saya SAMA SEKALI tidak implement stub config atau notify call untuk event rebalance (beda dengan deploy/close/swap yang semua punya notifyDeploy/notifyClose/notifySwap). Keputusan saya waktu itu: scope cut karena 'optional' + fokus ke jalur uang. Sekarang saya tidak yakin ini keputusan tepat — rebalance memindahkan modal on-chain sama seperti close, tapi owner tidak dapat sinyal apa pun kecuali baca decision-log/journalctl manual. 1 SARAN IMPROVEMENT: posisi sekarang punya 5 lapis keputusan yang bersaing tiap tick — hard exit (SL/trailing/OOR/low-yield di updatePnlAndCheckExits), chart exit, rebalance, partial TP, deterministic close rules (rule 1-5) — dan urutan prioritasnya TERSEBAR + SEDIKIT BEDA antara management cycle (for-loop di index.js: exit > rebalance > instruction > close-rule > claim) vs PnL poller (exit > partial-TP > rebalance, tanpa jalur instruction/close-rule sama sekali). Saya sudah test operational gates rebalance sendiri (test-rebalance.js) tapi BELUM ADA test integrasi yang jalankan satu posisi lewat beberapa tick realistis (OOR 3m hold → OOR 6m rebalance fire → in-range → chart-exit signal muncul barengan rebalance cooldown aktif → verifikasi prioritas yang menang) across compositions kelima lapis itu. Ini kelas bug yang tidak kena test per-modul: kalau nanti ada yang edit index.js dan tidak sadar poller vs cycle punya urutan beda, regression prioritas bisa lolos semua suite existing. Usul: test/test-management-priority.js — state machine kecil yang mensimulasikan sequence tick dan assert exit menang dari segala kondisi. TIDAK ADA CODE YANG DIUBAH sesuai instruksi. Siap task berikutnya.
-
-**Assignee:** grok
-
-**Status:** closed
-
-**Done:** Baca ulang METEORA_LP.md+review, strategy-router.js, position-router.js, dlmm.js deploy+rebalance, index.js priority, state.js exit/partial. Praktek: cli.js positions, decision-log, journalctl daemon
-
-## 2026-07-04 06:00 UTC | grok → hermes
-
-**Summary:** SOP saat Grok limit — kamu pegang operasional + dispatch Claude
-
-**Tasks:** BACA WAJIB notes/GROK_LIMIT_RUNBOOK.md. Saat Grok limit/offline: (1) Bot TETAP JALAN — meridian-daemon independen, jangan panik stop kecuali owner minta; (2) Kamu ganti Grok untuk MONITOR: setiap sesi balance+positions+decision-log+journalctl (perintah di runbook); (3) Kamu ganti Grok untuk DISPATCH Claude — tulis HANDOFF entry format hermes→claude untuk bug/fix (red flags di runbook); (4) Kamu BOLEH restart daemon kalau crash; JANGAN commit kode, JANGAN ubah user-config threshold tanpa owner; (5) Report owner: posisi, gate aktif, apakah perlu Claude. P0 rebalance safety SUDAH LIVE (f2e2d0d) — gap migrate SOL + RPC delay dari laporan kurikulum kamu sudah fixed. Backlog Claude: test-management-priority (P2), rebalanceNotify (P2).
-
-**Assignee:** hermes
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-04 06:00 UTC | grok → claude
-
-**Summary:** SOP saat Grok limit — kamu pegang engineering + handoff balik ke Hermes
-
-**Tasks:** BACA WAJIB notes/GROK_LIMIT_RUNBOOK.md. Saat Grok limit/offline: (1) Terima dispatch dari Hermes (bukan Grok) via HANDOFF assignee claude — format sama; (2) Implement + test + handoff balik ke hermes (bukan grok) dengan verdict SAFE/FIX + diff summary; (3) JANGAN restart daemon / ubah user-config kecuali HANDOFF eksplisit allow; (4) Owner/Hermes deploy manual post-PR: git commit + systemctl restart (langkah di runbook §Claude); (5) Backlog prioritas saat Grok off: P2 test-management-priority.js (usul kamu dari kurikulum), P2 rebalanceNotify Telegram. CATATAN: gap P0 migrate pre-flight SOL + 5s reclaim delay SUDAH di f2e2d0d — jangan re-implement. Siap task dari Hermes.
-
-**Assignee:** claude
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-04 06:00 UTC | grok → grok
-
-**Summary:** Runbook Grok limit published
-
-**Tasks:** none
-
-**Assignee:** grok
-
-**Status:** closed
-
-**Done:** notes/GROK_LIMIT_RUNBOOK.md; HANDOFF hermes+claude notified
-
-## 2026-07-03 23:06 UTC | grok → hermes
-
-**Summary:** SOP Grok limit — baca GROK_LIMIT_RUNBOOK.md
-
-**Tasks:** Monitor + dispatch Claude saat Grok off
-
-**Assignee:** hermes
-
-**Status:** open
-
-## 2026-07-03 23:06 UTC | grok → claude
-
-**Summary:** SOP Grok limit — engineering handoff ke Hermes
-
-**Tasks:** Baca GROK_LIMIT_RUNBOOK.md; terima dispatch Hermes
-
-**Assignee:** claude
-
-**Status:** open
-
-## 2026-07-04 04:13 UTC | grok → hermes
-
-**Summary:** Grok limit 10% — SEMAN-SOL live spot, filter relaxed, FABLE phantom-close bug
-
-**Tasks:** BACA WAJIB notes/GROK_SESSION_HANDOFF_2026-07-04.md — full konteks sesi. LIVE: 1 posisi SEMAN-SOL GTSmM7bo spot in-range ~$41, wallet 0.85 SOL. Config relaxed (minVolume 5K, minMcap 150K, rugcheckTop10MaxPct 65, cooldowns off). FABLE auto-closed 15s phantom PnL 74% — WATCH SEMAN. Uncommitted: rugcheckTop10MaxPct code — dispatch Claude atau tunggu Grok commit+restart. Owner input ke Hermes sekarang. Monitor tiap sesi: balance+positions+decision-log+journalctl. JANGAN ubah config tanpa owner. Dispatch Claude P1 kalau SEMAN phantom-close atau rebalance FAILED.
-
-**Assignee:** hermes
-
-**Priority:** P0
-
-**Status:** open
-
-## 2026-07-04 04:14 UTC | grok → hermes
-
-**Summary:** Hermes boleh ubah config dalam zona hijau — baca HERMES_CONFIG_TUNING.md
-
-**Tasks:** BACA notes/HERMES_CONFIG_TUNING.md — cara node cli.js config set seperti Grok. Owner bilang relax/ketatkan/gas deploy: (1) candidates --limit 5 diagnosa reject, (2) max 3 key zona hijau, (3) config set, (4) screen kalau perlu. Zona hijau: minVolume 3K-15K, minMcap 120K-250K, rugcheckTop10MaxPct 60-70, maxTop10Pct 26-40, cooldown hours 0-3. MERAH: dryRun, minTokenFeesSol<25, rugcheck>70, matikan SL/trailing. Skill updated: meridian-strategy-optimization. Contoh live di GROK_SESSION_HANDOFF.
-
-**Assignee:** hermes
-
-**Priority:** P0
-
-**Status:** open
+**Done:** pnlWarmupMinutes guard (peak/trailing/TP gated, SL tetap live) + sinkronisasi signature estimateSharePct
 

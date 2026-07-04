@@ -212,6 +212,54 @@ export function shouldRebalance({ plan, position, tracked, mgmtConfig, nowMs = D
   return { action: "rebalance", reason: plan.reason, plan };
 }
 
+// ─── TVL dilution exit (Gap 3) ─────────────────────────────────
+
+/**
+ * Share + growth math for the dilution check. Pure; nulls when inputs missing.
+ */
+export function computeTvlDilution({ positionValueUsd, poolTvlUsd, entryTvlUsd }) {
+  const value = Number(positionValueUsd);
+  const tvl = Number(poolTvlUsd);
+  const entry = Number(entryTvlUsd);
+  const share = Number.isFinite(value) && value > 0 && Number.isFinite(tvl) && tvl > 0
+    ? Math.round((value / tvl) * 10000) / 100
+    : null;
+  const growth = Number.isFinite(tvl) && tvl > 0 && Number.isFinite(entry) && entry > 0
+    ? Math.round((tvl / entry) * 100) / 100
+    : null;
+  return { position_share_pct: share, tvl_growth_x: growth };
+}
+
+/**
+ * Post-deploy dilution exit: fires only when ALL three hold —
+ * our share collapsed (< shareExitMinPct), the pool's TVL actually exploded
+ * since entry (> shareExitTvlGrowthMin ×), and the yield is already below the
+ * low-yield floor. A small share alone is healthy (fees stay proportional);
+ * TVL growth alone can mean the pool is hot. Opt-in via shareExitEnabled.
+ * Returns { action: "TVL_DILUTION", reason } or null.
+ */
+export function checkTvlDilutionExit(dilution, positionData, mgmtConfig) {
+  const mgmt = mgmtConfig || config.management;
+  if (mgmt.shareExitEnabled !== true) return null;
+  const { position_share_pct: share, tvl_growth_x: growth } = dilution || {};
+  if (share == null || growth == null) return null;
+  if (positionData?.pnl_pct_suspicious) return null;
+
+  const minShare = Number(mgmt.shareExitMinPct ?? 2);
+  const minGrowth = Number(mgmt.shareExitTvlGrowthMin ?? 3);
+  const yieldFloor = Number(mgmt.minFeePerTvl24h ?? 7);
+  const feePerTvl = Number(positionData?.fee_per_tvl_24h);
+
+  if (share >= minShare) return null;
+  if (growth <= minGrowth) return null;
+  if (!Number.isFinite(feePerTvl) || feePerTvl >= yieldFloor) return null;
+
+  return {
+    action: "TVL_DILUTION",
+    reason: `TVL dilution: share ${share}% < ${minShare}%, pool TVL grew ${growth}x since entry, yield ${feePerTvl}% < ${yieldFloor}%`,
+  };
+}
+
 /**
  * Cheap pre-gate (no network): is this position even worth resolving a plan
  * for right now? Keeps the 3s poller from hammering APIs.

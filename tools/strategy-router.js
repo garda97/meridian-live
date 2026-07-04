@@ -314,6 +314,49 @@ export function applyPumpUpsideCoverGate(plan) {
   return plan;
 }
 
+/**
+ * TGE play override (opt-in via tgeMaxAgeHours): fresh launches get a very
+ * wide range — spot balanced when allowed, else max-width bid_ask below —
+ * and a tge flag that arms the max-hold close rule. Low-fee pools are skipped
+ * outright: the fee tier can't cover launch volatility (TGE doctrine: 5-10%).
+ * Pure; returns a new plan, does not mutate the input.
+ */
+export function applyTgeOverride(plan, { pool } = {}) {
+  const maxAge = Number(config.autoStrategy?.tgeMaxAgeHours);
+  if (!Number.isFinite(maxAge) || maxAge <= 0) return plan;
+  const age = Number(pool?.token_age_hours);
+  if (!Number.isFinite(age) || age >= maxAge) return plan;
+
+  const minFee = Number(config.autoStrategy?.tgeMinFeePct ?? 5);
+  const feePct = Number(pool?.fee_pct);
+  if (!Number.isFinite(feePct) || feePct < minFee) {
+    return {
+      ...plan,
+      tge: true,
+      entry_allowed: false,
+      entry_reason: `TGE token (${age}h old) on low-fee pool (${feePct ?? "?"}% < ${minFee}%) — fee tier can't cover launch volatility`,
+      notes: [...(plan.notes || []), `TGE gate: fee ${feePct ?? "?"}% below ${minFee}% floor`],
+    };
+  }
+
+  const maxBins = config.autoStrategy?.maxBins ?? 200;
+  const next = { ...plan, tge: true };
+  if (config.autoStrategy?.allowSpot !== false) {
+    next.strategy = "spot";
+    next.deposit_side = "sol_balanced";
+    next.bins_below = clampInt(maxBins * 0.65, config.strategy.minBinsBelow, maxBins);
+    next.bins_above = Math.max(0, maxBins - next.bins_below);
+  } else {
+    next.strategy = "bid_ask";
+    next.deposit_side = "sol_below";
+    next.bins_below = maxBins;
+    next.bins_above = 0;
+  }
+  next.wide_range = next.bins_below + next.bins_above > 69;
+  next.notes = [...(plan.notes || []), `TGE play: token ${age}h old, fee ${feePct}% — max-width range, exit clock ${config.autoStrategy?.tgeMaxHoldHours ?? 8}h`];
+  return next;
+}
+
 export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}) {
   const mint = pool?.base?.mint || tokenInfo?.mint;
   let signal = null;
@@ -374,6 +417,8 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
       plan.entry_reason = "Volatile-pool recall — spot redeploy required but spot is disabled; skip";
     }
   }
+
+  plan = applyTgeOverride(plan, { pool });
 
   applyPumpUpsideCoverGate(plan);
 
@@ -453,6 +498,21 @@ export function applyPendingPlanToDeployArgs(args) {
   const plan = getPendingDeployPlan(args.pool_address);
   if (!plan) return args;
 
+  // TGE Play override (opt-in): konservatif untuk pool TGE
+  if (config.management.tgePlayEnabled && plan.tge) {
+    const maxHoldHours = config.management.tgeMaxHoldHours ?? 8;
+    const minBinsBelow = Math.max(35, config.strategy.minBinsBelow);
+    return {
+      ...args,
+      strategy: config.autoStrategy?.allowSpot !== false ? "spot" : "bid_ask",
+      bins_below: minBinsBelow,
+      bins_above: config.autoStrategy?.allowSpot !== false ? 0 : 0,
+      tge: true,
+      tge_max_hold_hours: maxHoldHours,
+      _auto_strategy_plan: plan,
+    };
+  }
+
   const merged = { ...args };
   if (!merged.strategy && plan.strategy) merged.strategy = plan.strategy;
   if (merged.bins_below == null && plan.bins_below != null) merged.bins_below = plan.bins_below;
@@ -460,6 +520,7 @@ export function applyPendingPlanToDeployArgs(args) {
   if (merged.amount_x == null) merged.amount_x = plan.amount_x ?? 0;
   if (plan.volatility != null && merged.volatility == null) merged.volatility = plan.volatility;
   if (plan.oor_risk != null && merged.oor_risk == null) merged.oor_risk = plan.oor_risk;
+  if (plan.tge && merged.tge == null) merged.tge = true;
   merged._auto_strategy_plan = plan;
   return merged;
 }

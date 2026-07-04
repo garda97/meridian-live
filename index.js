@@ -7,11 +7,11 @@ import { fileURLToPath } from "url";
 import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
 import { getMyPositions, closePosition, partialClosePosition, rebalancePosition, getActiveBin } from "./tools/dlmm.js";
-import { isRebalanceCandidate, resolveRebalancePlanForPosition, shouldRebalance } from "./tools/position-router.js";
+import { isRebalanceCandidate, resolveRebalancePlanForPosition, shouldRebalance, computeTvlDilution, checkTvlDilutionExit } from "./tools/position-router.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { checkSolRegimeGate } from "./tools/sol-regime.js";
 import { isWithinDeployWindow } from "./utils/deploy-window.js";
-import { getTopCandidates, degenScore } from "./tools/screening.js";
+import { getTopCandidates, degenScore, estimateSharePct, getPoolDetail } from "./tools/screening.js";
 import { checkPositionChartExit } from "./tools/chart-indicators.js";
 import { config, reloadScreeningThresholds, computeDeployAmount, minTokenFeesSolForMcap } from "./config.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
@@ -32,7 +32,7 @@ import {
   createLiveMessage,
 } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
-import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, confirmPeak, registerExitSignal, shouldPartialTakeProfit } from "./state.js";
+import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, confirmPeak, registerExitSignal, shouldPartialTakeProfit, isInPnlWarmup } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -285,21 +285,43 @@ export async function runManagementCycle({ silent = false } = {}) {
       return mgmtReport;
     }
 
-    // Snapshot + load pool memory
-    const positionData = positions.map((p) => {
-      recordPositionSnapshot(p.pool, p);
-      return { ...p, recall: recallForPool(p.pool) };
-    });
+    // Snapshot + load pool memory. Dilution context (share of live pool TVL +
+    // TVL growth since entry) rides along: one pool-detail fetch per position
+    // per cycle, fail-soft to nulls — trend accumulates in pool-memory even
+    // while the shareExit rule itself is off.
+    const positionData = await Promise.all(positions.map(async (p) => {
+      let dilution = { position_share_pct: null, tvl_growth_x: null };
+      try {
+        const detail = await getPoolDetail({ pool_address: p.pool, timeframe: config.screening?.timeframe || "5m" });
+        dilution = computeTvlDilution({
+          positionValueUsd: p.total_value_usd,
+          poolTvlUsd: detail?.tvl ?? detail?.active_tvl,
+          entryTvlUsd: getTrackedPosition(p.position)?.entry_tvl,
+        });
+      } catch (e) {
+        log("cron", `Dilution fetch failed for ${p.pair}: ${e.message}`);
+      }
+      const enriched = { ...p, ...dilution };
+      recordPositionSnapshot(p.pool, enriched);
+      return { ...enriched, recall: recallForPool(p.pool) };
+    }));
 
     // JS exit checks. Management is the slow cron backstop: raise peak immediately
     // (confirmTicks=1) and act on detected exits directly. Real-time 2-tick
     // confirmation lives in the fast 3s poller below.
     const exitMap = new Map();
     await Promise.all(positionData.map(async (p) => {
-      confirmPeak(p.position, p.pnl_pct, 1);
+      confirmPeak(p.position, p.pnl_pct, 1, config.management.pnlWarmupMinutes);
       let exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (!exit) {
         exit = await checkPositionChartExit(p).catch(() => null);
+      }
+      if (!exit) {
+        exit = checkTvlDilutionExit(
+          { position_share_pct: p.position_share_pct, tvl_growth_x: p.tvl_growth_x },
+          p,
+          config.management,
+        );
       }
       if (exit) {
         exitMap.set(p.position, exit.reason);
@@ -656,9 +678,20 @@ export async function runScreeningCycle({ silent = false } = {}) {
       return screenReport;
     }
 
-    const finalPassing = passingAfterGmgn;
+    // Optional competitiveness floor (web3probe): drop pools where our deploy
+    // would be a negligible TVL share. Off by default — see estimateSharePct.
+    const minSharePct = Number(config.screening.minEstimatedSharePct);
+    const finalPassing = Number.isFinite(minSharePct) && minSharePct > 0
+      ? passingAfterGmgn.filter(({ pool }) => {
+          const share = estimateSharePct({ deployAmountSol: deployAmount, solPriceUsd: currentBalance.sol_price, poolTvlUsd: pool.tvl ?? pool.active_tvl });
+          if (share == null || share >= minSharePct) return true;
+          log("screening", `Share filter: dropped ${pool.name} — est share ${share}% < ${minSharePct}%`);
+          filteredOut.push({ name: pool.name, reason: `est share ${share}% < min ${minSharePct}%` });
+          return false;
+        })
+      : passingAfterGmgn;
 
-    if (finalPassing.length === 0 && passing.length === 0) {
+    if (finalPassing.length === 0) {
       const combined = filteredOut.length > 0 ? filteredOut : earlyFilteredExamples;
       const combinedExamples = combined.slice(0, 3)
         .map((entry) => `- ${entry.name}: ${entry.reason}`)
@@ -725,6 +758,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const bundlerPct = gmgnStats?.bundlers_pct_in_top_100;
       const smartDegen = gmgnStats?.smart_degen_count;
       const holderRatios = computeHolderRatios(gmgnStats, ti?.holders ?? pool.base_token_holders);
+      const estSharePct = estimateSharePct({ deployAmountSol: deployAmount, solPriceUsd: currentBalance.sol_price, poolTvlUsd: pool.tvl ?? pool.active_tvl });
       const feesSol = ti?.global_fees_sol ?? "?";
       const launchpad = ti?.launchpad ?? null;
       const priceChange = ti?.stats_1h?.price_change;
@@ -737,7 +771,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
       const block = [
         `POOL: ${pool.name} (${pool.pool})`,
-        `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.tvl ?? pool.active_tvl}, volatility_${pool.volatility_timeframe || "30m"}=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}`,
+        `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.tvl ?? pool.active_tvl}, volatility_${pool.volatility_timeframe || "30m"}=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}${estSharePct != null ? `, est_share=${estSharePct}% of TVL` : ""}`,
         `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${bundlerPct != null ? `, gmgn_bundlers=${bundlerPct}%` : ""}${smartDegen != null ? `, gmgn_sm=${smartDegen}` : ""}${holderRatios.fresh_wallet_holder_pct != null ? `, fresh_holders=${holderRatios.fresh_wallet_holder_pct}%` : ""}${holderRatios.bundled_wallet_holder_pct != null ? `, bundled_holders=${holderRatios.bundled_wallet_holder_pct}%` : ""}${launchpad ? `, launchpad=${launchpad}` : ""}`,
         pvpLine,
         `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
@@ -770,6 +804,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           smart_degen_count:     auditNum(smartDegen),
           fresh_wallet_holder_pct:   holderRatios.fresh_wallet_holder_pct,
           bundled_wallet_holder_pct: holderRatios.bundled_wallet_holder_pct,
+          estimated_share_pct:       estSharePct,
         });
       }
 
@@ -955,7 +990,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       if (!result?.positions?.length) return;
       for (const p of result.positions) {
-        confirmPeak(p.position, p.pnl_pct, confirmTicks);
+        confirmPeak(p.position, p.pnl_pct, confirmTicks, config.management.pnlWarmupMinutes);
 
         // Detect an exit signal this tick (rule-based exits, then deterministic close rules).
         let exit = updatePnlAndCheckExits(p.position, p, config.management);
@@ -1160,7 +1195,8 @@ function formatCandidates(candidates) {
     const vol = `$${((p.volume_window || 0) / 1000).toFixed(1)}k`.padStart(8);
     const active = `${p.active_pct}%`.padStart(6);
     const org = String(p.organic_score).padStart(4);
-    return `  [${i + 1}]  ${name}  fee/aTVL:${ftvl}  vol:${vol}  in-range:${active}  organic:${org}`;
+    const sharePct = p.estimated_share_pct != null ? `${p.estimated_share_pct.toFixed(2)}%`.padStart(7) : "?".padStart(7);
+    return `  [${i + 1}]  ${name}  fee/aTVL:${ftvl}  vol:${vol}  in-range:${active}  organic:${org}  share:${sharePct}`;
   });
 
   return [
@@ -1187,7 +1223,14 @@ function getDeterministicCloseRule(position, managementConfig) {
   if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct <= managementConfig.stopLossPct) {
     return { action: "CLOSE", rule: 1, reason: "stop loss" };
   }
-  if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct >= managementConfig.takeProfitPct) {
+  if (
+    !pnlSuspect &&
+    position.pnl_pct != null &&
+    position.pnl_pct >= managementConfig.takeProfitPct &&
+    // Warmup: early PnL spikes are phantom (deposits still settling) — never
+    // take profit on them. Stop loss above stays live.
+    !isInPnlWarmup(tracked, managementConfig.pnlWarmupMinutes)
+  ) {
     return { action: "CLOSE", rule: 2, reason: "take profit" };
   }
   if (
@@ -1211,6 +1254,16 @@ function getDeterministicCloseRule(position, managementConfig) {
     (position.age_minutes ?? 0) >= 60
   ) {
     return { action: "CLOSE", rule: 5, reason: "low yield" };
+  }
+  // TGE play max-hold clock: launch positions are a 2-8h fee harvest, not a
+  // hold — close on schedule regardless of PnL (SL/trailing still fire earlier).
+  const tgeMaxHoldHours = Number(config.autoStrategy?.tgeMaxHoldHours ?? 8);
+  if (
+    tracked?.tge === true &&
+    Number.isFinite(tgeMaxHoldHours) && tgeMaxHoldHours > 0 &&
+    (position.age_minutes ?? 0) >= tgeMaxHoldHours * 60
+  ) {
+    return { action: "CLOSE", rule: 6, reason: `TGE max hold ${tgeMaxHoldHours}h reached` };
   }
   return null;
 }

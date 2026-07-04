@@ -228,7 +228,7 @@ Regression: all existing suites pass.
 - Multi-layer composite rebalance (strategy-library multi_layer)
 - Token-only reseed when wallet holds 0 base token
 - LLM-driven rebalance decisions (all deterministic)
-- GIMI integration
+
 
 ---
 
