@@ -158,7 +158,11 @@ function testCooldownStacking() {
 function testWinRedeployCooldown() {
   const saved = backup(POOL_MEMORY_PATH);
   const savedEnabled = config.management.winRedeployCooldownEnabled;
+  const savedHours = config.management.winRedeployCooldownHours;
   try {
+    // Pin config — live user-config may disable this (e.g. hours: 0)
+    config.management.winRedeployCooldownEnabled = true;
+    config.management.winRedeployCooldownHours = 3;
     fs.writeFileSync(POOL_MEMORY_PATH, "{}");
 
     // 1. Trailing TP win in range → pool + mint cooldown (BABYANSEM round-2 pattern)
@@ -206,6 +210,7 @@ function testWinRedeployCooldown() {
     console.log("  win-cooldown: trailing/TP win blocks pool+mint, OOR/loss/neutral/disabled untouched OK");
   } finally {
     config.management.winRedeployCooldownEnabled = savedEnabled;
+    config.management.winRedeployCooldownHours = savedHours;
     restore(POOL_MEMORY_PATH, saved);
   }
 }

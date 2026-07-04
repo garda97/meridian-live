@@ -438,6 +438,8 @@ export function recordPositionSnapshot(poolAddress, snapshot) {
     unclaimed_fees_usd: snapshot.unclaimed_fees_usd ?? null,
     minutes_out_of_range: snapshot.minutes_out_of_range ?? null,
     age_minutes: snapshot.age_minutes ?? null,
+    position_share_pct: snapshot.position_share_pct ?? null,
+    tvl_growth_x: snapshot.tvl_growth_x ?? null,
   });
 
   // Keep last 48 snapshots (~4h at 5min intervals)

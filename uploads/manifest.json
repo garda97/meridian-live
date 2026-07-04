@@ -1,6 +1,72 @@
 {
-  "latest": "uploads/tg_20260703_095234_1409.jpg",
+  "latest": "uploads/tg_20260704_025536_1538.jpg",
   "items": [
+    {
+      "path": "uploads/tg_20260704_025536_1538.jpg",
+      "filename": "tg_20260704_025536_1538.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_025536_1538.jpg",
+      "saved_at": "2026-07-04T02:55:36.862Z",
+      "message_id": 1538,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 119622,
+      "telegram_file_path": "photos/file_29.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_022826_1525.jpg",
+      "filename": "tg_20260704_022826_1525.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_022826_1525.jpg",
+      "saved_at": "2026-07-04T02:28:26.548Z",
+      "message_id": 1525,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 156104,
+      "telegram_file_path": "photos/file_28.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_022537_1523.jpg",
+      "filename": "tg_20260704_022537_1523.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_022537_1523.jpg",
+      "saved_at": "2026-07-04T02:25:37.117Z",
+      "message_id": 1523,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 261065,
+      "telegram_file_path": "photos/file_27.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_022031_1521.jpg",
+      "filename": "tg_20260704_022031_1521.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_022031_1521.jpg",
+      "saved_at": "2026-07-04T02:20:31.541Z",
+      "message_id": 1521,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 259956,
+      "telegram_file_path": "photos/file_26.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_021128_1516.jpg",
+      "filename": "tg_20260704_021128_1516.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_021128_1516.jpg",
+      "saved_at": "2026-07-04T02:11:28.489Z",
+      "message_id": 1516,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 255613,
+      "telegram_file_path": "photos/file_25.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_020629_1513.jpg",
+      "filename": "tg_20260704_020629_1513.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_020629_1513.jpg",
+      "saved_at": "2026-07-04T02:06:29.192Z",
+      "message_id": 1513,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 182653,
+      "telegram_file_path": "photos/file_24.jpg"
+    },
     {
       "path": "uploads/tg_20260703_095234_1409.jpg",
       "filename": "tg_20260703_095234_1409.jpg",

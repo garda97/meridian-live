@@ -483,6 +483,8 @@ export async function deployPosition({
   entry_holders,
   // auto-strategy plan risk score (injected by applyPendingPlanToDeployArgs)
   oor_risk,
+  // TGE play flag (injected by applyPendingPlanToDeployArgs) — arms the max-hold close rule
+  tge,
 }) {
   pool_address = normalizeMint(pool_address);
   const activeStrategy = strategy || config.strategy.strategy;
@@ -734,6 +736,7 @@ export async function deployPosition({
           entry_tvl,
           entry_volume,
           entry_holders,
+          tge: tge === true || undefined,
         });
       }
 
@@ -758,6 +761,7 @@ export async function deployPosition({
           downside_pct: downside_pct ?? downsideCoveragePct,
           upside_pct: upside_pct ?? upsideCoveragePct,
           holder_audit: buildHolderAuditSnapshot(signalSnapshot),
+          est_share_pct: signalSnapshot?.estimated_share_pct ?? null,
         },
       });
 
@@ -978,6 +982,7 @@ export async function deployPosition({
     entry_tvl,
     entry_volume,
     entry_holders,
+    tge: tge === true || undefined,
   });
 
   appendDecision({
@@ -1005,6 +1010,7 @@ export async function deployPosition({
       downside_pct: downside_pct ?? null,
       upside_pct: upside_pct ?? null,
       holder_audit: buildHolderAuditSnapshot(signalSnapshot),
+          est_share_pct: signalSnapshot?.estimated_share_pct ?? null,
     },
   });
 
@@ -1143,11 +1149,52 @@ function maybeNum(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function roundNum(value, decimals = 4) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 0;
-  const factor = 10 ** decimals;
-  return Math.round(n * factor) / factor;
+/**
+ * Deterministic exit rules (no LLM).
+ * Returns { action: "CLOSE", rule: string, reason: string } or null.
+ */
+export function getDeterministicCloseRule(position, mgmtConfig = {}) {
+  const pnlPct = position.pnl_pct;
+  const oorMinutes = position.minutes_out_of_range ?? 0;
+  const ageMinutes = position.age_minutes ?? 0;
+  const feePerTvl24h = position.fee_per_tvl_24h ?? 0;
+  const unclaimedFees = position.unclaimed_fees_usd ?? 0;
+  const minClaim = mgmtConfig.minClaimAmount ?? config.management.minClaimAmount;
+  const oorBinsToClose = mgmtConfig.outOfRangeBinsToClose ?? config.management.outOfRangeBinsToClose;
+  const oorWaitMinutes = mgmtConfig.outOfRangeWaitMinutes ?? config.management.outOfRangeWaitMinutes;
+  const stopLossPct = mgmtConfig.stopLossPct ?? config.management.stopLossPct;
+  const takeProfitPct = mgmtConfig.takeProfitPct ?? config.management.takeProfitPct;
+  const minFeePerTvl24h = mgmtConfig.minFeePerTvl24h ?? config.management.minFeePerTvl24h;
+  const minAgeBeforeYieldCheck = mgmtConfig.minAgeBeforeYieldCheck ?? config.management.minAgeBeforeYieldCheck;
+  const exitRule3Enabled = mgmtConfig.exitRule3ConditionsEnabled ?? config.management.exitRule3ConditionsEnabled;
+
+  // Exit Rule 3-Kondisi (opt-in): close when ANY of the three conditions is met
+  if (exitRule3Enabled) {
+    if (pnlPct != null && pnlPct >= takeProfitPct) {
+      return { action: "CLOSE", rule: "exit_rule_3", reason: `PnL ${pnlPct.toFixed(2)}% ≥ takeProfitPct ${takeProfitPct}%` };
+    }
+    if (pnlPct != null && pnlPct <= stopLossPct) {
+      return { action: "CLOSE", rule: "exit_rule_3", reason: `PnL ${pnlPct.toFixed(2)}% ≤ stopLossPct ${stopLossPct}%` };
+    }
+    if (oorMinutes >= oorWaitMinutes) {
+      return { action: "CLOSE", rule: "exit_rule_3", reason: `OOR ${oorMinutes}m ≥ ${oorWaitMinutes}m` };
+    }
+  }
+
+  // Default rules (trailing TP + hard SL + OOR timeout)
+  if (oorMinutes >= oorWaitMinutes && oorBinsToClose > 0) {
+    return { action: "CLOSE", rule: "oor_timeout", reason: `OOR ${oorMinutes}m ≥ ${oorWaitMinutes}m` };
+  }
+  if (pnlPct != null && pnlPct <= stopLossPct) {
+    return { action: "CLOSE", rule: "stop_loss", reason: `PnL ${pnlPct.toFixed(2)}% ≤ stopLossPct ${stopLossPct}%` };
+  }
+  if (unclaimedFees >= minClaim) {
+    return null; // claim, not close
+  }
+  if (ageMinutes >= minAgeBeforeYieldCheck && feePerTvl24h < minFeePerTvl24h) {
+    return { action: "CLOSE", rule: "low_yield", reason: `fee/TVL 24h ${feePerTvl24h}% < ${minFeePerTvl24h}%` };
+  }
+  return null;
 }
 
 const PERFORMANCE_SIGNAL_FIELDS = [
@@ -2999,6 +3046,7 @@ function classifyExitSignal(reason) {
   if (text.includes("stop loss")) return "stop_loss";
   if (text.includes("trailing")) return "trailing_tp";
   if (text.includes("chart exit")) return "chart_exit";
+  if (text.includes("tvl dilution")) return "tvl_dilution";
   if (text.includes("low yield")) return "low_yield";
   if (text.includes("out of range") || text.includes("oor") || text.includes("pumped far above")) return "out_of_range";
   if (text.includes("take profit") || text.includes("tp")) return "take_profit";

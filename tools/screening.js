@@ -172,6 +172,9 @@ function getRawPoolScreeningRejectReason(pool, s) {
   if (feeActiveTvlRatio == null || feeActiveTvlRatio < s.minFeeActiveTvlRatio) {
     return `fee/active-TVL ${feeActiveTvlRatio ?? "unknown"} below minFeeActiveTvlRatio ${s.minFeeActiveTvlRatio}`;
   }
+  if (s.minEstimatedSharePct != null && pool?.estimated_share_pct != null && pool.estimated_share_pct < s.minEstimatedSharePct) {
+    return `estimated share ${pool.estimated_share_pct.toFixed(2)}% below minEstimatedSharePct ${s.minEstimatedSharePct}%`;
+  }
   if (!isUsableVolatility(volatility)) {
     return `volatility ${volatility ?? "unknown"} is unusable`;
   }
@@ -699,7 +702,7 @@ export async function discoverPools({
  * Returns eligible pools for the agent to evaluate and pick from.
  * Hard filters applied in code, agent decides which to deploy into.
  */
-export async function getTopCandidates({ limit = 10 } = {}) {
+export async function getTopCandidates({ limit = 10, timeframe = null } = {}) {
   const { config } = await import("../config.js");
   const discovery = await discoverPools({ page_size: 50 });
   const { pools } = discovery;
@@ -713,8 +716,17 @@ export async function getTopCandidates({ limit = 10 } = {}) {
   const minTvl = Number(config.screening.minTvl ?? 0);
   const maxTvl = config.screening.maxTvl == null ? null : Number(config.screening.maxTvl);
   const minFeeActiveTvlRatio = Number(config.screening.minFeeActiveTvlRatio ?? 0);
+  const deployAmountUsd = config.management.deployAmountSol * 150; // Approx SOL/USD
 
   const eligible = pools
+    .map((p) => ({
+      ...p,
+      estimated_share_pct: estimateSharePct({
+        deployAmountSol: config.management.deployAmountSol,
+        solPriceUsd: 150, // Approx
+        poolTvlUsd: Number(p.active_tvl ?? p.tvl ?? 0),
+      }),
+    }))
     .filter((p) => {
       const tvl = Number(p.tvl ?? p.active_tvl ?? 0);
       if (Number.isFinite(minTvl) && minTvl > 0 && tvl < minTvl) {
@@ -752,6 +764,10 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         const reason = getBaseMintCooldownReason(p.base?.mint) || "token cooldown active";
         log("screening", `Filtered cooldown token ${p.base?.symbol} (${p.base?.mint?.slice(0, 8)}): ${reason}`);
         pushFilteredReason(filteredOut, p, reason);
+        return false;
+      }
+      if (config.screening.minEstimatedSharePct != null && p.estimated_share_pct != null && p.estimated_share_pct < config.screening.minEstimatedSharePct) {
+        pushFilteredReason(filteredOut, p, `estimated share ${p.estimated_share_pct.toFixed(2)}% below minEstimatedSharePct ${config.screening.minEstimatedSharePct}%`);
         return false;
       }
       return true;
@@ -863,6 +879,23 @@ export async function getPoolDetail({ pool_address, timeframe = "5m" }) {
   }
 
   return pool;
+}
+
+/**
+ * Estimated share of pool TVL our deploy would take, in percent (web3probe
+ * competitiveness insight). Informative at current position sizes — with a
+ * 0.5 SOL deploy against a $20k+ TVL floor the share tops out around 0.2%,
+ * so the optional minEstimatedSharePct filter should stay off until the
+ * wallet is 10-20x larger.
+ */
+export function estimateSharePct({ deployAmountSol, solPriceUsd, poolTvlUsd }) {
+  const amount = Number(deployAmountSol);
+  const price = Number(solPriceUsd);
+  const tvl = Number(poolTvlUsd);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (!Number.isFinite(price) || price <= 0) return null;
+  if (!Number.isFinite(tvl) || tvl <= 0) return null;
+  return Math.round(((amount * price) / tvl) * 10000) / 100;
 }
 
 /**

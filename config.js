@@ -118,6 +118,10 @@ export const config = {
     rugcheckTop10MaxPct: u.rugcheckTop10MaxPct ?? 60, // rugcheck top-10 holder concentration cap
     solRegimeGateEnabled: u.solRegimeGateEnabled ?? true,
     solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
+    // Competitiveness floor: min estimated TVL share (%) our deploy must take.
+    // null = off — at 0.5 SOL deploys the share is ~0.2% max, so this only
+    // makes sense once the wallet is much larger. Metric always shown to LLM.
+    minEstimatedSharePct: u.minEstimatedSharePct ?? null,
   },
 
   // ─── Position Management ────────────────
@@ -142,6 +146,19 @@ export const config = {
     winRedeployCooldownEnabled: u.winRedeployCooldownEnabled !== false, // block redeploy after a clean in-range win (trailing TP / take profit)
     winRedeployCooldownHours: u.winRedeployCooldownHours ?? 3,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
+    exitRule3ConditionsEnabled: u.exitRule3ConditionsEnabled ?? false,
+    // TGE Play (opt-in): override konservatif untuk pool TGE (bins_below=35, bins_above=0, max_hold_hours=8).
+    // Default OFF (false) — hanya aktifkan untuk pool TGE yang baru diluncurkan.
+    tgePlayEnabled: u.tgePlayEnabled ?? false,
+    tgeMaxAgeHours: u.tgeMaxAgeHours ?? null, // null = no age limit
+    tgeMinFeePct: u.tgeMinFeePct ?? 5, // 5% minimum fee
+    tgeMaxHoldHours: u.tgeMaxHoldHours ?? 8, // 8 jam max hold
+    //   1. PnL ≥ takeProfitPct (trailing TP)
+    //   2. PnL ≤ stopLossPct (hard SL)
+    //   3. OOR ≥ outOfRangeWaitMinutes (OOR timeout)
+    // Default OFF (false) — only enable if you want to override the default
+    // trailing TP + hard SL + OOR timeout logic with a unified exit rule.
+    exitRule3ConditionsEnabled: u.exitRule3ConditionsEnabled ?? false,
     // POWER MODE auto-rebalance: re-analyze open positions and reposition
     // (shift/widen/reseed/convert) instead of only hold/close.
     autoRebalanceEnabled:      u.autoRebalanceEnabled      ?? true,
@@ -150,6 +167,11 @@ export const config = {
     rebalanceCooldownMinutes:  u.rebalanceCooldownMinutes  ?? 15,  // between attempts on the same position
     rebalanceMinPnlPct:        u.rebalanceMinPnlPct        ?? -8,  // below this, close instead of rebalance
     rebalanceOnStrategyDrift:  u.rebalanceOnStrategyDrift  ?? true, // in-range bid_ask→spot conversion
+    // TVL dilution exit (opt-in): close when our share collapsed AND the pool
+    // TVL exploded since entry AND yield is under the low-yield floor.
+    shareExitEnabled:      u.shareExitEnabled      ?? false,
+    shareExitMinPct:       u.shareExitMinPct       ?? 2,
+    shareExitTvlGrowthMin: u.shareExitTvlGrowthMin ?? 3,
     rebalanceMigrateRentBufferSol: u.rebalanceMigrateRentBufferSol ?? 0.1,  // extra SOL atop gasReserve for new position account rent
     rebalanceMigrateWideRentExtraSol: u.rebalanceMigrateWideRentExtraSol ?? 0.05, // added when planned range > 69 bins
     rebalanceTxFeeBufferSol:   u.rebalanceTxFeeBufferSol   ?? 0.02, // headroom for claim/remove/add/close txs
@@ -166,6 +188,10 @@ export const config = {
     trailingTriggerPct:    u.trailingTriggerPct    ?? 3,    // activate trailing at X% PnL
     trailingDropPct:       u.trailingDropPct       ?? 1.5,  // close when drops X% from peak
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
+    // PnL warmup: minutes after deploy/rebalance during which peaks, trailing
+    // arming, and take-profit are untrusted (FABLE phantom +74% spike 5s after
+    // deploy fired trailing TP → 0% real close). Stop loss stays live.
+    pnlWarmupMinutes:      u.pnlWarmupMinutes      ?? 3,
     // Partial take-profit (DCA-out) — one-time partial liquidity removal at profit,
     // position account stays open and keeps running under SL/trailing
     partialTpEnabled:      u.partialTpEnabled      ?? false,
@@ -326,6 +352,12 @@ export const config = {
     athEntryGateEnabled: u.athEntryGateEnabled ?? false,
     athLookbackCandles: Math.max(2, Number(u.athLookbackCandles ?? 48)),
     maxPumpPct1h: Number(u.autoStrategyMaxPumpPct1h ?? 20),
+    // TGE play (opt-in): tokens younger than tgeMaxAgeHours get a very wide
+    // range + max-hold clock, and are skipped on low-fee pools where the fee
+    // tier can't cover launch volatility. null = off.
+    tgeMaxAgeHours: u.tgeMaxAgeHours ?? null,
+    tgeMinFeePct: Number(u.tgeMinFeePct ?? 5),
+    tgeMaxHoldHours: Number(u.tgeMaxHoldHours ?? 8),
   },
 
   indicators: {

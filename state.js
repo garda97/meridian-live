@@ -74,6 +74,7 @@ export function trackPosition({
   entry_tvl = null,
   entry_volume = null,
   entry_holders = null,
+  tge = false,
 }) {
   const state = load();
   state.positions[position] = {
@@ -95,6 +96,7 @@ export function trackPosition({
     entry_tvl,
     entry_volume,
     entry_holders,
+    tge: tge === true,
     signal_snapshot: signal_snapshot || null,
     deployed_at: new Date().toISOString(),
     out_of_range_since: null,
@@ -218,11 +220,39 @@ export function setPositionInstruction(position_address, instruction) {
  * otherwise arm a false trailing-drop). Replaces the old 15s setTimeout recheck.
  * Returns true when the peak was raised this call.
  */
-export function confirmPeak(position_address, candidatePnlPct, confirmTicks = 2) {
+/**
+ * PnL warmup window: right after a deploy (or a rebalance — new/changed
+ * deposits) the RPC PnL computation can return garbage spikes while deposits
+ * settle (FABLE: +74% phantom 5s after deploy → trailing TP fired → closed at
+ * 0% real). During warmup, PnL-driven *profit* signals are untrusted: peaks
+ * aren't raised, trailing can't arm, take-profit can't fire. Stop loss stays
+ * live — missing a real instant rug is worse than a spurious 0% close.
+ */
+export function isInPnlWarmup(pos, warmupMinutes, nowMs = Date.now()) {
+  const warmup = Number(warmupMinutes);
+  if (!Number.isFinite(warmup) || warmup <= 0) return false;
+  if (!pos) return false;
+  const refs = [pos.deployed_at, pos.last_rebalance_at]
+    .map((t) => (t ? new Date(t).getTime() : NaN))
+    .filter(Number.isFinite);
+  if (refs.length === 0) return false;
+  return nowMs - Math.max(...refs) < warmup * 60_000;
+}
+
+export function confirmPeak(position_address, candidatePnlPct, confirmTicks = 2, warmupMinutes = 0) {
   if (candidatePnlPct == null) return false;
   const state = load();
   const pos = state.positions[position_address];
   if (!pos || pos.closed) return false;
+  // Warmup: don't stage or raise peaks from untrusted early ticks.
+  if (isInPnlWarmup(pos, warmupMinutes)) {
+    if (pos.pending_peak_pnl_pct != null) {
+      pos.pending_peak_pnl_pct = null;
+      pos.pending_peak_confirm_count = 0;
+      save(state);
+    }
+    return false;
+  }
 
   const currentPeak = pos.peak_pnl_pct ?? 0;
   // No new high — drop any pending peak candidate.
@@ -365,8 +395,8 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
 
   let changed = false;
 
-  // Activate trailing TP once trigger threshold is reached
-  if (mgmtConfig.trailingTakeProfit && !pos.trailing_active && (pos.peak_pnl_pct ?? 0) >= mgmtConfig.trailingTriggerPct) {
+  // Activate trailing TP once trigger threshold is reached (never during PnL warmup)
+  if (mgmtConfig.trailingTakeProfit && !pos.trailing_active && !isInPnlWarmup(pos, mgmtConfig.pnlWarmupMinutes) && (pos.peak_pnl_pct ?? 0) >= mgmtConfig.trailingTriggerPct) {
     pos.trailing_active = true;
     changed = true;
     log("state", `Position ${position_address} trailing TP activated (confirmed peak: ${pos.peak_pnl_pct}%)`);
