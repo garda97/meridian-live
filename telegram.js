@@ -544,7 +544,10 @@ async function poll(onMessage) {
         const hasImage = !!imageUpload;
         const text = String(msg.text || msg.caption || "").trim();
         const kind = hasImage ? "image" : text ? "text" : "other";
-        log("telegram", `Inbound ${kind} update_id=${update.update_id} chat=${msg.chat?.id} user=${msg.from?.id}`);
+        const docMeta = msg.document
+          ? ` doc=${msg.document.file_name || "(no name)"} mime=${msg.document.mime_type || "?"}`
+          : "";
+        log("telegram", `Inbound ${kind} update_id=${update.update_id} chat=${msg.chat?.id} user=${msg.from?.id}${docMeta}`);
 
         if (!isAuthorizedIncomingMessage(msg)) continue;
         if (!hasImage && !text) continue;

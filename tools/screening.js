@@ -216,7 +216,8 @@ async function rugCheckMint(mint) {
     if ((data.score || 0) > 50_000) return { pass: false, reason: `rugcheck: score too high (${data.score})` };
     const topHolders = data.topHolders || [];
     const top10pct = topHolders.slice(0, 10).reduce((sum, h) => sum + (h.pct || h.percentage || 0), 0);
-    if (top10pct > 60) return { pass: false, reason: `rugcheck: top10 holders ${top10pct.toFixed(1)}% > 60%` };
+    const top10Max = Number(config.screening.rugcheckTop10MaxPct ?? 60);
+    if (top10pct > top10Max) return { pass: false, reason: `rugcheck: top10 holders ${top10pct.toFixed(1)}% > ${top10Max}%` };
     return { pass: true, rug_score: data.score || 0 };
   } catch (error) {
     log("screening", `Rugcheck API error for ${mint.slice(0, 8)}: ${error.message} — passing`);

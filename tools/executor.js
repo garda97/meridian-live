@@ -405,6 +405,8 @@ const toolMap = {
       maxTokenAgeHours: ["screening", "maxTokenAgeHours"],
       minFeePerTvl24h: ["management", "minFeePerTvl24h"],
       loneCandidateMinDegen: ["screening", "loneCandidateMinDegen"],
+      rugcheckEnabled: ["screening", "rugcheckEnabled"],
+      rugcheckTop10MaxPct: ["screening", "rugcheckTop10MaxPct"],
       // management
       minClaimAmount: ["management", "minClaimAmount"],
       autoSwapAfterClaim: ["management", "autoSwapAfterClaim"],

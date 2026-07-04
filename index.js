@@ -2,6 +2,7 @@ import "./envcrypt.js";
 import cron from "node-cron";
 import readline from "readline";
 import path from "path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "url";
 import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
@@ -1679,6 +1680,7 @@ async function telegramHandler(msg) {
 
   const text = msg?.text?.trim();
   if (!text) return;
+
   if (msg?.isCallback && text.startsWith("cfg:")) {
     try {
       await applySettingsMenuCallback(msg);

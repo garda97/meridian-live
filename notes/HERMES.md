@@ -136,11 +136,23 @@ python3 scripts/hermes_bridge.py dispatch \
 | Threshold screening perlu tuning | **Hermes** propose → owner approve → **Grok** execute |
 | Wallet perlu SOL untuk tes realistis | **Owner** (inform only) |
 
+### Ubah parameter (owner bilang relax/ketatkan)
+
+**WAJIB baca:** `notes/HERMES_CONFIG_TUNING.md` — zona hijau/kuning/merah + decision tree reject→fix.
+
+```bash
+node cli.js config set <key> <value>   # max 3 key per iterasi
+```
+
+Skill: `meridian-strategy-optimization` (bagian "Hermes — ubah parameter sekarang").
+
+Owner verbal OK ("relax filter", "gas") = Hermes boleh eksekusi dalam **zona hijau**. Lapor before/after.
+
 ### Jangan lakukan
 
-- Edit `user-config.json` threshold tanpa owner approve
-- Ubah `dryRun` tanpa owner approve
-- Deploy on-chain manual — itu tugas Meridian daemon, bukan Hermes CLI langsung
+- Ubah parameter **zona merah** (`dryRun`, `minTokenFeesSol`<25, matikan SL/trailing) tanpa owner eksplisit
+- Commit kode / restart daemon (kecuali crash) — dispatch Grok
+- Deploy on-chain manual — pakai `node cli.js screen` atau biarkan daemon
 
 ## Dispatch
 

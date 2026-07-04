@@ -55,6 +55,8 @@
   "blockPvpSymbols": true,
   "maxBotHoldersPct": 30,
   "maxTop10Pct": 60,
+  "rugcheckEnabled": true,
+  "rugcheckTop10MaxPct": 60,
   "allowedLaunchpads": [],
   "blockedLaunchpads": [],
   "minTokenAgeHours": null,

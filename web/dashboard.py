@@ -180,8 +180,12 @@ if FastAPI is not None:
         cfg = _read_json(_ROOT / "user-config.json", {})
         keys = [
             "minTvl", "maxTvl", "minVolume", "minOrganic", "minHolders", "minMcap",
-            "maxMcap", "minFeeActiveTvlRatio", "minTokenFeesSol", "strategy",
-            "dryRun", "llmModel", "screeningIntervalMin", "managementIntervalMin",
+            "maxMcap", "minFeeActiveTvlRatio", "minTokenFeesSol", "minTokenFeesSolPer100kMcap",
+            "maxTop10Pct", "rugcheckTop10MaxPct", "maxBotHoldersPct", "strategy",
+            "deployAmountSol", "maxPositions", "trailingTriggerPct", "trailingDropPct",
+            "stopLossPct", "partialTpEnabled", "solRegimeGateEnabled",
+            "dryRun", "llmModel", "screeningModel", "managementModel",
+            "screeningIntervalMin", "managementIntervalMin", "timeframe", "category",
         ]
         return {"screening": {k: cfg.get(k) for k in keys if k in cfg}}
 
