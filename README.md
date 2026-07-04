@@ -1,21 +1,58 @@
-# Meridian
+# Meridian Live
 
-**Autonomous Meteora DLMM liquidity management agent for Solana, powered by LLMs.**
+**Autonomous Meteora DLMM liquidity agent for Solana — screening, deploy, rebalance, and exit, powered by LLMs.**
 
-**Links:** [Website](https://agentmeridian.xyz) | [Telegram](https://t.me/agentmeridian) | [X](https://x.com/meridian_agent)
+| | |
+|---|---|
+| **Upstream** | Fork of [yunus-0x/meridian](https://github.com/yunus-0x/meridian) |
+| **This repo** | [garda97/meridian-live](https://github.com/garda97/meridian-live) |
+| **Links** | [Website](https://agentmeridian.xyz) · [Telegram](https://t.me/agentmeridian) · [X](https://x.com/meridian_agent) |
+| **Changelog** | [CHANGELOG.md](./CHANGELOG.md) |
 
-Meridian runs continuous screening and management cycles, deploying capital into high-quality Meteora DLMM pools and closing positions based on live PnL, yield, and range data. It learns from every position it closes.
+Meridian runs continuous screening and management cycles: it finds high-quality Meteora DLMM pools, deploys capital, **rebalances in-range**, and closes positions from live PnL, yield, and range data. It learns from every closed position.
+
+**Ops team (this fork):** Hermes (strategy & monitor) · Grok (infra & deploy) · Claude (engineering) — coordinated via `notes/BRIDGE.md` and `scripts/agent_sync.py`.
+
+---
+
+## Ops dashboard
+
+Browser UI for live monitoring — daemon status, wallet, open positions, decision log, screening thresholds, and agent logs.
+
+```bash
+pip install fastapi uvicorn   # once
+npm run dashboard             # http://127.0.0.1:8765
+```
+
+| View | Shows |
+|------|--------|
+| **Overview** | Daemon PID, LIVE/DRY RUN, model, phase, latest agent handoff, screening config |
+| **Positions** | Open DLMM positions (PnL, in-range, fees) + wallet balance |
+| **Decisions** | Recent screening/management decisions from `decision-log.json` |
+| **Logs** | Tail of today's agent log |
+
+**Remote / VPS access** — set an optional auth key:
+
+```bash
+export MERIDIAN_DASHBOARD_SECRET=your-long-random-key
+export MERIDIAN_DASHBOARD_HOST=0.0.0.0   # bind publicly (use reverse proxy + TLS in prod)
+npm run dashboard
+# open http://your-vps:8765/?key=your-long-random-key
+```
+
+Dark/light theme, mobile bottom nav, Inter + JetBrains Mono typography.
 
 ---
 
 ## What it does
 
-- **Screens pools** — scans Meteora DLMM pools against configurable thresholds (fee/TVL ratio, organic score, holder count, mcap, bin step) and surfaces high-quality opportunities
-- **Manages positions** — monitors, claims fees, and closes LP positions autonomously; decides to STAY, CLOSE, or REDEPLOY based on live data
-- **Learns from performance** — studies top LPers in target pools, saves structured lessons, and evolves screening thresholds based on closed position history
-- **Discord signals** — optional Discord listener watches LP Army channels for Solana token calls and queues them for screening
-- **Telegram chat** — full agent chat via Telegram, plus cycle reports and OOR alerts
-- **Claude Code integration** — run AI-powered screening and management directly from your terminal using Claude Code slash commands
+- **Screens pools** — Meteora discovery API + GMGN audit + rugcheck.xyz gate; configurable thresholds (fee/TVL, organic, holders, mcap, bin step, top-10 concentration)
+- **Deploys & manages** — autonomous deploy, fee claim, **auto-rebalance** (spot/bid-ask drift, OOR matrix), partial TP, trailing stop, stop-loss
+- **Learns from performance** — top-LPer study, structured lessons, threshold evolution, per-pool memory + cooldowns
+- **Discord signals** — optional listener merges Rick-bot LP calls into screening (full filter still applies)
+- **Telegram** — agent chat, cycle reports, position commands (`@Scr97_bot` on live installs)
+- **CLI + Claude Code** — `node cli.js screen|manage|deploy` and slash commands (`/screen`, `/manage`, …)
+- **Multi-agent handoff** — Hermes monitors and tunes config; Grok/Claude handle infra and code (`notes/GROK_LIMIT_RUNBOOK.md`)
 
 ---
 
@@ -25,8 +62,8 @@ Meridian runs a **ReAct agent loop** — each cycle the LLM reasons over live da
 
 | Agent | Default interval | Role |
 |---|---|---|
-| **Screening Agent** | Every 30 min | Pool screening — finds and deploys into the best candidate |
-| **Management Agent** | Every 10 min | Position management — evaluates each open position and acts |
+| **Screening Agent** | Every 20 min (configurable) | Pool screening — finds and deploys into the best candidate |
+| **Management Agent** | Every 10 min (configurable) | Position management — rebalance, claim, close; PnL poller every 3s for trailing/partial TP |
 
 ### Agent harness
 
@@ -60,7 +97,7 @@ Agents are powered via **OpenRouter** and can be swapped for any compatible mode
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/yunus-0x/meridian
+git clone https://github.com/garda97/meridian-live.git meridian
 cd meridian
 npm install
 ```
@@ -486,8 +523,12 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `category` | `trending` | Pool category filter |
 | `minTokenFeesSol` | `30` | Minimum all-time fees in SOL |
 | `maxBotHoldersPct` | `30` | Maximum bot holder % (Jupiter audit) |
-| `maxTop10Pct` | `60` | Maximum top-10 holder concentration |
+| `maxTop10Pct` | `60` | Maximum top-10 holder concentration (GMGN audit) |
+| `rugcheckEnabled` | `true` | Enable rugcheck.xyz gate on final candidates |
+| `rugcheckTop10MaxPct` | `60` | Rugcheck API top-10 holder cap (configurable via CLI) |
 | `blockedLaunchpads` | `[]` | Launchpad names to never deploy into |
+| `filterAutotuneEnabled` | `true` | Auto-relax thresholds after no-deploy streaks (floored at profit preset) |
+| `solRegimeGateEnabled` | `true` | Skip deploys when SOL 1h dump exceeds `solDump1hPctThreshold` |
 
 ### Management
 
@@ -504,6 +545,10 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `trailingTakeProfit` | `true` | Enable trailing take-profit |
 | `trailingTriggerPct` | `3` | Activate trailing TP at this PnL % |
 | `trailingDropPct` | `1.5` | Close when PnL drops this % from peak |
+| `partialTpEnabled` | `false` | Enable partial take-profit (close % of liquidity once, opt-in) |
+| `partialTpTriggerPct` | `5` | Partial TP when PnL reaches this % |
+| `autoRebalanceEnabled` | `true` | Auto-rebalance on strategy drift / OOR matrix |
+| `winRedeployCooldownHours` | `3` | Block redeploy after clean in-range win (trailing TP) |
 | `strategy` | `bid_ask` | LP strategy: `spot`, `bid_ask`, or `curve` |
 
 ### Schedule
@@ -624,10 +669,28 @@ Any OpenAI-compatible endpoint works.
 
 ---
 
+## Documentation (this fork)
+
+| Doc | Purpose |
+|-----|---------|
+| [CHANGELOG.md](./CHANGELOG.md) | Release notes |
+| [notes/GROK_LIMIT_RUNBOOK.md](./notes/GROK_LIMIT_RUNBOOK.md) | When Grok is offline — Hermes monitor + Claude dispatch |
+| [notes/HERMES_CONFIG_TUNING.md](./notes/HERMES_CONFIG_TUNING.md) | Safe screening parameter tuning (tolerance bands) |
+| [notes/HERMES.md](./notes/HERMES.md) | Hermes agent role & startup |
+| [notes/BRIDGE.md](./notes/BRIDGE.md) | Live handoff queue (Hermes ↔ Grok ↔ Claude) |
+| [notes/METEORA_LP.md](./notes/METEORA_LP.md) | DLMM concepts (spot vs bid-ask, bins, exits) |
+
+```bash
+python3 scripts/agent_sync.py status   # bridge + git snapshot
+```
+
+---
+
 ## Architecture
 
 ```
 index.js            Main entry: REPL + cron orchestration + Telegram bot polling
+web/dashboard.py    FastAPI ops dashboard (wallet, positions, decisions, logs)
 agent.js            ReAct loop: LLM → tool call → repeat
 config.js           Runtime config from user-config.json + .env (repo-root paths)
 repo-root.js        Stable absolute repo path — used by PM2, state files, and .env loading

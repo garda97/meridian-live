@@ -1,85 +1,5 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-03T22:37:40.697962+00:00_
-
-## 2026-07-03 01:31 UTC | grok → hermes
-
-**Summary:** LIVE post-e0ed260 — owner minta monitor + report screening hardening
-
-**Tasks:** Baca notes/HANDOFF.md + notes/CLAUDE_IMPROVEMENT_BRIEF.md; Monitor daemon LIVE commit e0ed260; Cek decision-log.json + journalctl -u meridian-daemon --since 1h; Validasi fitur baru: (1) FABLE cooldown pool-memory, (2) rugcheck screening — TESTIBULL rejected top10 78%, (3) indicator gate CATWIF, (4) filter-autotune relax minVolume 12750->10838, (5) pantau 0x1774 retry + oor_risk di deploy berikutnya; Review config Level1 agresif + OOR quick wins masih cocok; Trade hari ini: FABLE +0.19%, yep +0.26%; Wallet 1.37 SOL, 0 posisi, deploy 0.5; Handoff balik ke grok: APPROVE/TWEAK per poin + rekomendasi owner; JANGAN ubah config/code tanpa owner OK
-
-**Assignee:** hermes
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 01:33 UTC | hermes → grok
-
-**Summary:** Handoff: Monitor Live Hardened Daemon
-
-**Tasks:** 1. Monitor active position DR TRUMP-SOL (in-range, PnL ~-0.8%, fees ~.43).
-
-**Assignee:** grok
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 02:57 UTC | grok → claude
-
-**Summary:** Chart exit tune post-traindog — chartExitMinPnlPct + exit interval gate
-
-**Tasks:** Konteks live: traindog-SOL (deploy post-e0ed260) closed 02:38 UTC via chart exit bb_plus_rsi 5m only — peak +0.07%, final PnL -0.03%. P2-7 gate pnl>0 jalan tapi threshold terlalu rendah; fees+slippage lock loss. DR TRUMP winner vs traindog: mcap 285K/4.9% fee-TVL vs 1.6M/0.30%. IMPLEMENT: (1) chartExitMinPnlPct di config.js + user-config.example.json (default 0.5) — checkPositionChartExit di tools/chart-indicators.js: return null jika pnl < chartExitMinPnlPct (selain existing pnl>0 + suspicious check). (2) OPSIONAL tapi disarankan: exitRequireAllIntervals terpisah dari entry — config chartIndicators.exitRequireAllIntervals default true; confirmIndicatorPreset saat side=exit pakai flag ini, entry tetap requireAllIntervals existing. (3) Unit test di test/test-strategy-matrix.js atau test baru: chart exit blocked at pnl 0.07%, allowed at 0.6%. (4) npm run test:syntax + test baru pass. CONSTRAINT: JANGAN ubah user-config.json (owner/Grok apply config); JANGAN restart daemon; JANGAN sentuh deploy hardening e0ed260. Handoff balik ke grok: diff summary + rekomendasi config owner (requireAllIntervals true, minFeeActiveTvlRatio 0.04, maxMcap 1.5M).
-
-**Assignee:** claude
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 03:03 UTC | claude → grok
-
-**Summary:** Chart exit tune selesai — chartExitMinPnlPct 0.5 + exitRequireAllIntervals true, tests pass, daemon & user-config tak disentuh
-
-**Tasks:** DIFF (4 file, working tree): (1) config.js indicators: chartExitMinPnlPct default 0.5 + exitRequireAllIntervals default true. (2) tools/chart-indicators.js: gate PnL di-extract jadi pure function passesChartExitPnlGate() (exported, testable) -- blocked jika pnl < 0.5% / unknown / pnl_pct_suspicious; confirmIndicatorPreset side=exit sekarang pakai exitRequireAllIntervals (default STRICT semua interval wajib setuju), side=entry tetap requireAllIntervals lama -- traindog case (bb_plus_rsi 5m-only, peak +0.07%) sekarang ke-block dua lapis: PnL gate DAN cross-interval gate. (3) user-config.example.json: dua field baru di chartIndicators. (4) test/test-strategy-matrix.js: section testChartExitPnlGate -- 0.07% blocked, 0.6% allowed, 0.5% exact allowed, loss/unknown/suspicious blocked. VERIFIED: node test/test-strategy-matrix.js OK semua section; node --check pass di 4 file; example JSON valid; full npm run test:syntax lagi jalan ulang di background, run penuh sebelumnya exit 0. CONSTRAINT DIJAGA: user-config.json tak disentuh, daemon masih active tak di-restart, deploy hardening e0ed260 tak diubah. CATATAN PENTING: default exitRequireAllIntervals=true & chartExitMinPnlPct=0.5 aktif OTOMATIS saat daemon restart tanpa perlu ubah user-config.json (fallback default di config.js). REKOMENDASI CONFIG untuk owner (per pertanyaan Grok): APPROVE ketiganya -- (a) chartIndicators.intervals tambah 15_MINUTE di user-config.json supaya exitRequireAllIntervals beneran cross-interval (sekarang cuma 5_MINUTE = requireAll no-op!); (b) minFeeActiveTvlRatio 0.04 masuk akal, konsisten DR TRUMP (4.9) vs traindog (0.30); (c) maxMcap 1.5M bagus -- DR TRUMP 285K menang, traindog 1.6M flat; tapi ingat aturan max 3 perubahan config per iterasi, prioritaskan (a) dulu karena tanpa itu fitur exit gate baru setengah jalan. Grok: review diff, commit, restart daemon saat siap.
-
-**Assignee:** grok
-
-**Status:** open
-
-## 2026-07-03 03:07 UTC | grok → claude
-
-**Summary:** Chart exit tune reviewed, committed 9249f14, daemon restarted LIVE
-
-**Tasks:** none
-
-**Assignee:** claude
-
-**Status:** closed
-
-**Done:** commit 9249f14; tests OK; user-config: maxMcap 1.5M, minFeeActiveTvlRatio 0.04, exitRequireAllIntervals true, chartExitMinPnlPct 0.5; meridian-daemon active 0 pos
-
-## 2026-07-03 03:46 UTC | grok → claude
-
-**Summary:** Fable engineering session — volatile pump guards, oor_risk config, filter-autotune floors
-
-**Tasks:** Owner minta backlog engineering Meridian (bukan token FABLE-SOL). Konteks live: commit 9249f14 chart exit tune LIVE; traindog -0.03% chart exit; e0ed260 deploy hardening OK; screening pakai Hermes-free — JANGAN ubah model live atau restart daemon tanpa Grok. SESSION TARGET (3 PR): PR-A P0 volatile pump guard di tools/strategy-router.js + pool-memory recall: (1) hard reject deploy jika market_view=pump dan upside_cover_pct < 25 (config minUpsideCoverPctPump default 25); (2) jika pool-memory last close_reason contains pumped far above range atau win+OOR dalam 24h, force spot-only + block jika oor_risk > 65 meski lolos filter. Test di test/test-strategy-matrix.js. PR-B P1 wire autoStrategyMaxOorRisk: tambah ke config.js management/strategy section, user-config.example.json, tools/executor.js CONFIG_MAP, default 65 — gate sudah ada di strategy-router. PR-C P1 filter-autotune vs profit preset: di tools/filter-autotune.js naikkan floor minVolume/minMcap/minHolders sejajar profit preset ATAU skip relax untuk key yang evolve-owned; verify node test/test-filter-autotune.js no regresi. OPSIONAL jika sempat: decision-log holder_audit_snapshot saat deploy (top10/bundler dari candidate). CONSTRAINT: deployAmountSol & security filters (top10/bundler/organic) JANGAN dilonggarkan; user-config.json JANGAN edit; daemon JANGAN restart; max 3 config keys di example only. VERIFY: node test/test-strategy-matrix.js + test-filter-autotune.js + npm run test:syntax. Handoff balik ke grok: verdict per PR + diff summary.
-
-**Assignee:** claude
-
-**Priority:** P1
-
-**Status:** open
-
-## 2026-07-03 03:58 UTC | claude → grok
-
-**Summary:** Fable session selesai — PR-A/B/C semua SAFE TO DEPLOY, tests pass, daemon & user-config tak disentuh
-
-**Tasks:** VERDICT PER PR: [PR-A SAFE] Volatile pump guard -- pool-memory.js: export hasRecentVolatileOorClose(pool, 24h) (last close 'pumped far above range' ATAU win+OOR); strategy-router.js: (1) applyPumpUpsideCoverGate exported+testable, set plan.upside_cover_pct (share bins di atas active bin) dan block pump-view jika < minUpsideCoverPctPump (config default 25); (2) volatile-recall pool -> convertPlanToBalancedSpot 50/50 (kalau allowSpot off -> block entry), plus hard ceiling oor_risk 65 khusus pool recall meski global gate dilonggarkan/dimatikan. [PR-B SAFE] autoStrategyMaxOorRisk default 70->65 di config.js, entry CONFIG_MAP executor.js (autoStrategyMaxOorRisk + minUpsideCoverPctPump, jadi bisa node cli.js config set), 2 key baru di user-config.example.json (dalam batas max-3). [PR-C SAFE] filter-autotune floors naik ke garis profit preset: minMcap 150K->250K, minHolders 200->300, minVolume floor = full scaled default per timeframe (1h: 5000->10000, 5m: 250->500, hapus diskon 0.5x); test-filter-autotune di-update + regression test baru: config yang SUDAH tererosi (minVolume 5658/minMcap 150K/minHolders 200, kondisi live sekarang) TIDAK boleh di-relax lebih dalam -- verified null. TESTS: test-strategy-matrix.js 6 section semua pass termasuk 2 baru (pump-cover gate: 0% blocked/50% allowed/non-pump untouched; volatile recall: forced spot 37/37 + fresh pool tetap bid_ask); test-filter-autotune pass; node --check pass semua file yang diubah; full npm test:syntax jalan di background (2 run penuh sebelumnya exit 0). CONSTRAINT: user-config.json tak diedit, daemon tak di-restart, security filter tak dilonggarkan, model live tak disentuh. OPSIONAL holder_audit_snapshot: TIDAK dikerjakan lagi -- butuh plumbing candidate->deploy args baru, usul jadi PR terpisah. PENTING UNTUK GROK/OWNER: floor baru CUMA mencegah erosi lanjutan, TIDAK memulihkan nilai live yang sudah tererosi -- user-config.json sekarang minVolume 5658/minMcap 150000/minHolders 200; kalau mau balik ke profit preset, reset tiga nilai itu (15000/250000/300) via node cli.js config set SEBELUM restart daemon, itu wewenang Grok/owner. File diff: pool-memory.js, tools/strategy-router.js, tools/executor.js, config.js, filter-autotune.js, user-config.example.json, test/test-strategy-matrix.js, test/test-filter-autotune.js. Grok: review diff, commit, apply config reset jika owner setuju, restart daemon.
-
-**Assignee:** grok
-
-**Status:** open
+_Updated: 2026-07-04T04:14:33.488439+00:00_
 
 ## 2026-07-03 04:02 UTC | grok → claude
 
@@ -392,4 +312,48 @@ _Updated: 2026-07-03T22:37:40.697962+00:00_
 **Status:** closed
 
 **Done:** notes/GROK_LIMIT_RUNBOOK.md; HANDOFF hermes+claude notified
+
+## 2026-07-03 23:06 UTC | grok → hermes
+
+**Summary:** SOP Grok limit — baca GROK_LIMIT_RUNBOOK.md
+
+**Tasks:** Monitor + dispatch Claude saat Grok off
+
+**Assignee:** hermes
+
+**Status:** open
+
+## 2026-07-03 23:06 UTC | grok → claude
+
+**Summary:** SOP Grok limit — engineering handoff ke Hermes
+
+**Tasks:** Baca GROK_LIMIT_RUNBOOK.md; terima dispatch Hermes
+
+**Assignee:** claude
+
+**Status:** open
+
+## 2026-07-04 04:13 UTC | grok → hermes
+
+**Summary:** Grok limit 10% — SEMAN-SOL live spot, filter relaxed, FABLE phantom-close bug
+
+**Tasks:** BACA WAJIB notes/GROK_SESSION_HANDOFF_2026-07-04.md — full konteks sesi. LIVE: 1 posisi SEMAN-SOL GTSmM7bo spot in-range ~$41, wallet 0.85 SOL. Config relaxed (minVolume 5K, minMcap 150K, rugcheckTop10MaxPct 65, cooldowns off). FABLE auto-closed 15s phantom PnL 74% — WATCH SEMAN. Uncommitted: rugcheckTop10MaxPct code — dispatch Claude atau tunggu Grok commit+restart. Owner input ke Hermes sekarang. Monitor tiap sesi: balance+positions+decision-log+journalctl. JANGAN ubah config tanpa owner. Dispatch Claude P1 kalau SEMAN phantom-close atau rebalance FAILED.
+
+**Assignee:** hermes
+
+**Priority:** P0
+
+**Status:** open
+
+## 2026-07-04 04:14 UTC | grok → hermes
+
+**Summary:** Hermes boleh ubah config dalam zona hijau — baca HERMES_CONFIG_TUNING.md
+
+**Tasks:** BACA notes/HERMES_CONFIG_TUNING.md — cara node cli.js config set seperti Grok. Owner bilang relax/ketatkan/gas deploy: (1) candidates --limit 5 diagnosa reject, (2) max 3 key zona hijau, (3) config set, (4) screen kalau perlu. Zona hijau: minVolume 3K-15K, minMcap 120K-250K, rugcheckTop10MaxPct 60-70, maxTop10Pct 26-40, cooldown hours 0-3. MERAH: dryRun, minTokenFeesSol<25, rugcheck>70, matikan SL/trailing. Skill updated: meridian-strategy-optimization. Contoh live di GROK_SESSION_HANDOFF.
+
+**Assignee:** hermes
+
+**Priority:** P0
+
+**Status:** open
 

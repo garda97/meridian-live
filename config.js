@@ -115,6 +115,7 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     rugcheckEnabled:    u.rugcheckEnabled    ?? true, // rugcheck.xyz gate on final candidates (fails open on API error)
+    rugcheckTop10MaxPct: u.rugcheckTop10MaxPct ?? 60, // rugcheck top-10 holder concentration cap
     solRegimeGateEnabled: u.solRegimeGateEnabled ?? true,
     solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
   },
