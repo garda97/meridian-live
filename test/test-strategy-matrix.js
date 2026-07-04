@@ -60,6 +60,10 @@ function testOorRisk() {
 
 // ── Strategy matrix ────────────────────────────────────────────
 function testStrategyMatrix() {
+  // Pin: live user-config may run with spot disabled (owner interim toggle)
+  const savedSpot = config.autoStrategy.allowSpot;
+  config.autoStrategy.allowSpot = true;
+  try {
   // pump view >15% 1h + bullish ST
   const pumpView = classifyMarketView({
     pool: { volatility: 4 },
@@ -104,6 +108,9 @@ function testStrategyMatrix() {
   assert(sidewaysPlan.bins_below > sidewaysPlan.bins_above, "sideways spot should be bottom-weighted");
 
   console.log(`  matrix: pump=spot(${pumpPlan.bins_below}/${pumpPlan.bins_above}) breakdown=bid_ask(${breakdownPlan.bins_below}) sideways=spot OK`);
+  } finally {
+    config.autoStrategy.allowSpot = savedSpot;
+  }
 }
 
 // ── Pool-memory cooldown stacking ──────────────────────────────
@@ -409,10 +416,14 @@ function testPumpUpsideCoverGate() {
 async function testVolatileRecall() {
   const saved = backup(POOL_MEMORY_PATH);
   const savedFetch = config.autoStrategy.fetchIndicators;
+  const savedSpot = config.autoStrategy.allowSpot;
+  const savedFee = config.autoStrategy.spotFeeTvlMin;
   const pool = "TEST_POOL_VOLATILE_RECALL_333333333333333333";
   try {
     fs.writeFileSync(POOL_MEMORY_PATH, "{}");
     config.autoStrategy.fetchIndicators = false; // no network in tests
+    config.autoStrategy.allowSpot = true; // live user-config may run with spot off
+    config.autoStrategy.spotFeeTvlMin = 0.4; // below the 0.5 test fee — floor exercised separately
 
     // Record a FABLE-style close: win but pumped far above range
     recordPoolDeploy(pool, {
@@ -437,6 +448,8 @@ async function testVolatileRecall() {
     console.log(`  volatile recall: forced spot(${plan.bins_below}/${plan.bins_above}), fresh pool keeps bid_ask OK`);
   } finally {
     config.autoStrategy.fetchIndicators = savedFetch;
+    config.autoStrategy.allowSpot = savedSpot;
+    config.autoStrategy.spotFeeTvlMin = savedFee;
     restore(POOL_MEMORY_PATH, saved);
   }
 }
