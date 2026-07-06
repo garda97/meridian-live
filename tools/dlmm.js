@@ -2211,6 +2211,10 @@ export async function rebalancePosition({ position_address, plan, reason }) {
       mgmtConfig: config.management,
     });
     if (!solGate.ok) {
+      // Stamp the cooldown even on a skip: without it the 3s poller re-resolves
+      // and re-logs this every tick until SOL frees up (yep-SOL spam loop).
+      // Retry naturally resumes after rebalanceCooldownMinutes.
+      recordRebalanceAttempt(position_address);
       log("rebalance", `Skipped (${prePath}): ${solGate.reason}`);
       appendDecision({
         type: "skip",
@@ -2232,7 +2236,7 @@ export async function rebalancePosition({ position_address, plan, reason }) {
       return { success: false, blocked: true, error: solGate.reason, rebalance_path_planned: prePath };
     }
 
-    // Cooldown stamp only once pre-flight passes — skips must not burn the backoff
+    // Cooldown stamp before on-chain work — failures must not retry every tick
     recordRebalanceAttempt(position_address);
 
     // Step 1+2: claim + remove 100%, capture the re-add budget

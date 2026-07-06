@@ -2,7 +2,7 @@
 
 ## Phase
 
-**Phase 2 live** — Meteora DLMM dengan gate ATH + SOL regime. Verifikasi `dryRun` di `user-config.json` tiap sesi.
+**Evil Panda strict live** (2026-07-04) — preset `evil-panda.strict`, ATH gate ON, deploy 2 SOL × max 2. Hold sampai fresh ATH breakout. Verifikasi `dryRun` di `user-config.json` tiap sesi.
 
 **Trio aktif:** Hermes (monitor+analisis) · Grok (infra+daemon) · Claude (review agent loop, on-demand)
 
@@ -22,11 +22,11 @@
 
 ## Perubahan terbaru (Jul 2026)
 
+- **2026-07-04 ~11:00 UTC** — Owner apply `evil-panda.strict` preset (Grok): ATH+ST entry, `evil_panda_exit`, 2 SOL deploy, filter ketat, autotune OFF. FABLE SL -12.28%. `minVolume` 15k (owner). `dailyLossLimitUsd` 30. **0 posisi — hold, jangan paksa deploy.** Watch: BABYANSEM.
+- `presets/evil-panda.strict.json` + `scripts/apply-preset.js` (`npm run preset:evil-panda`)
 - `SESSION_START.md` — ritual awal sesi seragam Hermes + Claude
-- Skill `meridian-session-startup` menggantikan `hermes-session-startup` (screening_g97 legacy)
 - `METEORA_LP.md` + x-scrape pipeline untuk belajar LP dari X
-- Discord listener `meridian-discord` + Rick bot MeteoraIDN
-- Gates: ATH entry, SOL dump 1h ≤ -3%, minTokenFeesSol 30
+- Gates: ATH entry ON, SOL dump 1h ≤ -3%, minTokenFeesSol 30, no deploy after 18:00
 
 ## Next steps
 

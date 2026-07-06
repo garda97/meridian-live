@@ -8,6 +8,7 @@ import fs from "fs";
 import { repoPath } from "../repo-root.js";
 import {
   isInPnlWarmup,
+  canFireTakeProfit,
   trackPosition,
   confirmPeak,
   updatePnlAndCheckExits,
@@ -38,6 +39,14 @@ const rebalanced = {
   last_rebalance_at: new Date(now - 60_000).toISOString(), // rebalanced 1m ago
 };
 assert(isInPnlWarmup(rebalanced, 3, now), "recent rebalance must restart the warmup clock");
+
+// ── canFireTakeProfit (sultan phantom-TP guard) ─────────────────
+const tpMgmt = { pnlWarmupMinutes: 10, minAgeBeforeTakeProfit: 10, pnlSanityMaxDiffPct: 5 };
+const youngTracked = { deployed_at: new Date(now - 3 * 60_000).toISOString() };
+assert(!canFireTakeProfit({ age_minutes: 3, pnl_pct: 50, pnl_pct_diff: 63 }, youngTracked, tpMgmt), "3m-old +50% phantom must block TP");
+assert(!canFireTakeProfit({ age_minutes: 8, pnl_pct: 50, pnl_pct_diff: 0.5 }, youngTracked, tpMgmt), "8m-old still inside minAgeBeforeTakeProfit=10");
+const matureTracked = { deployed_at: new Date(now - 12 * 60_000).toISOString() };
+assert(canFireTakeProfit({ age_minutes: 12, pnl_pct: 9, pnl_pct_diff: 1 }, matureTracked, tpMgmt), "12m-old clean tick must allow TP");
 
 // ── confirmPeak + trailing under warmup (state round-trip) ────
 const saved = fs.existsSync(STATE_PATH) ? fs.readFileSync(STATE_PATH, "utf8") : null;

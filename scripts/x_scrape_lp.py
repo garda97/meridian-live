@@ -99,13 +99,22 @@ def _load_key() -> str | None:
 
 
 def api_get(path: str, api_key: str) -> dict:
-    url = f"{API_BASE}/{path}"
-    req = urllib.request.Request(
-        url,
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=45) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    import http.client
+    last_exc = None
+    for attempt in range(3):
+        try:
+            url = f"{API_BASE}/{path}"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (http.client.IncompleteRead, urllib.error.URLError, OSError) as exc:
+            last_exc = exc
+            print(f"[RETRY] api_get failed (attempt {attempt+1}/3): {exc}", file=sys.stderr)
+            time.sleep(2 ** attempt)
+    raise last_exc  # type: ignore[union-attr]
 
 
 def fetch_user_tweets(user: str, count: int, api_key: str) -> list[dict]:

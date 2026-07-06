@@ -138,7 +138,7 @@ python3 scripts/hermes_bridge.py dispatch \
 
 ### Ubah parameter (owner bilang relax/ketatkan)
 
-**WAJIB baca:** `notes/HERMES_CONFIG_TUNING.md` — zona hijau/kuning/merah + decision tree reject→fix.
+**WAJIB baca:** `notes/CONFIG_SAFETY_BASELINE.md` (baseline owner) + `notes/HERMES_CONFIG_TUNING.md` (zona hijau/kuning/merah + decision tree).
 
 ```bash
 node cli.js config set <key> <value>   # max 3 key per iterasi

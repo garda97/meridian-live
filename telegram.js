@@ -3,6 +3,12 @@ import path from "path";
 import { log } from "./logger.js";
 import { repoPath } from "./repo-root.js";
 import { atomicWriteFileSync } from "./utils/atomic-write.js";
+import {
+  TG,
+  BOT_COMMANDS_ID,
+  toolLabelId,
+  summarizeToolResultId,
+} from "./utils/telegram-id.js";
 
 const USER_CONFIG_PATH = repoPath("user-config.json");
 const UPLOADS_DIR = repoPath("uploads");
@@ -239,58 +245,7 @@ function createTypingIndicator() {
   };
 }
 
-function toolLabel(name) {
-  const labels = {
-    get_token_info: "get token info",
-    get_token_narrative: "get token narrative",
-    get_token_holders: "get token holders",
-    get_top_candidates: "get top candidates",
-    get_pool_detail: "get pool detail",
-    get_active_bin: "get active bin",
-    deploy_position: "deploy position",
-    close_position: "close position",
-    claim_fees: "claim fees",
-    swap_token: "swap token",
-    update_config: "update config",
-    get_my_positions: "get positions",
-    get_wallet_balance: "get wallet balance",
-    check_smart_wallets_on_pool: "check smart wallets",
-    study_top_lpers: "study top LPers",
-    get_top_lpers: "get top LPers",
-    search_pools: "search pools",
-    discover_pools: "discover pools",
-  };
-  return labels[name] || name.replace(/_/g, " ");
-}
-
-function summarizeToolResult(name, result) {
-  if (!result) return "";
-  if (result.error) return result.error;
-  if (result.reason && result.blocked) return result.reason;
-  switch (name) {
-    case "deploy_position":
-      return result.position ? `position ${String(result.position).slice(0, 8)}...` : "submitted";
-    case "close_position":
-      return result.success ? "closed" : (result.reason || "failed");
-    case "claim_fees":
-      return result.claimed_amount != null ? `claimed ${result.claimed_amount}` : "done";
-    case "update_config":
-      return Object.keys(result.applied || {}).join(", ") || "updated";
-    case "get_top_candidates":
-      return `${result.candidates?.length ?? 0} candidates`;
-    case "get_my_positions":
-      return `${result.total_positions ?? result.positions?.length ?? 0} positions`;
-    case "get_wallet_balance":
-      return `${result.sol ?? "?"} SOL`;
-    case "study_top_lpers":
-    case "get_top_lpers":
-      return `${result.lpers?.length ?? 0} LPers`;
-    default:
-      return result.success === false ? "failed" : "done";
-  }
-}
-
-export async function createLiveMessage(title, intro = "Starting...") {
+export async function createLiveMessage(title, intro = TG.liveStarting) {
   if (!TOKEN || !chatId) return null;
   const typing = createTypingIndicator();
 
@@ -336,7 +291,7 @@ export async function createLiveMessage(title, intro = "Starting...") {
   }
 
   async function upsertToolLine(name, icon, suffix = "") {
-    const label = toolLabel(name);
+    const label = toolLabelId(name);
     const line = `${icon} ${label}${suffix ? ` ${suffix}` : ""}`;
     const idx = state.toolLines.findIndex((entry) => entry.includes(` ${label}`));
     if (idx >= 0) state.toolLines[idx] = line;
@@ -353,7 +308,7 @@ export async function createLiveMessage(title, intro = "Starting...") {
     },
     async toolFinish(name, result, success) {
       const icon = success ? "✅" : "❌";
-      const summary = summarizeToolResult(name, result);
+      const summary = summarizeToolResultId(name, result);
       await upsertToolLine(name, icon, summary ? `— ${summary}` : "");
     },
     async note(text) {
@@ -559,7 +514,7 @@ async function poll(onMessage) {
             if (savedPhoto) enriched.savedPhoto = savedPhoto;
           } catch (error) {
             log("telegram_error", `Failed to save inbound photo: ${error.message}`);
-            await sendMessageToChat(msg.chat?.id, `Failed to save photo: ${error.message}`).catch(() => {});
+            await sendMessageToChat(msg.chat?.id, TG.photoSaveFailed(error.message)).catch(() => {});
             continue;
           }
         }
@@ -574,27 +529,7 @@ async function poll(onMessage) {
   }
 }
 
-const BOT_COMMANDS = [
-  { command: "help",       description: "Show commands" },
-  { command: "status",     description: "Wallet + positions snapshot" },
-  { command: "wallet",     description: "Wallet, deploy amount, HiveMind status" },
-  { command: "positions",  description: "List open positions" },
-  { command: "pool",       description: "Detailed info for one open position" },
-  { command: "close",      description: "Close one position by index" },
-  { command: "closeall",   description: "Close all open positions" },
-  { command: "set",        description: "Set note/instruction on position" },
-  { command: "config",     description: "Show important runtime config" },
-  { command: "settings",   description: "Button menu for common config" },
-  { command: "setcfg",     description: "Update persisted config key" },
-  { command: "screen",     description: "Refresh deterministic candidate list" },
-  { command: "candidates", description: "Show latest cached candidates" },
-  { command: "deploy",     description: "Deploy candidate by cached index" },
-  { command: "briefing",   description: "Morning briefing" },
-  { command: "hive",       description: "HiveMind sync status" },
-  { command: "pause",      description: "Stop cron cycles" },
-  { command: "resume",     description: "Start cron cycles again" },
-  { command: "stop",       description: "Shut down agent" },
-];
+const BOT_COMMANDS = BOT_COMMANDS_ID;
 
 async function registerCommands() {
   if (!BASE) return;
@@ -636,23 +571,13 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
   
   if (!config.deployNotify || hasActiveLiveMessage()) return;
   const priceStr = priceRange
-    ? `Price range: ${priceRange.min < 0.0001 ? priceRange.min.toExponential(3) : priceRange.min.toFixed(6)} – ${priceRange.max < 0.0001 ? priceRange.max.toExponential(3) : priceRange.max.toFixed(6)}\\n`
+    ? TG.priceRange(priceRange.min, priceRange.max)
     : "";
   const coverageStr = rangeCoverage
-    ? `Range cover: ${fmtPct(rangeCoverage.downside_pct)} downside | ${fmtPct(rangeCoverage.upside_pct)} upside | ${fmtPct(rangeCoverage.width_pct)} total\\n`
+    ? TG.rangeCover(rangeCoverage.downside_pct, rangeCoverage.upside_pct, rangeCoverage.width_pct)
     : "";
-  const poolStr = (binStep || baseFee)
-    ? `Bin step: ${binStep ?? "?"}  |  Base fee: ${baseFee != null ? baseFee + "%" : "?"}\\n`
-    : "";
-  await sendHTML(
-    `✅ <b>Deployed</b> ${pair}\\n` +
-    `Amount: ${amountSol} SOL\\n` +
-    priceStr +
-    coverageStr +
-    poolStr +
-    `Position: <code>${position?.slice(0, 8)}...</code>\\n` +
-    `Tx: <code>${tx?.slice(0, 16)}...</code>`
-  );
+  const poolStr = (binStep || baseFee) ? TG.poolMeta(binStep, baseFee) : "";
+  await sendHTML(TG.deployed(pair, amountSol, priceStr, coverageStr, poolStr, position, tx));
 }
 
 export async function notifyClose({ pair, pnlUsd, pnlPct }) {
@@ -663,11 +588,7 @@ export async function notifyClose({ pair, pnlUsd, pnlPct }) {
   } catch {}
   
   if (!config.closeNotify || hasActiveLiveMessage()) return;
-  const sign = pnlUsd >= 0 ? "+" : "";
-  await sendHTML(
-    `🔒 <b>Closed</b> ${pair}\\n` +
-    `PnL: ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)`
-  );
+  await sendHTML(TG.closed(pair, pnlUsd, pnlPct));
 }
 
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {
@@ -678,11 +599,7 @@ export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOu
   } catch {}
   
   if (!config.swapNotify || hasActiveLiveMessage()) return;
-  await sendHTML(
-    `🔄 <b>Swapped</b> ${inputSymbol} → ${outputSymbol}\\n` +
-    `In: ${amountIn ?? "?"} | Out: ${amountOut ?? "?"}\\n` +
-    `Tx: <code>${tx?.slice(0, 16)}...</code>`
-  );
+  await sendHTML(TG.swapped(inputSymbol, outputSymbol, amountIn, amountOut, tx));
 }
 
 export async function notifyOutOfRange({ pair, minutesOOR }) {
@@ -693,17 +610,9 @@ export async function notifyOutOfRange({ pair, minutesOOR }) {
   } catch {}
   
   if (!config.outOfRangeNotify || hasActiveLiveMessage()) return;
-  await sendHTML(
-    `⚠️ <b>Out of Range</b> ${pair}\\n` +
-    `Been OOR for ${minutesOOR} minutes`
-  );
+  await sendHTML(TG.outOfRange(pair, minutesOOR));
 }
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function fmtPct(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? `${n.toFixed(2)}%` : "?";
 }
