@@ -601,3 +601,52 @@ python3 scripts/x_thread.py <url>                 # single thread manual
 
 **Hermes & Claude:** baca `notes/x-scrape/YYYY-MM-DD.md` tiap sesi via `notes/SESSION_START.md`; skill `meridian-lp-strategy` Langkah 0 wajib. Cron: `05:00 UTC` via `scripts/run_x_scrape_cron.sh` (Minggu + `--threads`).
 
+## [2026-07-06] Evil Panda Strategy — Breakdown Teknis
+
+*Sumber: Analisis breakdown thread @narkokek & @tendorian9*
+
+Strategi agresif untuk menangkap fee dari volatilitas tinggi (dump/pump).
+
+### 1. Seleksi Token (Filter Utama)
+- **Fees:** Data GMGN harus menunjukkan aktivitas organik tinggi (bukan bot churning).
+- **Avoid:** Hindari koin politik, hype-name sampah, atau koin dengan dev-control tinggi (cek RugCheck/BubbleMaps).
+- **Kondisi:** Cari token yang sudah mengalami "dump sehat" (koreksi 50-70%) dengan komunitas yang solid.
+
+### 2. Entry Criteria (DEX Screener 15m)
+- **Supertrend:** Harus *breakout* ke atas garis hijau (konfirmasi tren reversal).
+- **RSI(2):** Indikator overbought ekstrem (1-2 bar hijau kuat). Timing utama entry/exit.
+- **Bollinger Bands:** Batas atas/bawah untuk deteksi exit.
+- **MACD:** Konfirmasi momentum reversal.
+- **Entry:** One-sided SOL (Spot/Bid-Ask). Fokus pasang range di bawah (support).
+
+### 3. Eksekusi DLMM (Meteora)
+- **Range:** Wide (target -80% sampai -95%).
+- **Bins:** Target 240+ bins (wide path) agar posisi awet saat koreksi.
+- **Philosophy:** Menjadi "last supplier standing" — provider terakhir yang bertahan saat semua orang panic dump, menyerap fee setinggi mungkin.
+
+### 4. Exit Strategy (Sangat Kritis)
+- **Trigger (Confluence ≥2):**
+  - RSI(2) close > 90.
+  - Harga close di atas Bollinger Band Upper.
+  - MACD histogram mulai berbalik hijau.
+- **Prinsip:** Exit di "bounce pertama". Jangan tahan jika gagal rebound — cut loss tanpa emosi.
+
+### Mapping ke Meridian Config
+
+| Fitur | Evil Panda | Meridian saat ini |
+|-------|-----------|-------------------|
+| Strategy | Spot (SOL one-sided) | `bid_ask` SOL below |
+| Range | -80% s/d -95% | 35-69 bins (volatility-scaled) |
+| Bins | 240+ (wide) | 35-69 (auto) |
+| Filter fees | 30+ SOL | minTokenFeesSol: 10 |
+| Entry | ATH + Supertrend break | autoStrategyEnabled + chart 15m |
+| Exit | RSI(2)+BB / RSI(2)+MACD | stopLoss -10%, TP 3% |
+
+**Catatan:** Evil Panda prefer **Spot** over Bid-Ask karena fee lebih banyak saat token rebound (dump 50-60% → balik). Meridian sekarang pakai Bid-Ask sebagai konservatif. Jika `autoStrategyAllowSpot=true` aktif, auto-router akan pilih spot untuk sideways/dump-play.
+
+**Referensi video breakdown oleh @narkokek:**
+https://x.com/narkokek/status/2007151016299430346
+
+**Referensi thread @bengsharksol — "lagi belajar Evil Panda":**
+https://x.com/bengsharksol/status/2073975607936139483
+

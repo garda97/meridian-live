@@ -16,7 +16,7 @@ try {
   const result = execSync(
     `node cli.js swap --from BDbNwA95183CdqUhx2P6R3fWXbefubVbx2wNnCp6pump --to So11111111111111111111111111111111111111111 --amount 0.001`,
     {
-      cwd: "/root/meridian",
+      cwd: "/opt/meridian",
       timeout: 60000,
       encoding: "utf8",
     }

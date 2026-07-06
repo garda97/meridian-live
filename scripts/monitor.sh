@@ -2,7 +2,7 @@
 
 set -e
 
-cd /root/meridian
+cd /opt/meridian
 
 STATE_FILE="state.json"
 PREV_STATE_FILE="/tmp/meridian_monitor_state.json"

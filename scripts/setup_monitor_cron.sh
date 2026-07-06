@@ -2,7 +2,7 @@
 # Meridian Monitor Cron Setup
 # Install a 5-minute interval cron job for position monitoring
 
-SCRIPT_DIR="/root/meridian/scripts"
+SCRIPT_DIR="/opt/meridian/scripts"
 CRON_LOG="/var/log/meridian_monitor.log"
 
 # Make scripts executable
@@ -11,7 +11,7 @@ chmod +x "$SCRIPT_DIR/telegram_alert.py"
 
 # Install cron job
 # Run monitor every 5 minutes
-CRON_CMD="*/5 * * * * cd /root/meridian && /usr/bin/python3 $SCRIPT_DIR/monitor_positions.py >> $CRON_LOG 2>&1"
+CRON_CMD="*/5 * * * * cd /opt/meridian && /usr/bin/python3 $SCRIPT_DIR/monitor_positions.py >> $CRON_LOG 2>&1"
 
 # Check if already installed
 if crontab -l 2>/dev/null | grep -q "monitor_positions.py"; then

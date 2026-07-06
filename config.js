@@ -46,6 +46,13 @@ if (u.telegramChatId) process.env.TELEGRAM_CHAT_ID ||= String(u.telegramChatId);
 
 const indicatorUserConfig = u.chartIndicators ?? {};
 
+// Jito Bundle integration for MEV protection and transaction guarantees
+const jitoConfig = {
+  enabled: true,  // Set to true to enable Jito Bundle routing for LP transactions
+  blockEngineUrl: process.env.JITO_BLOCK_ENGINE || 'https://ny.mainnet.block-engine.jito.wtf',
+  tipLamports: Number(process.env.JITO_TIP_LAMPORTS) || 1_000_000,  // 0.001 SOL default
+};
+
 // Optional standalone GMGN config file (mirrors user-config layering)
 const GMGN_CONFIG_PATH = repoPath("gmgn-config.json");
 const gmgnUserConfig = fs.existsSync(GMGN_CONFIG_PATH)

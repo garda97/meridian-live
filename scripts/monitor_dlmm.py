@@ -50,10 +50,10 @@ def main():
     print()
     
     # Paths
-    state_file = '/root/meridian/state.json'
+    state_file = '/opt/meridian/state.json'
     prev_state_file = '/tmp/meridian_monitor_state.json'
-    monitor_log = '/root/meridian/notes/MONITOR.md'
-    env_file = '/root/meridian/.env'
+    monitor_log = '/opt/meridian/notes/MONITOR.md'
+    env_file = '/opt/meridian/.env'
     
     # Load configs
     env_vars = {}
@@ -163,7 +163,7 @@ def main():
     print()
     
     # Send Telegram alerts (skip when paused — see .telegram_alerts_paused)
-    alerts_paused = os.path.exists('/root/meridian/.telegram_alerts_paused')
+    alerts_paused = os.path.exists('/opt/meridian/.telegram_alerts_paused')
     if alerts_paused and alerts:
         print("=== TELEGRAM ALERTS PAUSED (.telegram_alerts_paused) ===")
         for alert in alerts:
