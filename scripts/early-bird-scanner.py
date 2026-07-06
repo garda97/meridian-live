@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+import urllib.parse
+import urllib.request
 import requests
 
 # --- CONFIG ---
@@ -29,17 +31,64 @@ def mark_as_seen(pool_address):
         f.write(f"{pool_address}\n")
 
 def audit_token(mint):
-    """Call the existing GMGN audit script."""
+    """Run full GMGN audit, return parsed dict (or None)."""
     try:
         result = subprocess.run(
-            ["python3", str(AUDIT_SCRIPT), mint, "--compact"],
+            ["python3", str(AUDIT_SCRIPT), mint],
             capture_output=True,
             text=True,
-            check=False
+            check=False,
+            timeout=90
         )
-        return result.stdout.strip() if result.returncode == 0 else "Audit failed"
+        raw = result.stdout
+        s = raw.find("{")
+        if s < 0 or result.returncode != 0:
+            return None
+        return json.loads(raw[s:])
     except Exception as e:
-        return f"Error auditing: {e}"
+        return None
+
+def get_env_var(key):
+    env_file = ROOT / ".env"
+    try:
+        for line in env_file.read_text().splitlines():
+            if line.startswith(f"{key}="):
+                v = line.split("=", 1)[1].strip()
+                if v and not v.startswith("#"):
+                    return v
+    except Exception:
+        pass
+    return None
+
+def send_telegram(message):
+    bot = get_env_var("TELEGRAM_BOT_TOKEN")
+    chat = get_env_var("TELEGRAM_CHAT_ID")
+    if not bot or not chat:
+        return False
+    url = f"https://api.telegram.org/bot{bot}/sendMessage"
+    data = urllib.parse.urlencode({
+        "chat_id": chat,
+        "text": message,
+        "parse_mode": "HTML",
+    }).encode()
+    try:
+        with urllib.request.urlopen(url, data, timeout=10) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+def evaluate_clean(d):
+    """Return (clean:bool, summary:str) using Meridian hard filters."""
+    if not d:
+        return False, "audit failed"
+    a = d.get("audit", {})
+    top10 = float(a.get("top10_pct") or 0)
+    bots = float(a.get("bots_pct") or 0)
+    fees = float(d.get("global_fees_sol") or 0)
+    mcap = float(d.get("mcap") or 0)
+    clean = (top10 < 30) and (bots < 25) and (fees >= 20) and (mcap >= 250000)
+    summ = f"top10={top10:.1f}% bots={bots:.1f}% fees={fees:.0f}SOL mcap=${mcap:,.0f}"
+    return clean, summ
 
 def scan():
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Scanning Meteora for new pools...")
@@ -82,9 +131,22 @@ def scan():
             print(f"  ✨ NEW POOL: {mint[:8]}... | TVL: ${tvl:,.0f}")
             
             # Trigger Audit
-            audit_res = audit_token(mint)
-            print(f"    Audit: {audit_res}")
-            
+            aud = audit_token(mint)
+            clean, summ = evaluate_clean(aud)
+            print(f"    Audit: {summ} -> {'CLEAN' if clean else 'skip'}")
+            if clean:
+                sym = (aud or {}).get("symbol", mint[:8])
+                name = (aud or {}).get("name", "")
+                msg = (
+                    f"\U0001f195 <b>NEW POOL (clean audit) — Early Bird</b>\n"
+                    f"{name} (${sym})\n"
+                    f"CA: <code>{mint}</code>\n"
+                    f"{summ}\n\n"
+                    f"\u26a0\ufe0f Not auto-deployed. Owner review needed."
+                )
+                sent = send_telegram(msg)
+                print(f"    [TG] clean-pool alert sent: {sent}")
+
             mark_as_seen(address)
 
         if not found_new:
