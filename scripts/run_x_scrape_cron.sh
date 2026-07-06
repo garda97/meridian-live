@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Daily X LP scrape for Hermes knowledge base.
-# Cron: 0 5 * * * /root/meridian/scripts/run_x_scrape_cron.sh
+# Cron: 0 5 * * * /opt/meridian/scripts/run_x_scrape_cron.sh
 set -euo pipefail
 
-ROOT="/root/meridian"
+ROOT="/opt/meridian"
 LOG="${ROOT}/logs/x-scrape-cron.log"
 mkdir -p "${ROOT}/logs" "${ROOT}/notes/x-scrape"
 

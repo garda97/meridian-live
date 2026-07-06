@@ -1,8 +1,8 @@
 #!/bin/bash
 # Meridian DLMM Position Monitor Cron Job
-# Add to crontab: */5 * * * * /root/meridian/monitor_cron_setup.sh
+# Add to crontab: */5 * * * * /opt/meridian/monitor_cron_setup.sh
 
-cd /root/meridian || exit 1
+cd /opt/meridian || exit 1
 
 # Run monitoring
 python3 scripts/run_monitor.py >> /tmp/meridian_monitor.log 2>&1

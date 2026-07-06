@@ -134,7 +134,7 @@ def append_log(filepath, content):
         f.write(content)
 
 def main():
-    os.chdir('/root/meridian')
+    os.chdir('/opt/meridian')
     
     # Files
     state_file = "state.json"

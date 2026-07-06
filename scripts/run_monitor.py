@@ -22,7 +22,7 @@ def load_state(filepath):
 
 def get_env_var(key):
     """Extract from .env file."""
-    env_file = "/root/meridian/.env"
+    env_file = "/opt/meridian/.env"
     try:
         with open(env_file) as f:
             for line in f:
@@ -59,7 +59,7 @@ def send_telegram(chat_id, bot_token, message):
 
 def log_alert(alert_msg):
     """Append alert to MONITOR.md."""
-    log_file = Path("/root/meridian/notes/MONITOR.md")
+    log_file = Path("/opt/meridian/notes/MONITOR.md")
     log_file.parent.mkdir(parents=True, exist_ok=True)
     
     # Initialize if not exists
@@ -74,7 +74,7 @@ def log_alert(alert_msg):
 
 def main():
     # Load states
-    current = load_state("/root/meridian/state.json")
+    current = load_state("/opt/meridian/state.json")
     if not current:
         print("[ERROR] Cannot load state.json")
         return 1
@@ -164,7 +164,7 @@ def main():
     chat_id = get_env_var("TELEGRAM_CHAT_ID")
     bot_token = get_env_var("TELEGRAM_BOT_TOKEN")
     
-    alerts_paused = Path('/root/meridian/.telegram_alerts_paused').exists()
+    alerts_paused = Path('/opt/meridian/.telegram_alerts_paused').exists()
     for alert in alerts:
         print(f"  {alert}")
         log_alert(alert)

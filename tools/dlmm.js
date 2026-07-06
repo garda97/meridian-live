@@ -7,8 +7,9 @@ import {
   Transaction,
   TransactionInstruction,
   VersionedTransaction,
-  sendAndConfirmTransaction,
+  sendAndConfirmTransaction as sendAndConfirmTransaction_original,
 } from "@solana/web3.js";
+import { sendJitoBundle } from "./jito-helper.js";
 import BN from "bn.js";
 import bs58 from "bs58";
 import { config, computeDeployAmount, MIN_SAFE_BINS_BELOW } from "../config.js";
@@ -38,6 +39,22 @@ import {
 } from "../pool-memory.js";
 import { getWalletBalances, normalizeMint } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
+
+// Jito wrapper: route transactions through Jito if enabled, fallback to standard RPC
+async function sendAndConfirmTransaction(connection, transaction, signers, options) {
+  if (config.jito?.enabled) {
+    try {
+      log("jito", "Attempting Jito bundle submission for this transaction...");
+      const bundleId = await sendJitoBundle(connection, transaction, signers, log);
+      log("jito_success", `Transaction routed through Jito bundle: ${bundleId}`);
+      return bundleId;
+    } catch (jitoErr) {
+      log("jito_warn", `Jito submission failed (${jitoErr.message}), falling back to standard RPC`);
+    }
+  }
+  return await sendAndConfirmTransaction_original(connection, transaction, signers, options);
+}
+
 import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { getAndClearStagedSignals } from "../signal-tracker.js";
 import { computePositions, fetchDlmmPnlForPool } from "./pnl.js";

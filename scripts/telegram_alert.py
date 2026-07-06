@@ -52,7 +52,7 @@ def send_telegram(chat_id, token, message):
     return False
 
 def main():
-    os.chdir('/root/meridian')
+    os.chdir('/opt/meridian')
     
     # Load env
     env = load_env('.env')

@@ -5,7 +5,7 @@ from datetime import datetime
 import subprocess
 
 # 1. Load current state
-state_file = Path('/root/meridian/state.json')
+state_file = Path('/opt/meridian/state.json')
 with open(state_file) as f:
     current_state = json.load(f)
 
@@ -62,7 +62,7 @@ else:
             print(f"  ALERT: {alert}")
 
 # 4. Get Telegram credentials
-env_file = Path('/root/meridian/.env')
+env_file = Path('/opt/meridian/.env')
 telegram_chat_id = None
 telegram_bot_token = None
 
@@ -74,7 +74,7 @@ with open(env_file) as f:
             telegram_bot_token = line.split('=')[1].strip()
 
 # 5. Send Telegram alerts (skip when paused — see .telegram_alerts_paused)
-alerts_paused = Path('/root/meridian/.telegram_alerts_paused').exists()
+alerts_paused = Path('/opt/meridian/.telegram_alerts_paused').exists()
 if alerts_paused and alerts:
     print(f"[PAUSED] Telegram alerts disabled — {len(alerts)} alert(s) logged only")
     for alert in alerts:
@@ -111,7 +111,7 @@ with open(prev_state_file, 'w') as f:
 print(f"[OK] State saved")
 
 # 7. Log to MONITOR.md
-monitor_file = Path('/root/meridian/notes/MONITOR.md')
+monitor_file = Path('/opt/meridian/notes/MONITOR.md')
 monitor_file.parent.mkdir(parents=True, exist_ok=True)
 
 with open(monitor_file, 'a') as f:

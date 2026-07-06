@@ -3,7 +3,7 @@
 # Meridian DLMM Position Monitor
 # Monitor Telegram alerts untuk perubahan material pada DLMM positions
 
-cd /root/meridian
+cd /opt/meridian
 
 echo "=== MERIDIAN DLMM MONITOR ===" 
 echo "Startup: $(date -u +%Y-%m-%dT%H:%M:%SZ)"

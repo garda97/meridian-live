@@ -2,17 +2,17 @@
 # Meridian DLMM Position Monitor Cron Job Setup
 # Runs monitor.py every 5 minutes
 
-CRON_SCRIPT="/root/meridian/scripts/run_monitor.sh"
-MONITOR_PY="/root/meridian/monitor.py"
+CRON_SCRIPT="/opt/meridian/scripts/run_monitor.sh"
+MONITOR_PY="/opt/meridian/monitor.py"
 
 # Create scripts directory
-mkdir -p /root/meridian/scripts
+mkdir -p /opt/meridian/scripts
 
 # Create run wrapper
 cat > "$CRON_SCRIPT" << 'EOF'
 #!/bin/bash
-cd /root/meridian || exit 1
-python3 monitor.py >> /root/meridian/monitor.log 2>&1
+cd /opt/meridian || exit 1
+python3 monitor.py >> /opt/meridian/monitor.log 2>&1
 EOF
 
 chmod +x "$CRON_SCRIPT"
@@ -21,5 +21,5 @@ chmod +x "$CRON_SCRIPT"
 (crontab -l 2>/dev/null | grep -v "run_monitor.sh"; echo "*/5 * * * * $CRON_SCRIPT") | crontab -
 
 echo "✓ Monitor cron installed (every 5 minutes)"
-echo "✓ Logs: /root/meridian/monitor.log"
-echo "✓ Run manually: python3 /root/meridian/monitor.py"
+echo "✓ Logs: /opt/meridian/monitor.log"
+echo "✓ Run manually: python3 /opt/meridian/monitor.py"

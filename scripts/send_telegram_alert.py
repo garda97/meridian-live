@@ -9,7 +9,7 @@ from datetime import datetime
 
 def get_env_var(key):
     """Extract from .env file."""
-    env_file = "/root/meridian/.env"
+    env_file = "/opt/meridian/.env"
     try:
         with open(env_file) as f:
             for line in f:
@@ -64,8 +64,8 @@ def main():
         print(f"[FAIL] Could not send to Telegram")
     
     # Log to MONITOR.md
-    log_file = "/root/meridian/notes/MONITOR.md"
-    Path("/root/meridian/notes").mkdir(parents=True, exist_ok=True)
+    log_file = "/opt/meridian/notes/MONITOR.md"
+    Path("/opt/meridian/notes").mkdir(parents=True, exist_ok=True)
     
     with open(log_file, 'a') as f:
         f.write(f"\n{datetime.utcnow().isoformat()}Z | {alert}")
