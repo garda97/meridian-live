@@ -36,6 +36,25 @@ async function fetchSolPriceUsd() {
   }
 }
 
+// Cached live SOL price for metrics (est share, sizing math) — one Jupiter
+// call per 5 minutes instead of a hardcoded constant. Returns null when the
+// price is unavailable so callers can skip the metric rather than mislead.
+let _solPriceCache = { price: null, at: 0 };
+const SOL_PRICE_TTL_MS = 5 * 60_000;
+
+export async function getSolPriceUsd() {
+  if (_solPriceCache.price != null && Date.now() - _solPriceCache.at < SOL_PRICE_TTL_MS) {
+    return _solPriceCache.price;
+  }
+  const price = await fetchSolPriceUsd();
+  if (price > 0) {
+    _solPriceCache = { price: Math.round(price * 100) / 100, at: Date.now() };
+    return _solPriceCache.price;
+  }
+  // Serve a stale price over nothing; null only when we never had one
+  return _solPriceCache.price ?? null;
+}
+
 async function getWalletBalancesViaRpc(walletAddress) {
   const lamports = await withHeliusRpcRetry(
     (conn) => conn.getBalance(new PublicKey(walletAddress), "confirmed"),

@@ -45,6 +45,9 @@ head -80 CLAUDE.md
 - Ubah `user-config.json` threshold deploy live
 - Ubah `dryRun`
 - Refactor besar `tools/dlmm.js` — pecah bertahap dengan plan dulu
+- Enable `tgeMaxAgeHours`, `shareExitEnabled`, `minEstimatedSharePct`, atau turunkan `pnlWarmupMinutes` ke 0
+
+**Baseline config owner:** `notes/CONFIG_SAFETY_BASELINE.md` — baca sebelum propose threshold; eksekusi config = Hermes/Grok, bukan Claude.
 
 ## Slash commands built-in (dari `/root/meridian`)
 

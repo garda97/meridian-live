@@ -179,6 +179,9 @@ export const config = {
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
+    // Min hold before deterministic take-profit may fire (deposits + PnL cache settle).
+    // Stop loss stays live. Default tracks pnlWarmupMinutes (≥ pnlDepositCacheTtlSec/60).
+    minAgeBeforeTakeProfit: u.minAgeBeforeTakeProfit ?? u.pnlWarmupMinutes ?? 10,
     minSolToOpen:          u.minSolToOpen          ?? 0.55,
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
     gasReserve:            u.gasReserve            ?? 0.2,
@@ -431,6 +434,84 @@ export function minTokenFeesSolForMcap(mcap, screening = config.screening) {
  * in-memory config object. Called after threshold evolution so the next
  * agent cycle uses the evolved values without a restart.
  */
+/** Apply a flat user-config key onto the live config object (CONFIG_MAP sections). */
+function applyFlatUserKey(fresh, key) {
+  const n = (v) => (v === undefined ? undefined : Number(v));
+  switch (key) {
+    case "maxPositions":
+      if (fresh.maxPositions !== undefined) config.risk.maxPositions = Math.round(Number(fresh.maxPositions));
+      break;
+    case "maxDeployAmount":
+      if (fresh.maxDeployAmount != null) config.risk.maxDeployAmount = n(fresh.maxDeployAmount);
+      break;
+    case "deployAmountSol":
+      if (fresh.deployAmountSol != null) config.management.deployAmountSol = n(fresh.deployAmountSol);
+      break;
+    case "gasReserve":
+      if (fresh.gasReserve != null) config.management.gasReserve = n(fresh.gasReserve);
+      break;
+    case "minSolToOpen":
+      if (fresh.minSolToOpen != null) config.management.minSolToOpen = n(fresh.minSolToOpen);
+      break;
+    case "positionSizePct":
+      if (fresh.positionSizePct != null) config.management.positionSizePct = n(fresh.positionSizePct);
+      break;
+    case "dailyLossLimitUsd":
+      if (fresh.dailyLossLimitUsd !== undefined) {
+        config.management.dailyLossLimitUsd = fresh.dailyLossLimitUsd == null ? null : n(fresh.dailyLossLimitUsd);
+      }
+      break;
+    case "noDeployAfterHour":
+      if (fresh.noDeployAfterHour !== undefined) {
+        config.schedule.noDeployAfterHour = fresh.noDeployAfterHour == null ? null : n(fresh.noDeployAfterHour);
+      }
+      break;
+    case "noDeployBeforeHour":
+      if (fresh.noDeployBeforeHour !== undefined) {
+        config.schedule.noDeployBeforeHour = fresh.noDeployBeforeHour == null ? null : n(fresh.noDeployBeforeHour);
+      }
+      break;
+    case "screeningIntervalMin":
+      if (fresh.screeningIntervalMin != null) config.schedule.screeningIntervalMin = Math.round(n(fresh.screeningIntervalMin));
+      break;
+    case "managementIntervalMin":
+      if (fresh.managementIntervalMin != null) config.schedule.managementIntervalMin = Math.round(n(fresh.managementIntervalMin));
+      break;
+    case "opportunityPollEnabled":
+      if (fresh.opportunityPollEnabled !== undefined) config.opportunity.enabled = !!fresh.opportunityPollEnabled;
+      break;
+    case "autoStrategyEnabled":
+      if (fresh.autoStrategyEnabled !== undefined) config.autoStrategy.enabled = !!fresh.autoStrategyEnabled;
+      break;
+    case "rugcheckTop10MaxPct":
+      if (fresh.rugcheckTop10MaxPct != null) config.screening.rugcheckTop10MaxPct = n(fresh.rugcheckTop10MaxPct);
+      break;
+    default:
+      break;
+  }
+}
+
+/**
+ * Reload user-config.json into the in-memory config object.
+ * Daemon calls this at the start of each screening/management cycle so CLI
+ * `config set` changes apply without restart.
+ */
+export function reloadUserConfigFromDisk() {
+  reloadScreeningThresholds();
+  try {
+    if (!fs.existsSync(USER_CONFIG_PATH)) return;
+    const fresh = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+    for (const key of [
+      "maxPositions", "maxDeployAmount", "deployAmountSol", "gasReserve", "minSolToOpen",
+      "positionSizePct", "dailyLossLimitUsd", "noDeployAfterHour", "noDeployBeforeHour",
+      "screeningIntervalMin", "managementIntervalMin", "opportunityPollEnabled",
+      "autoStrategyEnabled", "rugcheckTop10MaxPct",
+    ]) {
+      applyFlatUserKey(fresh, key);
+    }
+  } catch { /* ignore */ }
+}
+
 export function reloadScreeningThresholds() {
   try {
     if (!fs.existsSync(USER_CONFIG_PATH)) return;

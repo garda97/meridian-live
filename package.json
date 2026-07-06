@@ -23,6 +23,9 @@
     "helius:validate": "node scripts/helius_keys.js validate",
     "helius:import": "node scripts/helius_keys.js import-backup",
     "dashboard": "PYTHONPATH=. python3 -m web.dashboard",
+    "preset:list": "node scripts/apply-preset.js --list",
+    "preset:evil-panda": "node scripts/apply-preset.js evil-panda.strict",
+    "preset:evil-panda:dry": "node scripts/apply-preset.js evil-panda.strict --dry-run",
     "postinstall": "node scripts/patch-anchor.js"
   },
   "knip": {

@@ -22,7 +22,8 @@ import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-bla
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
-import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW } from "../config.js";
+import { config, reloadScreeningThresholds, reloadUserConfigFromDisk, MIN_SAFE_BINS_BELOW } from "../config.js";
+import { isScreeningPaused } from "../utils/screening-gate.js";
 import {
   applyPendingPlanToDeployArgs,
   validateDeployPlanGate,
@@ -472,6 +473,7 @@ const toolMap = {
       gasReserve: ["management", "gasReserve"],
       positionSizePct: ["management", "positionSizePct"],
       minAgeBeforeYieldCheck: ["management", "minAgeBeforeYieldCheck"],
+      minAgeBeforeTakeProfit: ["management", "minAgeBeforeTakeProfit"],
       // risk
       maxPositions: ["risk", "maxPositions"],
       maxDeployAmount: ["risk", "maxDeployAmount"],
@@ -645,6 +647,9 @@ const toolMap = {
     }
     userConfig._lastAgentTune = new Date().toISOString();
     atomicWriteFileSync(USER_CONFIG_PATH, JSON.stringify(userConfig, null, 2));
+    // Keep in-memory config aligned with disk (CLI runs in a separate process; daemon
+    // reloads via reloadUserConfigFromDisk at cycle start — this covers agent path).
+    reloadUserConfigFromDisk();
 
     // Restart cron jobs if intervals changed
     const intervalChanged = applied.managementIntervalMin != null || applied.screeningIntervalMin != null || applied.pnlPollIntervalSec != null;
@@ -953,6 +958,13 @@ async function runSafetyChecks(name, args) {
       }
 
       // Check position count limit + duplicate pool guard — force fresh scan to avoid stale cache
+      reloadUserConfigFromDisk();
+      if (isScreeningPaused(config)) {
+        return {
+          pass: false,
+          reason: "Screening paused (maxPositions=0). Set maxPositions >= 1 to resume deploys.",
+        };
+      }
       const positions = await getMyPositions({ force: true });
       if (positions.total_positions >= config.risk.maxPositions) {
         return {

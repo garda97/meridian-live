@@ -1,6 +1,61 @@
 {
-  "latest": "uploads/tg_20260704_025536_1538.jpg",
+  "latest": "uploads/tg_20260704_225155_1902.jpg",
   "items": [
+    {
+      "path": "uploads/tg_20260704_225155_1902.jpg",
+      "filename": "tg_20260704_225155_1902.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_225155_1902.jpg",
+      "saved_at": "2026-07-04T22:51:55.609Z",
+      "message_id": 1902,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 102706,
+      "telegram_file_path": "photos/file_35.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_224922_1898.jpg",
+      "filename": "tg_20260704_224922_1898.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_224922_1898.jpg",
+      "saved_at": "2026-07-04T22:49:22.222Z",
+      "message_id": 1898,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 143347,
+      "telegram_file_path": "photos/file_34.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_224549_1896.jpg",
+      "filename": "tg_20260704_224549_1896.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_224549_1896.jpg",
+      "saved_at": "2026-07-04T22:45:49.688Z",
+      "message_id": 1896,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 182707,
+      "telegram_file_path": "photos/file_33.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_221431_1888.jpg",
+      "filename": "tg_20260704_221431_1888.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_221431_1888.jpg",
+      "saved_at": "2026-07-04T22:14:31.412Z",
+      "message_id": 1888,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 112694,
+      "telegram_file_path": "photos/file_32.jpg"
+    },
+    {
+      "path": "uploads/tg_20260704_173749_1771.jpg",
+      "filename": "tg_20260704_173749_1771.jpg",
+      "abs_path": "/root/meridian/uploads/tg_20260704_173749_1771.jpg",
+      "saved_at": "2026-07-04T17:37:49.921Z",
+      "message_id": 1771,
+      "caption": null,
+      "mime_type": "image/jpeg",
+      "size_bytes": 149110,
+      "telegram_file_path": "photos/file_31.jpg"
+    },
     {
       "path": "uploads/tg_20260704_025536_1538.jpg",
       "filename": "tg_20260704_025536_1538.jpg",

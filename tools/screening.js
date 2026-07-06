@@ -716,14 +716,17 @@ export async function getTopCandidates({ limit = 10, timeframe = null } = {}) {
   const minTvl = Number(config.screening.minTvl ?? 0);
   const maxTvl = config.screening.maxTvl == null ? null : Number(config.screening.maxTvl);
   const minFeeActiveTvlRatio = Number(config.screening.minFeeActiveTvlRatio ?? 0);
-  const deployAmountUsd = config.management.deployAmountSol * 150; // Approx SOL/USD
+  // Live SOL price (5-min cache) — a hardcoded constant overstated est share
+  // ~1.8x at $81 SOL. null price → estimateSharePct returns null (metric absent).
+  const { getSolPriceUsd } = await import("./wallet.js");
+  const solPriceUsd = await getSolPriceUsd();
 
   const eligible = pools
     .map((p) => ({
       ...p,
       estimated_share_pct: estimateSharePct({
         deployAmountSol: config.management.deployAmountSol,
-        solPriceUsd: 150, // Approx
+        solPriceUsd,
         poolTvlUsd: Number(p.active_tvl ?? p.tvl ?? 0),
       }),
     }))

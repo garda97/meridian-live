@@ -239,6 +239,30 @@ export function isInPnlWarmup(pos, warmupMinutes, nowMs = Date.now()) {
   return nowMs - Math.max(...refs) < warmup * 60_000;
 }
 
+/**
+ * Whether deterministic take-profit may fire this tick.
+ * Stop loss / OOR / low-yield are unaffected. Blocks:
+ * - PnL warmup window (phantom spikes right after deploy/rebalance)
+ * - minAgeBeforeTakeProfit (deposits still settling)
+ * - reported-vs-derived divergence during the early window (sultan: +50% phantom → 0.1% real)
+ */
+export function canFireTakeProfit(position = {}, tracked, mgmtConfig = {}) {
+  if (isInPnlWarmup(tracked, mgmtConfig.pnlWarmupMinutes)) return false;
+  const minAge = Number(mgmtConfig.minAgeBeforeTakeProfit ?? mgmtConfig.pnlWarmupMinutes ?? 10);
+  const age = position.age_minutes;
+  if (Number.isFinite(minAge) && minAge > 0 && age != null && age < minAge) return false;
+  const earlyWindow = Math.max(
+    Number(mgmtConfig.pnlWarmupMinutes) || 0,
+    Number.isFinite(minAge) ? minAge : 0,
+  );
+  const maxDiff = Number(mgmtConfig.pnlSanityMaxDiffPct ?? 5);
+  const diff = position.pnl_pct_diff;
+  if (earlyWindow > 0 && age != null && age < earlyWindow && Number.isFinite(diff) && diff > maxDiff) {
+    return false;
+  }
+  return true;
+}
+
 export function confirmPeak(position_address, candidatePnlPct, confirmTicks = 2, warmupMinutes = 0) {
   if (candidatePnlPct == null) return false;
   const state = load();

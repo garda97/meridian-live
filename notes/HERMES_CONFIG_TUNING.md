@@ -2,6 +2,8 @@
 
 _Pelajaran dari Grok sesi 2026-07-04. Owner bilang "relax filter" / "ketatkan" → Hermes yang eksekusi._
 
+**⚠️ WAJIB BACA DULU:** `notes/CONFIG_SAFETY_BASELINE.md` — baseline owner-approved Jul 2026. **Jangan setting aneh** (8 key sekaligus, cooldown 0 + rugcheck 65 tanpa owner, enable TGE/dilution exit).
+
 ---
 
 ## Cara ubah (sama seperti Grok)
@@ -45,14 +47,14 @@ tail -5 decision-log.json
 
 | Key | Live sekarang | Boleh turun ke | Boleh naik ke | Efek |
 |-----|---------------|----------------|---------------|------|
-| `minVolume` | 5000 | **3000** | 15000 | Lebih banyak pool di discovery |
-| `minMcap` | 150000 | **120000** | 250000 | Token lebih kecil |
-| `minFeeActiveTvlRatio` | 0.03 | **0.02** | 0.05 | Pool fee rendah lolos |
-| `maxTop10Pct` | 35 | 26 | **40** | GMGN holder gate |
-| `rugcheckTop10MaxPct` | 65 | 60 | **70** | Rugcheck API gate |
-| `excludeHighSupplyConcentration` | false | — | true/false | Toggle filter Meteora |
-| `winRedeployCooldownHours` | 0 | **0** | 3 | Redeploy setelah win |
-| `repeatDeployCooldownEnabled` | false | — | true/false | Repeat deploy 3x block |
+| `minVolume` | **8000** (baseline) | **5000** | 15000 | Turun ke 5000 hanya owner "relax" |
+| `minMcap` | **200000** (baseline) | **150000** | 250000 | Turun ke 150k hanya owner "relax" |
+| `minFeeActiveTvlRatio` | **0.05** (baseline) | **0.04** | 0.05 | Jangan <0.04 tanpa owner |
+| `maxTop10Pct` | **30** (baseline) | 26 | **35** | Max 35 hanya 1 step + owner OK |
+| `rugcheckTop10MaxPct` | **60** (baseline) | 60 | **65** | Max 65 owner eksplisit; **jangan 70** |
+| `excludeHighSupplyConcentration` | **true** (baseline) | — | false | OFF hanya owner setuju risiko |
+| `winRedeployCooldownHours` | **3** (baseline) | — | **0** | **0 hanya** owner + clear pool-memory |
+| `repeatDeployCooldownEnabled` | **true** (baseline) | — | false | false hanya owner darurat deploy |
 
 **Ketatkan screening (kualitas lebih tinggi):**
 
