@@ -7,20 +7,25 @@ Implements @Heavymetalcook6's "Recovery Strat" from @met_lparmy:
   open a RECOVERY position LOWER (bid-ask down). Compound fees from the lower
   position into the upper to offset losses if price pumps back.
 
-This script is DRY-RUN / PROPOSAL-ONLY. It detects OOR positions and writes a
-recovery proposal to notes/RECOVERY_PROPOSALS.md + sends a Telegram alert.
-It does NOT auto-deploy. Owner approves manually (Safety First).
+Modes (controlled by config.management.autoRecovery):
+  - autoRecovery = false (DEFAULT): DRY-RUN. Writes proposal to
+    notes/RECOVERY_PROPOSALS.md + Telegram alert. Owner approves manually.
+  - autoRecovery = true: executes `node cli.js deploy` for each candidate.
+    The CLI deploy path uses the SAME executeTool('deploy_position') as the
+    daemon, so ALL safety guards apply (maxPositions, dailyLossLimitUsd,
+    maxTvl, minTvl, organic, repeatDeployCooldown). No guard bypass.
 
 Runs as a cron (every 15m) — separate from the daemon so it cannot disrupt
-live trading logic.
+live trading logic, but reuses the daemon's guarded deploy path.
 
 Recovery criteria:
   - position has out_of_range_since (OOR active) and not closed
   - OOR direction = BELOW (price under active bin) — recovery goes lower
   - token still alive: entry_mcap/entry_tvl not 0 (not a total rug)
-  - we don't already have a recovery proposal for this pool
+  - not already proposed (tracked in .recovery_seen.json)
 """
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -28,8 +33,8 @@ ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / "state.json"
 PROPOSALS = ROOT / "notes" / "RECOVERY_PROPOSALS.md"
 SEEN = ROOT / ".recovery_seen.json"
+CONFIG = ROOT / "user-config.json"
 
-# Recovery position sits 100 bins below the original lower bound.
 RECOVERY_BINS_BELOW = 100
 
 
@@ -51,6 +56,18 @@ def save_seen(seen):
     json.dump(seen, open(SEEN, "w"), indent=2)
 
 
+def get_auto_recovery():
+    cfg = load_json(CONFIG) or {}
+    # config.js reads management.autoRecovery; user-config may set it too
+    m = cfg.get("management", {})
+    if isinstance(m, dict) and "autoRecovery" in m:
+        return bool(m["autoRecovery"])
+    # fallback: check top-level
+    if "autoRecovery" in cfg:
+        return bool(cfg["autoRecovery"])
+    return False
+
+
 def main():
     st = load_json(STATE)
     if not st:
@@ -58,6 +75,7 @@ def main():
         return
     positions = st.get("positions", {})
     seen = load_seen()
+    auto = get_auto_recovery()
     proposals = []
 
     for pid, p in positions.items():
@@ -70,19 +88,20 @@ def main():
         min_bin = br.get("min")
         max_bin = br.get("max")
         if min_bin is None or max_bin is None:
-            continue
-
-        # OOR direction: if active price is below our range -> recovery lower
-        # Heuristic: OOR with bid_ask strategy + lower bins available = below
-        entry_mcap = p.get("entry_mcap") or 0
-        entry_tvl = p.get("entry_tvl") or 0
-        if entry_mcap <= 0 or entry_tvl <= 0:
-            # total rug — skip (no recovery, just close)
             seen[pid] = ts()
             continue
 
-        # only recover if we have room below (not already a deep recovery)
+        entry_mcap = p.get("entry_mcap") or 0
+        entry_tvl = p.get("entry_tvl") or 0
+        if entry_mcap <= 0 or entry_tvl <= 0:
+            seen[pid] = ts()  # total rug — skip (just close)
+            continue
         if br.get("bins_below", 0) > 200:
+            seen[pid] = ts()  # already deep recovery — skip
+            continue
+
+        pool_addr = p.get("pool")
+        if not pool_addr:
             seen[pid] = ts()
             continue
 
@@ -90,6 +109,7 @@ def main():
         rec_max = min_bin
         proposals.append({
             "pid": pid,
+            "pool_addr": pool_addr,
             "pool": p.get("pool_name", "?"),
             "strategy": p.get("strategy", "?"),
             "oor_since": p.get("out_of_range_since"),
@@ -105,8 +125,11 @@ def main():
         save_seen(seen)
         return
 
-    lines = [f"\n## {ts()} — Recovery proposals ({len(proposals)} new)\n"]
-    lines.append("> DRY-RUN: owner must approve before deploy. Not auto-deployed.\n")
+    lines = [f"\n## {ts()} — Recovery {'AUTO' if auto else 'proposals'} ({len(proposals)} new)\n"]
+    if not auto:
+        lines.append("> DRY-RUN: owner must approve before deploy. Not auto-deployed.\n")
+
+    deployed = []
     for r in proposals:
         lines.append(
             f"- **{r['pool']}** ({r['strategy']}) OOR since {r['oor_since'][:19]}\n"
@@ -114,32 +137,68 @@ def main():
             f"  - mcap ${r['entry_mcap']:.2f}M | TVL ${r['entry_tvl']:.0f}K\n"
             f"  - action: open recovery bid-ask BELOW, compound fees to upper\n"
         )
-    lines.append("")
+        if auto:
+            ok, msg = execute_recovery(r)
+            status = "DEPLOYED" if ok else f"BLOCKED: {msg}"
+            lines.append(f"  - RESULT: {status}\n")
+            if ok:
+                deployed.append(r)
 
+    lines.append("")
     with open(PROPOSALS, "a") as f:
         f.write("\n".join(lines))
-    print(f"[{ts()}] Wrote {len(proposals)} recovery proposal(s) to {PROPOSALS.name}")
+    print(f"[{ts()}] {'Auto-deployed' if auto else 'Wrote'} {len(proposals)} recovery candidate(s) to {PROPOSALS.name}"
+          + (f" ({len(deployed)} deployed)" if auto else ""))
 
-    # Telegram alert (if enabled in config) — non-blocking, best-effort
-    send_telegram_alert(proposals)
-
+    send_telegram_alert(proposals, auto, deployed)
     save_seen(seen)
 
 
-def send_telegram_alert(proposals):
-    """Best-effort Telegram ping. Fails silently if not configured."""
+def execute_recovery(r):
+    """Call `node cli.js deploy` — reuses daemon's guarded deploy path.
+    Returns (ok, message). Safety checks (maxPositions, dailyLoss, maxTvl...)
+    are enforced by the CLI itself."""
+    try:
+        cmd = [
+            "node", "cli.js", "deploy",
+            "--pool", r["pool_addr"],
+            "--amount", "0.3",
+            "--bins-below", str(RECOVERY_BINS_BELOW),
+            "--bins-above", "0",
+            "--strategy", "bid_ask",
+        ]
+        res = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=120)
+        out = res.stdout + res.stderr
+        if '"blocked": true' in out or "SAFETY_BLOCK" in out:
+            # extract reason
+            import re
+            m = re.search(r'"reason":\s*"([^"]+)"', out)
+            return False, m.group(1) if m else "safety block"
+        if res.returncode == 0 and ("deployed" in out.lower() or "deploy" in out.lower()):
+            return True, "ok"
+        return False, out[-200:].strip()
+    except Exception as e:
+        return False, str(e)
+
+
+def send_telegram_alert(proposals, auto, deployed):
     try:
         import urllib.parse
         import urllib.request
-        cfg = load_json(ROOT / "user-config.json") or {}
+        cfg = load_json(CONFIG) or {}
         chat = cfg.get("telegramChatId")
         token = cfg.get("telegramBotToken")
         if not chat or not token:
             return
-        msg = "🔄 RECOVERY STRAT — {} candidate(s):\n".format(len(proposals))
-        for r in proposals[:5]:
-            msg += f"• {r['pool']} {r['recovery_range']}\n"
-        msg += "(dry-run, owner approval needed)"
+        if auto:
+            msg = f"🔄 RECOVERY AUTO-DEPLOYED {len(deployed)}/{len(proposals)}:\n"
+            for r in deployed:
+                msg += f"• {r['pool']} {r['recovery_range']}\n"
+        else:
+            msg = f"🔄 RECOVERY STRAT — {len(proposals)} candidate(s):\n"
+            for r in proposals[:5]:
+                msg += f"• {r['pool']} {r['recovery_range']}\n"
+            msg += "(dry-run, set autoRecovery=true or owner approval needed)"
         url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={chat}&text={urllib.parse.quote(msg)}"
         urllib.request.urlopen(url, timeout=5)
     except Exception:
@@ -151,5 +210,4 @@ def ts():
 
 
 if __name__ == "__main__":
-    import urllib.parse
     main()
