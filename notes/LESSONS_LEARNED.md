@@ -35,3 +35,7 @@ Only positions with attributable PnL are recorded. No auto config change.
 - **?** (bid_ask) — PnL +49.99% | mcap $0.35M | TVL $30K | organic None | fee/TVL None | reason: unknown
 - **?** (bid_ask) — PnL +0.17% | mcap $1.85M | TVL $123K | organic None | fee/TVL None | reason: unknown
 - **?** (spot) — PnL +4.83% | mcap $2.18M | TVL $77K | organic None | fee/TVL None | reason: unknown
+
+## 2026-07-07 10:30 — Post-mortem batch (1 new)
+
+- **drooling-SOL** (bid_ask) — PnL +0.04% | mcap $2.82M | TVL $269K | organic 81 | fee/TVL 0.1215 | reason: unknown

@@ -43,5 +43,5 @@ RPC. This ensures maxPositions/dailyLoss/cooldown are all respected.
 
 ## Files
 - config.js: autoRecovery + autoRecoveryBinsBelow (DONE)
-- index.js: maybeAutoRecovery() (Grok)
+- index.js: maybeAutoRecovery() (DONE by Claude, 2026-07-07 — reassigned from grok, see HANDOFF.md 03:58 UTC)
 - scripts/recovery_manager.py: manual fallback (DONE, dry-run proposal)

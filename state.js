@@ -356,6 +356,21 @@ export function registerExitSignal(position_address, signal, confirmTicks = 2) {
 }
 
 /**
+ * Link a recovery child position to its parent (Recovery Strat). Marks the
+ * parent so it isn't re-proposed for recovery again, and the child so it's
+ * never itself treated as a recovery candidate (no recovery-of-recovery chains).
+ */
+export function linkRecoveryPosition(parentPositionAddress, childPositionAddress) {
+  const state = load();
+  const parent = state.positions[parentPositionAddress];
+  const child = state.positions[childPositionAddress];
+  if (parent) parent.recovery_child = childPositionAddress;
+  if (child) child.recovery_of = parentPositionAddress;
+  save(state);
+  log("state", `Linked recovery position ${childPositionAddress} to parent ${parentPositionAddress}`);
+}
+
+/**
  * Get all tracked positions (optionally filter open-only).
  */
 export function getTrackedPositions(openOnly = false) {

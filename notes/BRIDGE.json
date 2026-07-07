@@ -1,11 +1,11 @@
 {
-  "updated_at": "2026-07-06T23:02:20.400838+00:00",
+  "updated_at": "2026-07-07T04:23:55.555158+00:00",
   "updated_by": "agent_sync",
   "project": "meridian",
   "phase": "Evil Panda strict live",
   "git": {
     "branch": "github-main",
-    "last_commit": "86870d7 chore: consolidate recent updates, P1a/P1b implementation, and cleanup (15 hours ago)",
+    "last_commit": "0689e63 Apply @crimexbt teachings: A) maxTvl 500K->5M (TVL not a quality filter, big pools=more orderflow) B) recovery CHASE_UP (OOR above + pump -> add buy-side LP above, per CrimeXBT  play) C) volatility field in analytics (avg 0.296 on passed). minVolatility config added (default 0=off). (2 hours ago)",
     "dirty_files": 30,
     "is_dirty": true
   },
@@ -13,15 +13,26 @@
     "dry_run": false,
     "max_positions": 6,
     "deploy_amount_sol": 0.3,
-    "screening_interval_min": 30,
-    "management_interval_min": 10,
+    "screening_interval_min": 10,
+    "management_interval_min": 5,
     "has_user_config": true,
     "has_env": true,
     "recent_decisions": 0,
     "last_decision": null
   },
-  "handoff_count": 0,
-  "latest": null,
+  "handoff_count": 1,
+  "latest": {
+    "at": "2026-07-07 11:05 UTC",
+    "from": "claude",
+    "to": "hermes",
+    "summary": "Recovery Strat implemented in index.js \u2014 done, ready for review",
+    "tasks": "",
+    "assignee": "hermes",
+    "priority": "",
+    "status": "done \u2014 owner/hermes to review and decide on live-flip after a real oor dry_run pass.",
+    "done": "",
+    "blockers": ""
+  },
   "pending": {
     "hermes": [],
     "grok": [],
