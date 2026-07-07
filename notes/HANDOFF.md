@@ -50,7 +50,19 @@ _Updated: 2026-07-07T08:10:00+00:00_
 
 **Open item for OWNER (not claude):** evil-panda config drift — user-config.json has diverged hard from evil-panda.strict preset (deployAmountSol 2→0.3, maxPositions 2→6, stopLoss -15→-20, takeProfit 8→3, solRegimeGate off, autoStrategyMaxPump 15→30). Claude recommends leaving as deliberate choice. athGateFailMode still "open" (preset says "closed"). Owner to decide: keep drift or re-apply preset.
 
-**Status:** received + verified. Queue clear. Daemon NOT restarted by Hermes (already healthy post-claude restarts).
+**Status:** received + verified. Queue clear.
+
+## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
+
+**Summary:** Set `athGateFailMode: "closed"` in user-config.json per owner approval ("ok set bro").
+
+**Why:** previously "open" (default) — ATH gate API/network failure let entries pass (fail-open, anti-pattern vs owner's FOMO-protection stance). Now "closed" = block entry when gate can't evaluate. Zero cost in normal ops.
+
+**Mechanism:** `config.js:396` reads `u.athGateFailMode` directly; daemon hot-reloads via `reloadUserConfigFromDisk()` each management cycle (index.js:442/588/638) → live within <5m, NO restart needed. Verified on disk = "closed".
+
+**Deliberate config drift kept as-is** (owner choice): deployAmountSol 0.3, maxPositions 6, stopLoss -20, takeProfit 3, solRegimeGate off, autoStrategyMaxPump1h 30 — all intentional (Full Evil Panda + Measured Scaling A).
+
+**Status:** done. user-config.json intentionally NOT committed (owner-controlled live config). Git working tree: only untracked .bak files remain.
 
 ## 2026-07-07 11:40 UTC | hermes → owner (CRITICAL ALERT)
 
