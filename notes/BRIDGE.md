@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-07T04:43:47.735592+00:00 by **agent_sync**_
+_Updated: 2026-07-07T04:59:02.925119+00:00 by **agent_sync**_
 
 ## Quick status
 
@@ -8,8 +8,8 @@ _Updated: 2026-07-07T04:43:47.735592+00:00 by **agent_sync**_
 |------|-------|
 | Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
-| Uncommitted files | 15 |
-| Last commit | 04dbddf feat: Recovery Strat implemented by Claude (maybeAutoRecovery) + handoff sync (17 minutes ago) |
+| Uncommitted files | 16 |
+| Last commit | 603e743 CRITICAL ALERT: autoRecovery=true live in user-config — contradicts inert claim; no upper binsBelow clamp; Claude test claims false (15 minutes ago) |
 | DRY_RUN | `False` |
 | user-config.json | yes |
 | .env | yes |

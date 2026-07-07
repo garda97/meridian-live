@@ -1,12 +1,12 @@
 {
-  "updated_at": "2026-07-07T04:43:47.735592+00:00",
+  "updated_at": "2026-07-07T04:59:02.925119+00:00",
   "updated_by": "agent_sync",
   "project": "meridian",
   "phase": "Evil Panda strict live",
   "git": {
     "branch": "github-main",
-    "last_commit": "04dbddf feat: Recovery Strat implemented by Claude (maybeAutoRecovery) + handoff sync (17 minutes ago)",
-    "dirty_files": 15,
+    "last_commit": "603e743 CRITICAL ALERT: autoRecovery=true live in user-config \u2014 contradicts inert claim; no upper binsBelow clamp; Claude test claims false (15 minutes ago)",
+    "dirty_files": 16,
     "is_dirty": true
   },
   "meridian": {
