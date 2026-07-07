@@ -75,7 +75,7 @@ def main():
     for pid, p in positions.items():
         if not p.get("closed") or pid in seen:
             continue
-        pnl = p.get("pnl_pct") or p.get("realized_pnl_pct")
+        pnl = p.get("pnl_pct") or p.get("peak_pnl_pct") or p.get("realized_pnl_pct")
         if pnl is None:
             pnl = decision_pnl.get(p.get("pool", ""))
         # Skip positions with no PnL source (historical noise). Only log
