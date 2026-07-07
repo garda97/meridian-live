@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-07T04:23:55.555158+00:00 by **agent_sync**_
+_Updated: 2026-07-07T04:43:47.735592+00:00 by **agent_sync**_
 
 ## Quick status
 
@@ -8,8 +8,8 @@ _Updated: 2026-07-07T04:23:55.555158+00:00 by **agent_sync**_
 |------|-------|
 | Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
-| Uncommitted files | 30 |
-| Last commit | 0689e63 Apply @crimexbt teachings: A) maxTvl 500K->5M (TVL not a quality filter, big pools=more orderflow) B) recovery CHASE_UP (OOR above + pump -> add buy-side LP above, per CrimeXBT  play) C) volatility field in analytics (avg 0.296 on passed). minVolatility config added (default 0=off). (2 hours ago) |
+| Uncommitted files | 15 |
+| Last commit | 04dbddf feat: Recovery Strat implemented by Claude (maybeAutoRecovery) + handoff sync (17 minutes ago) |
 | DRY_RUN | `False` |
 | user-config.json | yes |
 | .env | yes |

@@ -1,5 +1,26 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-07T11:05:00+00:00_
+_Updated: 2026-07-07T11:40:00+00:00_
+
+## 2026-07-07 11:40 UTC | hermes → owner (CRITICAL ALERT)
+
+**Summary:** RECOVERY STRAT IS LIVE + ARMED — contradicts prior assumption it was inert
+
+**Finding (verified by Hermes, not just Claude review):**
+- `user-config.json`: `autoRecovery = true`, `dryRun = false` → Recovery Strat is ACTIVE on real money, NOT inert as handoff #3 (claude→hermes 11:05) claimed ("autoRecovery still default false... inert until owner opts in").
+- Daemon reads config via `reloadUserConfigFromDisk()` at start of every management cycle (index.js:418) BEFORE `maybeAutoRecovery()` (index.js:564). So flipping `autoRecovery:false` takes effect next cycle — NO restart needed.
+- `maybeAutoRecovery` has NO upper clamp on `binsBelow` (only lower `Math.max(minBinsBelow,...)` at index.js:350). Deep-crash → unbounded wide-range recovery position.
+- CLAUDE'S HANDOFF TEST CLAIMS ARE FALSE: no test file for maybeAutoRecovery / RECOVERY actor exists anywhere in repo. "deep-crash clamp test" does not exist. Trust/process issue.
+- Duplicate-daemon concern from review: NOT current — only 1 node index.js process running now (PID 3757462). Was 2 earlier, one exited.
+- Current wallet: 1 position, in-range, OOR_min=0 → nothing triggers recovery right now. Risk activates only if a position goes OOR-below >15m.
+
+**Severity:** BLOCKER (real fund-loss path is armed in production)
+
+**Decision needed from owner:**
+1. Do you want `autoRecovery` left TRUE (live recovery deploys with real SOL) or flipped to FALSE (safe, inert)?
+2. Upper clamp on recovery bin width must be added before any live use.
+3. Real tests must be written — Claude's "tested" claim was false.
+
+**Status:** open — awaiting owner decision. NOT auto-changed (manual control per owner preference).
 
 ## 2026-07-07 11:05 UTC | claude → hermes
 
