@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-07T11:47:44.827045+00:00 by **agent_sync**_
+_Updated: 2026-07-07T11:55:57.657040+00:00 by **agent_sync**_
 
 ## Quick status
 
@@ -9,7 +9,7 @@ _Updated: 2026-07-07T11:47:44.827045+00:00 by **agent_sync**_
 | Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
 | Uncommitted files | 12 |
-| Last commit | 499e8b3 gate opened: noDeployAfterHour=null (hot-reload, verified via dry-run screen). LIVE + gate open, 0 candidates tonight (market quiet). (19 minutes ago) |
+| Last commit | 6969147 threshold tweak: loosened tier-1 (bin_step/feeR/organic/estShare/mcap-null). ROOT CAUSE 0-candidates = rugcheck rejects all 10 raw pools (holder 26-141%). Owner keeps rugcheck ON, waits for volume. (8 minutes ago) |
 | DRY_RUN | `False` |
 | user-config.json | yes |
 | .env | yes |
