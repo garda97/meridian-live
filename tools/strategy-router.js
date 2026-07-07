@@ -156,7 +156,26 @@ function applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot,
 
 export function buildDeployPlan({ pool, classification, signal, fibHint }) {
   const vol = Number(pool?.volatility);
-  const baseBins = volatilityScaledBins(vol);
+  const notes = [];
+  let baseBins = volatilityScaledBins(vol);
+  // A — Supertrend dynamic range (Bid Ask and Chill): range from current price
+  // down to 10% below the supertrend level, instead of fixed volatility scaling.
+  if (config.autoStrategy?.supertrendRange && signal?.close != null && signal?.supertrendValue != null) {
+    const close = signal.close;
+    const lowerTarget = signal.supertrendValue * 0.9;
+    const width = close - lowerTarget;
+    const binStep = Number(pool?.dlmm_bin_step ?? pool?.bin_step);
+    if (width > 0 && binStep > 0) {
+      const binWidth = close * (Math.pow(1.0001, binStep) - 1);
+      if (binWidth > 0) {
+        const stBins = clampInt(Math.round(width / binWidth), config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
+        if (stBins >= config.strategy.minBinsBelow) {
+          baseBins = stBins;
+          notes.push(`supertrendRange: ${stBins} bins (close ${close.toFixed(6)} → 10% below ST ${lowerTarget.toFixed(6)})`);
+        }
+      }
+    }
+  }
   const spotBelowRatio = config.autoStrategy?.spotRatioBelow ?? 0.75;
   const allowCurve = config.autoStrategy?.allowCurve !== false;
   const allowSpot = config.autoStrategy?.allowSpot !== false;
@@ -168,7 +187,6 @@ export function buildDeployPlan({ pool, classification, signal, fibHint }) {
   let depositSide = "sol_below";
   let entryAllowed = true;
   let entryReason = "Screening passed; deploy plan ready";
-  const notes = [];
 
   switch (view) {
     case "breakdown": {
@@ -440,6 +458,29 @@ export function applySpotDumpGate(plan, { priceChange1h } = {}) {
 }
 
 /**
+ * B — Drop-entry gate (Drop and bidask): only enter when price has pulled
+ * back into the dip zone (default -50%..-30% 1h). Blocks while pumping
+ * (FOMO guard) and after a >50% collapse (possible dump/dead).
+ * Fail-closed: unknown price change → block.
+ */
+export function applyDropEntryGate(plan, { priceChange1h } = {}) {
+  if (!config.autoStrategy?.dropEntryGate || !plan.entry_allowed) return plan;
+  const chg = Number(priceChange1h);
+  if (!Number.isFinite(chg)) {
+    return { ...plan, entry_allowed: false, entry_reason: "Drop-entry gate: price change unavailable — fail-closed (skip)", notes: [...(plan.notes || []), "Drop-entry gate: no 1h change — blocked"] };
+  }
+  const minDrop = Number(config.autoStrategy?.dropEntryMin ?? -50);
+  const maxDrop = Number(config.autoStrategy?.dropEntryMax ?? -30);
+  if (chg > maxDrop) {
+    return { ...plan, entry_allowed: false, entry_reason: `Drop-entry gate: ${chg.toFixed(1)}% not in dip zone [${minDrop}%, ${maxDrop}%] (FOMO guard)`, notes: [...(plan.notes || []), `Drop-entry: ${chg.toFixed(1)}% > ${maxDrop}% — blocked (not a dip)`] };
+  }
+  if (chg < minDrop) {
+    return { ...plan, entry_allowed: false, entry_reason: `Drop-entry gate: already dropped ${chg.toFixed(1)}% (< ${minDrop}%, possible dump/dead)`, notes: [...(plan.notes || []), `Drop-entry: ${chg.toFixed(1)}% < ${minDrop}% — blocked (too deep)`] };
+  }
+  return { ...plan, notes: [...(plan.notes || []), `Drop-entry: in dip zone ${chg.toFixed(1)}% — allowed`] };
+}
+
+/**
  * Pure: what should the ATH gate do given the evaluated result (or null if
  * indicators were unavailable this call) and the configured fail mode?
  * "open" (default): unavailable indicators skip the gate, deploy proceeds.
@@ -511,6 +552,7 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   plan = applySpotFeeFloor(plan, { pool, volatileRecall });
 
   plan = applySpotDumpGate(plan, { priceChange1h });
+  plan = applyDropEntryGate(plan, { priceChange1h });
 
   applyPumpUpsideCoverGate(plan);
 
