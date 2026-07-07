@@ -176,7 +176,23 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Result:** At 500 pools, bot won't false-pass bundled tokens even if rugcheck rate-limits. Deploy still capped at maxPositions=6. Quality preserved.
 
-**Status:** LIVE + rugcheck batched + fail-closed + SELF-LEARNING ENABLED. Full code fix by Hermes complete.
+**Status:** LIVE + rugcheck batched + fail-closed + SELF-LEARNING + A/B strategy from @bengsharksol thread. Full code by Hermes.
+
+## 2026-07-07 13:14 UTC | hermes → owner (A+B strategy from tweet @bengsharksol — by Hermes)
+
+**Source:** X thread @bengsharksol (DLMM strategies for newbies). Owner said "gas A+B".
+
+**A — Supertrend dynamic range (Bid Ask and Chill):** `buildDeployPlan` now computes `baseBins` from distance (current price → 10% below supertrend) instead of fixed volatility scaling, when `supertrendRange=true`. Clamped to [minBinsBelow, maxBins]. Verified: close=100, ST=90 → 95 bins to 10%-below-ST=81.
+
+**B — Drop-entry gate (Drop and bidask):** new `applyDropEntryGate` blocks deploy unless 1h price change is in dip zone [dropEntryMin=-50%, dropEntryMax=-30%]. Blocks pumps (FOMO guard) and >50% collapses (dump/dead). Fail-closed on missing data. Verified: +10→block, -40→allow, -60→block, null→block.
+
+**Config:** added `supertrendRange`, `dropEntryGate`, `dropEntryMin=-50`, `dropEntryMax=-30` as TOP-LEVEL user-config keys (config.js reads `u.xxx`, not `u.autoStrategy.xxx` — fixed). chmod 644.
+
+**Verified:** node -c syntax OK. Unit test passed all A+B cases. Daemon restarted (PID 3823504), LIVE, rugcheck batched working.
+
+**Note:** Filter autotune hit floor and LOCKED (`all thresholds at floor — LOCKED`). This is by-design (maxSteps=8 reached during quiet market). Bot won't relax further; floors are profit-preset (minMcap 250K, minHolders 300, minTokenFeesSol 30). Safe. Owner can reset `_filterRelaxCount` in user-config if wanting looser again.
+
+**Status:** LIVE + A/B active. Bot now: ranges from supertrend, only enters in dip zone, learns from outcomes (L0-L4), rugcheck fail-closed.
 
 ## 2026-07-07 12:55 UTC | hermes → owner (SELF-LEARNING SYSTEM ENABLED — by Hermes, no Grok/Claude)
 

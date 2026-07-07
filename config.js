@@ -405,6 +405,12 @@ export const config = {
     tgeMaxAgeHours: u.tgeMaxAgeHours ?? null,
     tgeMinFeePct: Number(u.tgeMinFeePct ?? 5),
     tgeMaxHoldHours: Number(u.tgeMaxHoldHours ?? 8),
+    // A — Supertrend dynamic range (Bid Ask and Chill): range = current price → 10% below supertrend
+    supertrendRange: boolConfig(u.supertrendRange, false),
+    // B — Drop-entry gate (Drop and bidask): only enter in dip zone [dropEntryMin%, dropEntryMax%]
+    dropEntryGate: boolConfig(u.dropEntryGate, false),
+    dropEntryMin: Number(u.dropEntryMin ?? -50),
+    dropEntryMax: Number(u.dropEntryMax ?? -30),
   },
 
   indicators: {
