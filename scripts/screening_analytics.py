@@ -51,6 +51,7 @@ def evaluate(p, min_tvl, min_vol30, max_tvl):
         vol30 = float(vol.get("30m") or 0)
     else:
         vol30 = float(vol or 0)  # sometimes volume is a single number
+    volatility = float(p.get("volatility") or 0)
     if tvl < min_tvl:
         return False, f"tvl {tvl/1000:.0f}K < {min_tvl/1000:.0f}K"
     if tvl > max_tvl:
@@ -90,9 +91,11 @@ def main():
         # estimate trades/day: passed pools * churn. Assume each passed pool yields
         # ~1 entry, held ~2.4h (target 60/day/6pos) -> churn factor
         churn = 24 / 2.4  # positions recycled per day per slot
-        est_day = int(len(passed) * 1.0)  # entries available per scan
+        passed = [p for p in pools if evaluate(p, v["min_tvl"], v["min_vol30"], v["max_tvl"])[0]]
+        avg_vol = sum(float(p.get("volatility") or 0) for p in passed) / len(passed) if passed else 0
         lines.append(f"### {vname}")
         lines.append(f"  Passed: {len(passed)}/{len(pools)}")
+        lines.append(f"  Avg volatility of passed: {avg_vol:.3f}")
         lines.append(f"  Est. trade opportunities/scan: {len(passed)}")
         lines.append(f"  If maxPositions=6, turnover 2.4h: ~{len(passed)*int(churn//6)+1}/day potential")
         lines.append("")
