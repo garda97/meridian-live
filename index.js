@@ -291,16 +291,42 @@ After evaluating, write a brief one-line result per position.
  * LOWER edge at the same floor the spec targets (orig_min - autoRecoveryBinsBelow),
  * rather than pinning the upper edge at orig_min (not achievable for bid_ask).
  */
-async function maybeAutoRecovery(positionData) {
-  if (!config.management.autoRecovery) return;
-
-  const binsBelowTarget = Number(config.management.autoRecoveryBinsBelow ?? 100);
-  const candidates = positionData.filter((p) =>
+/**
+ * Pure filter: which positions are OOR to the LOWER side (recovery candidates)?
+ * No I/O — exported for unit testing (test/test-recovery-strat.js).
+ */
+export function filterRecoveryCandidates(positionData) {
+  return positionData.filter((p) =>
     (p.minutes_out_of_range ?? 0) > 0 &&
     p.active_bin != null &&
     p.lower_bin != null &&
     p.active_bin < p.lower_bin // OOR to the LOWER side only
   );
+}
+
+/**
+ * Pure bin-math: how many bins below the CURRENT active bin should the recovery
+ * position span so its lower edge lands at (origMin - binsBelowTarget)? Clamped
+ * to never go narrower than minBinsBelow (deploy_position's own safety floor).
+ *
+ * Bounded by construction: since candidates are only OOR-below (activeBin < origMin,
+ * i.e. depth d = origMin - activeBin > 0), the raw value is (binsBelowTarget - d),
+ * which is always < binsBelowTarget and shrinks toward the minBinsBelow floor as the
+ * crash gets deeper — it can never grow past binsBelowTarget, let alone unbounded.
+ * No I/O — exported for unit testing.
+ */
+export function computeRecoveryBinsBelow(activeBin, origMin, binsBelowTarget, configMinBinsBelow) {
+  const targetFloorBin = origMin - binsBelowTarget;
+  const minBinsBelow = Math.max(MIN_SAFE_BINS_BELOW, Number(configMinBinsBelow ?? MIN_SAFE_BINS_BELOW));
+  const binsBelow = Math.max(minBinsBelow, Math.round(activeBin - targetFloorBin));
+  return { binsBelow, targetFloorBin, minBinsBelow };
+}
+
+async function maybeAutoRecovery(positionData) {
+  if (!config.management.autoRecovery) return;
+
+  const binsBelowTarget = Number(config.management.autoRecoveryBinsBelow ?? 100);
+  const candidates = filterRecoveryCandidates(positionData);
   if (candidates.length === 0) return;
 
   for (const p of candidates) {
@@ -345,9 +371,7 @@ async function maybeAutoRecovery(positionData) {
     }
 
     const origMin = tracked.bin_range?.min ?? p.lower_bin;
-    const targetFloorBin = origMin - binsBelowTarget;
-    const minBinsBelow = Math.max(MIN_SAFE_BINS_BELOW, Number(config.strategy.minBinsBelow ?? MIN_SAFE_BINS_BELOW));
-    const binsBelow = Math.max(minBinsBelow, Math.round(p.active_bin - targetFloorBin));
+    const { binsBelow, targetFloorBin } = computeRecoveryBinsBelow(p.active_bin, origMin, binsBelowTarget, config.strategy.minBinsBelow);
 
     log("cron", `Recovery candidate: ${p.pair} OOR-below since ${tracked.out_of_range_since} — deploying bid_ask recovery (bins_below=${binsBelow}, target floor bin ${targetFloorBin}, orig_min ${origMin})`);
 

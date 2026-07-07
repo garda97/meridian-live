@@ -55,6 +55,7 @@
     "autoStrategyMaxOorRisk": 55,
     "minUpsideCoverPctPump": 30,
     "athEntryGateEnabled": true,
+    "athGateFailMode": "closed",
     "athLookbackCandles": 48,
     "autoStrategyMaxBins": 250,
     "minBinsBelow": 100,

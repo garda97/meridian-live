@@ -21,33 +21,6 @@ function numericConfig(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-const FALSY_STRINGS = new Set(["false", "0", "no", "off", ""]);
-const TRUTHY_STRINGS = new Set(["true", "1", "yes", "on"]);
-
-/**
- * Coerce a user-config value to a real boolean (P2b, SPOT_LOSS_ANALYSIS.md).
- * Config flags used to be read as `u.xFlag ?? default` / `u.xFlag !== false`,
- * which silently mis-evaluates string values: "0"/"false" are truthy in JS
- * (non-empty strings), so a flag saved as the STRING "0" would read as ON,
- * and `"false" !== false` is also true (string never strictly equals a
- * boolean), so a flag meant to disable something would stay enabled.
- * `undefined`/`null` fall through to `defaultValue` (unset = use default).
- * Unrecognized non-empty values fail safe to `defaultValue` rather than a
- * blind `Boolean(value)` cast, so a typo can't silently flip a safety gate.
- */
-export function boolConfig(value, defaultValue) {
-  if (value === undefined || value === null) return defaultValue;
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return value !== 0;
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (FALSY_STRINGS.has(normalized)) return false;
-    if (TRUTHY_STRINGS.has(normalized)) return true;
-    return defaultValue;
-  }
-  return defaultValue;
-}
-
 const legacyBinsBelow = numericConfig(u.binsBelow);
 const configuredMinBinsBelow = numericConfig(u.minBinsBelow) ?? MIN_SAFE_BINS_BELOW;
 const configuredMaxBinsBelow = numericConfig(u.maxBinsBelow)
@@ -72,13 +45,6 @@ if (u.agentMeridianApiUrl) process.env.AGENT_MERIDIAN_API_URL ||= u.agentMeridia
 if (u.telegramChatId) process.env.TELEGRAM_CHAT_ID ||= String(u.telegramChatId);
 
 const indicatorUserConfig = u.chartIndicators ?? {};
-
-// Jito Bundle integration for MEV protection and transaction guarantees
-const jitoConfig = {
-  enabled: true,  // Set to true to enable Jito Bundle routing for LP transactions
-  blockEngineUrl: process.env.JITO_BLOCK_ENGINE || 'https://ny.mainnet.block-engine.jito.wtf',
-  tipLamports: Number(process.env.JITO_TIP_LAMPORTS) || 1_000_000,  // 0.001 SOL default
-};
 
 // Optional standalone GMGN config file (mirrors user-config layering)
 const GMGN_CONFIG_PATH = repoPath("gmgn-config.json");
@@ -120,7 +86,7 @@ export const config = {
 
   // ─── Pool Screening Thresholds ───────────
   screening: {
-    excludeHighSupplyConcentration: boolConfig(u.excludeHighSupplyConcentration, true),
+    excludeHighSupplyConcentration: u.excludeHighSupplyConcentration ?? true,
     minFeeActiveTvlRatio: u.minFeeActiveTvlRatio ?? 0.05,
     minTvl:            u.minTvl            ?? 10_000,
     maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 150_000,
@@ -135,12 +101,12 @@ export const config = {
     timeframe:         u.timeframe         ?? "5m",
     category:          u.category          ?? "trending",
     minTokenFeesSol:   u.minTokenFeesSol   ?? 30,  // floor (SOL); Evil Panda rule: <30 SOL total fees = bundled/scam signal
-    mcapScaledTokenFees: boolConfig(u.mcapScaledTokenFees, true), // MeteoraFR rule: 10 SOL per $100k mcap
+    mcapScaledTokenFees: u.mcapScaledTokenFees ?? true, // MeteoraFR rule: 10 SOL per $100k mcap
     minTokenFeesSolPer100kMcap: u.minTokenFeesSolPer100kMcap ?? 10,
-    useDiscordSignals: boolConfig(u.useDiscordSignals, false),
+    useDiscordSignals: u.useDiscordSignals ?? false,
     discordSignalMode: u.discordSignalMode ?? "merge", // merge | only
-    avoidPvpSymbols:   boolConfig(u.avoidPvpSymbols, true), // avoid exact-symbol rivals with real active pools
-    blockPvpSymbols:   boolConfig(u.blockPvpSymbols, false), // hard-filter PVP rivals before the LLM sees them
+    avoidPvpSymbols:   u.avoidPvpSymbols   ?? true, // avoid exact-symbol rivals with real active pools
+    blockPvpSymbols:   u.blockPvpSymbols   ?? false, // hard-filter PVP rivals before the LLM sees them
     maxBotHoldersPct:  u.maxBotHoldersPct  ?? 30,  // max bot holder addresses % (Jupiter audit)
     maxTop10Pct:       u.maxTop10Pct       ?? 60,  // max top 10 holders concentration
     loneCandidateMinDegen: u.loneCandidateMinDegen ?? 50, // degen score that lets a SOLO candidate deploy without a narrative
@@ -148,9 +114,9 @@ export const config = {
     blockedLaunchpads:  u.blockedLaunchpads  ?? [],  // e.g. ["letsbonk.fun", "pump.fun"]
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
-    rugcheckEnabled:    boolConfig(u.rugcheckEnabled, true), // rugcheck.xyz gate on final candidates (fails open on API error)
+    rugcheckEnabled:    u.rugcheckEnabled    ?? true, // rugcheck.xyz gate on final candidates (fails open on API error)
     rugcheckTop10MaxPct: u.rugcheckTop10MaxPct ?? 60, // rugcheck top-10 holder concentration cap
-    solRegimeGateEnabled: boolConfig(u.solRegimeGateEnabled, true),
+    solRegimeGateEnabled: u.solRegimeGateEnabled ?? true,
     solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
     // Competitiveness floor: min estimated TVL share (%) our deploy must take.
     // null = off — at 0.5 SOL deploys the share is ~0.2% max, so this only
@@ -161,31 +127,29 @@ export const config = {
   // ─── Position Management ────────────────
   management: {
     minClaimAmount:        u.minClaimAmount        ?? 5,
-    autoSwapAfterClaim:    boolConfig(u.autoSwapAfterClaim, false),
-    autoSwapAfterClose:    boolConfig(u.autoSwapAfterClose, true),
+    autoSwapAfterClaim:    u.autoSwapAfterClaim    ?? false,
+    autoSwapAfterClose:    u.autoSwapAfterClose    ?? true,
     autoSwapRetryAttempts: u.autoSwapRetryAttempts ?? 3,    // retries for base→SOL auto-swap on Jupiter failure
     autoSwapRetryDelayMs:  u.autoSwapRetryDelayMs  ?? 3000, // delay between auto-swap retries
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
     outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
     oorCooldownHours:       u.oorCooldownHours       ?? 12,
-    repeatDeployCooldownEnabled: boolConfig(u.repeatDeployCooldownEnabled, true),
+    repeatDeployCooldownEnabled: u.repeatDeployCooldownEnabled ?? true,
     repeatDeployCooldownTriggerCount: u.repeatDeployCooldownTriggerCount ?? 3,
     repeatDeployCooldownHours: u.repeatDeployCooldownHours ?? 12,
     repeatDeployCooldownScope: u.repeatDeployCooldownScope ?? "token", // pool | token | both
     repeatDeployCooldownMinFeeEarnedPct: u.repeatDeployCooldownMinFeeEarnedPct ?? u.repeatDeployCooldownMinFeeYieldPct ?? 0,
-    autoRecovery:          boolConfig(u.autoRecovery, false), // Hermes: open recovery position below OOR-dropped position (off by default, owner opt-in)
-    autoRecoveryBinsBelow: u.autoRecoveryBinsBelow ?? 100,  // how far below original lower bin to open recovery
-    lossRedeployBlockEnabled: boolConfig(u.lossRedeployBlockEnabled, true),
+    lossRedeployBlockEnabled: u.lossRedeployBlockEnabled !== false,
     lossRedeployCooldownHours: u.lossRedeployCooldownHours ?? 24,
     winOorRedeployCooldownHours: u.winOorRedeployCooldownHours ?? 3, // block redeploy after a win that still went OOR (volatile pool)
-    winRedeployCooldownEnabled: boolConfig(u.winRedeployCooldownEnabled, true), // block redeploy after a clean in-range win (trailing TP / take profit)
+    winRedeployCooldownEnabled: u.winRedeployCooldownEnabled !== false, // block redeploy after a clean in-range win (trailing TP / take profit)
     winRedeployCooldownHours: u.winRedeployCooldownHours ?? 3,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
-    exitRule3ConditionsEnabled: boolConfig(u.exitRule3ConditionsEnabled, false),
+    exitRule3ConditionsEnabled: u.exitRule3ConditionsEnabled ?? false,
     // TGE Play (opt-in): override konservatif untuk pool TGE (bins_below=35, bins_above=0, max_hold_hours=8).
     // Default OFF (false) — hanya aktifkan untuk pool TGE yang baru diluncurkan.
-    tgePlayEnabled: boolConfig(u.tgePlayEnabled, false),
+    tgePlayEnabled: u.tgePlayEnabled ?? false,
     tgeMaxAgeHours: u.tgeMaxAgeHours ?? null, // null = no age limit
     tgeMinFeePct: u.tgeMinFeePct ?? 5, // 5% minimum fee
     tgeMaxHoldHours: u.tgeMaxHoldHours ?? 8, // 8 jam max hold
@@ -194,18 +158,18 @@ export const config = {
     //   3. OOR ≥ outOfRangeWaitMinutes (OOR timeout)
     // Default OFF (false) — only enable if you want to override the default
     // trailing TP + hard SL + OOR timeout logic with a unified exit rule.
-    exitRule3ConditionsEnabled: boolConfig(u.exitRule3ConditionsEnabled, false),
+    exitRule3ConditionsEnabled: u.exitRule3ConditionsEnabled ?? false,
     // POWER MODE auto-rebalance: re-analyze open positions and reposition
     // (shift/widen/reseed/convert) instead of only hold/close.
-    autoRebalanceEnabled:      boolConfig(u.autoRebalanceEnabled, true),
+    autoRebalanceEnabled:      u.autoRebalanceEnabled      ?? true,
     rebalanceMinOorMinutes:    u.rebalanceMinOorMinutes    ?? 5,   // OOR confirmation window before repositioning
     rebalanceMaxPerPosition:   u.rebalanceMaxPerPosition   ?? 3,   // budget per position, then close
     rebalanceCooldownMinutes:  u.rebalanceCooldownMinutes  ?? 15,  // between attempts on the same position
     rebalanceMinPnlPct:        u.rebalanceMinPnlPct        ?? -8,  // below this, close instead of rebalance
-    rebalanceOnStrategyDrift:  boolConfig(u.rebalanceOnStrategyDrift, true), // in-range bid_ask→spot conversion
+    rebalanceOnStrategyDrift:  u.rebalanceOnStrategyDrift  ?? true, // in-range bid_ask→spot conversion
     // TVL dilution exit (opt-in): close when our share collapsed AND the pool
     // TVL exploded since entry AND yield is under the low-yield floor.
-    shareExitEnabled:      boolConfig(u.shareExitEnabled, false),
+    shareExitEnabled:      u.shareExitEnabled      ?? false,
     shareExitMinPct:       u.shareExitMinPct       ?? 2,
     shareExitTvlGrowthMin: u.shareExitTvlGrowthMin ?? 3,
     rebalanceMigrateRentBufferSol: u.rebalanceMigrateRentBufferSol ?? 0.1,  // extra SOL atop gasReserve for new position account rent
@@ -223,7 +187,7 @@ export const config = {
     gasReserve:            u.gasReserve            ?? 0.2,
     positionSizePct:       u.positionSizePct       ?? 0.35,
     // Trailing take-profit
-    trailingTakeProfit:    boolConfig(u.trailingTakeProfit, true),
+    trailingTakeProfit:    u.trailingTakeProfit    ?? true,
     trailingTriggerPct:    u.trailingTriggerPct    ?? 3,    // activate trailing at X% PnL
     trailingDropPct:       u.trailingDropPct       ?? 1.5,  // close when drops X% from peak
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
@@ -233,7 +197,7 @@ export const config = {
     pnlWarmupMinutes:      u.pnlWarmupMinutes      ?? 3,
     // Partial take-profit (DCA-out) — one-time partial liquidity removal at profit,
     // position account stays open and keeps running under SL/trailing
-    partialTpEnabled:      boolConfig(u.partialTpEnabled, false),
+    partialTpEnabled:      u.partialTpEnabled      ?? false,
     partialTpTriggerPct:   u.partialTpTriggerPct   ?? 5,    // fire once when confirmed PnL reaches X%
     partialTpClosePct:     u.partialTpClosePct     ?? 50,   // % of liquidity to remove (clamped 1-99)
     partialTpMinRemainUsd: u.partialTpMinRemainUsd ?? 10,   // skip if remaining value would fall below this (SOL units when solMode)
@@ -242,7 +206,7 @@ export const config = {
     // running under SL/trailing. null = off.
     dailyLossLimitUsd:     u.dailyLossLimitUsd     ?? null,
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
-    solMode:               boolConfig(u.solMode, false),
+    solMode:               u.solMode               ?? false,
   },
 
   // ─── Strategy Mapping ───────────────────
@@ -276,7 +240,7 @@ export const config = {
 
   // ─── Darwinian Signal Weighting ───────
   darwin: {
-    enabled:        boolConfig(u.darwinEnabled, true),
+    enabled:        u.darwinEnabled     ?? true,
     windowDays:     u.darwinWindowDays  ?? 60,
     recalcEvery:    u.darwinRecalcEvery ?? 5,    // recalc every N closes
     boostFactor:    u.darwinBoost       ?? 1.05,
@@ -304,7 +268,7 @@ export const config = {
   api: {
     url: nonEmptyString(u.agentMeridianApiUrl, process.env.AGENT_MERIDIAN_API_URL, DEFAULT_AGENT_MERIDIAN_API_URL),
     publicApiKey: nonEmptyString(u.publicApiKey, process.env.PUBLIC_API_KEY, DEFAULT_AGENT_MERIDIAN_PUBLIC_KEY),
-    lpAgentRelayEnabled: boolConfig(u.lpAgentRelayEnabled, false),
+    lpAgentRelayEnabled: u.lpAgentRelayEnabled ?? false,
   },
 
   // ─── PnL fetcher / poller (public infra: RPC + Meteora deposits + Jupiter) ──
@@ -324,7 +288,7 @@ export const config = {
 
   // ─── Opportunity poller (catches strong pools between screening cycles) ──
   opportunity: {
-    enabled: boolConfig(u.opportunityPollEnabled, true),
+    enabled: u.opportunityPollEnabled ?? true,
     pollIntervalSec: Number(u.opportunityPollIntervalSec ?? 45),
     limit: Number(u.opportunityPollLimit ?? 10),
     // Pre-gate: only trigger the full deploy decision when the best candidate's
@@ -353,7 +317,7 @@ export const config = {
     // gmgn = use GMGN total_fee for global_fees_sol; jupiter = legacy Jupiter fees
     feeSource: nonEmptyString(gmgnUserConfig.feeSource, u.gmgnFeeSource, "gmgn"),
     // Enrich token audit with GMGN security + holder tags when API key is present.
-    holderAudit: boolConfig(gmgnUserConfig.holderAudit ?? u.gmgnHolderAudit, true),
+    holderAudit: gmgnUserConfig.holderAudit ?? u.gmgnHolderAudit ?? true,
     // Optional hard filter on bundler supply share in top-100 holders (null = off).
     maxBundlerTop100Pct: gmgnUserConfig.maxBundlerTop100Pct ?? u.maxBundlerTop100Pct ?? null,
     // Optional hard filters on tagged-wallet counts as % of total token holders
@@ -374,26 +338,22 @@ export const config = {
   },
 
   autoStrategy: {
-    enabled: boolConfig(u.autoStrategyEnabled, true),
-    fetchIndicators: boolConfig(u.autoStrategyFetchIndicators, true),
+    enabled: u.autoStrategyEnabled ?? true,
+    fetchIndicators: u.autoStrategyFetchIndicators ?? true,
     indicatorInterval: nonEmptyString(u.autoStrategyIndicatorInterval, "15_MINUTE"),
-    allowSpot: boolConfig(u.autoStrategyAllowSpot, true),
-    allowCurve: boolConfig(u.autoStrategyAllowCurve, true),
+    allowSpot: u.autoStrategyAllowSpot ?? true,
+    allowCurve: u.autoStrategyAllowCurve ?? true,
     maxBins: Math.max(69, Number(u.autoStrategyMaxBins ?? 200)),
     spotRatioBelow: Number(u.autoStrategySpotRatioBelow ?? 0.75),
-    requireEntryConfirm: boolConfig(u.autoStrategyRequireEntryConfirm, false),
-    preferSpotHighFee: boolConfig(u.autoStrategyPreferSpotHighFee, true),
+    requireEntryConfirm: u.autoStrategyRequireEntryConfirm ?? false,
+    preferSpotHighFee: u.autoStrategyPreferSpotHighFee !== false,
     spotFeeTvlMin: Number(u.autoStrategySpotFeeTvlMin ?? 2),
     maxOorRisk: Number(u.autoStrategyMaxOorRisk ?? 65), // 0-100; block deploy above this, 0/null disables
     minUpsideCoverPctPump: Number(u.minUpsideCoverPctPump ?? 25), // pump-view deploys need this % of range above active bin
     // Evil Panda entry rule (opt-in): only deploy when token just set a new
     // ATH within the lookback window AND supertrend confirms break up.
-    athEntryGateEnabled: boolConfig(u.athEntryGateEnabled, false),
+    athEntryGateEnabled: u.athEntryGateEnabled ?? false,
     athLookbackCandles: Math.max(2, Number(u.athLookbackCandles ?? 48)),
-    // "open" (default): indicator fetch failure skips the gate (deploy allowed).
-    // "closed": indicator fetch failure blocks the deploy instead — safer but
-    // means a rate-limited data source can also block otherwise-good entries.
-    athGateFailMode: u.athGateFailMode === "closed" ? "closed" : "open",
     maxPumpPct1h: Number(u.autoStrategyMaxPumpPct1h ?? 20),
     // TGE play (opt-in): tokens younger than tgeMaxAgeHours get a very wide
     // range + max-hold clock, and are skipped on low-fee pools where the fee
@@ -404,8 +364,8 @@ export const config = {
   },
 
   indicators: {
-    enabled: boolConfig(indicatorUserConfig.enabled, false),
-    entryEnabled: boolConfig(indicatorUserConfig.entryEnabled, true),
+    enabled: indicatorUserConfig.enabled ?? false,
+    entryEnabled: indicatorUserConfig.entryEnabled !== false,
     entryPreset: indicatorUserConfig.entryPreset ?? "supertrend_break",
     exitPreset: indicatorUserConfig.exitPreset ?? "supertrend_break",
     rsiLength: indicatorUserConfig.rsiLength ?? 2,
@@ -415,15 +375,11 @@ export const config = {
     candles: indicatorUserConfig.candles ?? 298,
     rsiOversold: indicatorUserConfig.rsiOversold ?? 30,
     rsiOverbought: indicatorUserConfig.rsiOverbought ?? 80,
-    // Per-mint response cache (429 hardening, SPOT_LOSS_ANALYSIS.md P2a):
-    // repeated candidates within a screening cycle (or back-to-back cycles)
-    // reuse the same fetch instead of re-hammering the data source.
-    cacheTtlSec: Math.max(0, Number(indicatorUserConfig.cacheTtlSec ?? 150)),
-    requireAllIntervals: boolConfig(indicatorUserConfig.requireAllIntervals, false),
+    requireAllIntervals: indicatorUserConfig.requireAllIntervals ?? false,
     // Exit confirmations default strict: every interval must agree before a
     // chart exit fires (traindog lesson: 5m-only signal closed a +0.07% peak
     // into a -0.03% net loss). Entry keeps requireAllIntervals above.
-    exitRequireAllIntervals: boolConfig(indicatorUserConfig.exitRequireAllIntervals, true),
+    exitRequireAllIntervals: indicatorUserConfig.exitRequireAllIntervals ?? true,
     // Min PnL % before a chart exit may fire — below this, fees+slippage turn
     // the "profit take" into a loss. Stop loss owns the downside path.
     chartExitMinPnlPct: Number(indicatorUserConfig.chartExitMinPnlPct ?? 0.5),
@@ -432,7 +388,7 @@ export const config = {
     evilPandaRsiExit: Number(indicatorUserConfig.evilPandaRsiExit ?? 90),
     // Third evil_panda_exit trigger: first green MACD histogram bar after the
     // supertrend break (computed client-side from payload candles).
-    evilPandaMacdExitEnabled: boolConfig(indicatorUserConfig.evilPandaMacdExitEnabled, false),
+    evilPandaMacdExitEnabled: indicatorUserConfig.evilPandaMacdExitEnabled ?? false,
   },
 };
 
@@ -530,15 +486,6 @@ function applyFlatUserKey(fresh, key) {
     case "rugcheckTop10MaxPct":
       if (fresh.rugcheckTop10MaxPct != null) config.screening.rugcheckTop10MaxPct = n(fresh.rugcheckTop10MaxPct);
       break;
-    case "screeningModel":
-      if (fresh.screeningModel) config.llm.screeningModel = fresh.screeningModel;
-      break;
-    case "managementModel":
-      if (fresh.managementModel) config.llm.managementModel = fresh.managementModel;
-      break;
-    case "generalModel":
-      if (fresh.generalModel) config.llm.generalModel = fresh.generalModel;
-      break;
     default:
       break;
   }
@@ -559,7 +506,6 @@ export function reloadUserConfigFromDisk() {
       "positionSizePct", "dailyLossLimitUsd", "noDeployAfterHour", "noDeployBeforeHour",
       "screeningIntervalMin", "managementIntervalMin", "opportunityPollEnabled",
       "autoStrategyEnabled", "rugcheckTop10MaxPct",
-      "screeningModel", "managementModel", "generalModel",
     ]) {
       applyFlatUserKey(fresh, key);
     }

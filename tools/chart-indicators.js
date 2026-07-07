@@ -279,6 +279,13 @@ export function evaluatePreset(side, preset, payload) {
   }
 }
 
+// Per-mint response cache, keyed by the full request (mint+interval+candles+rsiLength)
+// so different callers asking for different windows never collide. 429 hardening
+// (SPOT_LOSS_ANALYSIS.md P2a) — a rate-limit burst used to fail every candidate
+// every cycle with no retry or reuse; this lets repeated/nearby candidates in the
+// same burst share one fetch instead of each drawing a fresh 429.
+const _indicatorCache = new Map(); // key -> { at, payload }
+
 export async function fetchChartIndicatorsForMint(
   mint,
   {
@@ -289,6 +296,14 @@ export async function fetchChartIndicatorsForMint(
   } = {},
 ) {
   const normalizedInterval = String(interval || "15_MINUTE").trim().toUpperCase();
+  const ttlMs = (config.indicators.cacheTtlSec ?? 150) * 1000;
+  const cacheKey = `${mint}:${normalizedInterval}:${candles}:${rsiLength}`;
+
+  if (!refresh && ttlMs > 0) {
+    const cached = _indicatorCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < ttlMs) return cached.payload;
+  }
+
   const search = new URLSearchParams({
     interval: normalizedInterval,
     candles: String(candles),
@@ -296,9 +311,23 @@ export async function fetchChartIndicatorsForMint(
   });
   if (refresh) search.set("refresh", "1");
 
-  return agentMeridianJson(`/chart-indicators/${mint}?${search.toString()}`, {
+  const payload = await agentMeridianJson(`/chart-indicators/${mint}?${search.toString()}`, {
     headers: getAgentMeridianHeaders(),
+    retry: { maxAttempts: 2, maxElapsedMs: 8000 }, // 1 retry on 429/5xx, short budget so screening isn't stalled
   });
+
+  if (ttlMs > 0) {
+    _indicatorCache.set(cacheKey, { at: Date.now(), payload });
+    // Bound long-running memory: sweep expired entries once the map gets large
+    // rather than growing forever across a multi-day daemon process.
+    if (_indicatorCache.size > 300) {
+      const now = Date.now();
+      for (const [key, entry] of _indicatorCache) {
+        if (now - entry.at >= ttlMs) _indicatorCache.delete(key);
+      }
+    }
+  }
+  return payload;
 }
 
 /**
