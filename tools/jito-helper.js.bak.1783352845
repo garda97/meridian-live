@@ -1,0 +1,26 @@
+import axios from 'axios';
+import { Keypair, PublicKey } from '@solana/web3.js';
+import bs58 from 'bs58';
+
+const JITO_BLOCK_ENGINE = 'https://ny.mainnet.block-engine.jito.wtf';
+
+export async function sendJitoBundle(connection, transaction, payer) {
+    const { blockhash } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = payer.publicKey;
+    transaction.sign(payer);
+
+    const bundle = [bs58.encode(transaction.serialize())];
+    
+    try {
+        const response = await axios.post(`${JITO_BLOCK_ENGINE}/api/v1/bundles`, {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'sendBundle',
+            params: [bundle]
+        });
+        return response.data.result;
+    } catch (err) {
+        throw new Error('Jito Bundle Submission Failed: ' + err.message);
+    }
+}

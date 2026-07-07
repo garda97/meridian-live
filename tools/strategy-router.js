@@ -416,6 +416,48 @@ export function applySpotFeeFloor(plan, { pool, volatileRecall = false } = {}) {
   };
 }
 
+/**
+ * Dump gate for spot deploys (SEMAN lesson, P1c — SPOT_LOSS_ANALYSIS.md):
+ * spot takes immediate two-sided token exposure, so entering while the token
+ * is actively dumping eats the drop as real loss from the moment of deploy.
+ * bid_ask-below (ladder buy) is unaffected — accumulating below an active
+ * dump is its intended use case; only spot's immediate exposure is blocked.
+ * Symmetric to applyPumpChaseCap (P1a), same cap, opposite direction.
+ * Pure; returns a new plan.
+ */
+export function applySpotDumpGate(plan, { priceChange1h } = {}) {
+  if (plan.strategy !== "spot" || !plan.entry_allowed) return plan;
+  const maxPumpPct = Number(config.autoStrategy?.maxPumpPct1h ?? 20);
+  const pump1h = Number(priceChange1h);
+  if (!Number.isFinite(maxPumpPct) || maxPumpPct <= 0) return plan;
+  if (!Number.isFinite(pump1h) || pump1h >= -maxPumpPct) return plan;
+  return {
+    ...plan,
+    entry_allowed: false,
+    entry_reason: `1h dump ${pump1h.toFixed(1)}% < -${maxPumpPct}% cap — spot avoided (active dump, two-sided exposure); wait for stabilization`,
+    notes: [...(plan.notes || []), `Dump gate: ${pump1h.toFixed(1)}% 1h < -${maxPumpPct}% cap — spot blocked`],
+  };
+}
+
+/**
+ * Pure: what should the ATH gate do given the evaluated result (or null if
+ * indicators were unavailable this call) and the configured fail mode?
+ * "open" (default): unavailable indicators skip the gate, deploy proceeds.
+ * "closed": unavailable indicators block the deploy instead (P2a, SPOT_LOSS_ANALYSIS.md).
+ * Exported for unit testing.
+ */
+export function resolveAthGateOutcome(athGate, failMode) {
+  if (athGate) {
+    return athGate.pass
+      ? { blocked: false }
+      : { blocked: true, reason: athGate.reason };
+  }
+  if (failMode === "closed") {
+    return { blocked: true, reason: "ath_gate: indicators unavailable — fail-closed (athGateFailMode=closed)" };
+  }
+  return { blocked: false, note: "ath_gate: indicators unavailable — gate skipped (fail-open)" };
+}
+
 export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}) {
   const mint = pool?.base?.mint || tokenInfo?.mint;
   let signal = null;
@@ -468,18 +510,20 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
 
   plan = applySpotFeeFloor(plan, { pool, volatileRecall });
 
+  plan = applySpotDumpGate(plan, { priceChange1h });
+
   applyPumpUpsideCoverGate(plan);
 
   // Evil Panda ATH gate (opt-in): only enter on a fresh ATH with supertrend
-  // confirmation. Fails open when indicators are unavailable (noted in plan),
-  // consistent with the other indicator gates.
+  // confirmation. See resolveAthGateOutcome for the fail-open/fail-closed split.
   if (config.autoStrategy?.athEntryGateEnabled) {
     plan.ath_gate = athGate;
-    if (athGate && !athGate.pass && plan.entry_allowed) {
+    const athOutcome = resolveAthGateOutcome(athGate, config.autoStrategy?.athGateFailMode);
+    if (athOutcome.blocked && plan.entry_allowed) {
       plan.entry_allowed = false;
-      plan.entry_reason = athGate.reason;
-    } else if (!athGate) {
-      plan.notes = [...(plan.notes || []), "ath_gate: indicators unavailable — gate skipped (fail-open)"];
+      plan.entry_reason = athOutcome.reason;
+    } else if (athOutcome.note) {
+      plan.notes = [...(plan.notes || []), athOutcome.note];
     }
   }
 

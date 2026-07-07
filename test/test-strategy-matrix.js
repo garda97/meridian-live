@@ -11,6 +11,8 @@ import {
   buildDeployPlan,
   computeOorRisk,
   applyPumpUpsideCoverGate,
+  applySpotDumpGate,
+  resolveAthGateOutcome,
   resolveDeployStrategyForCandidate,
 } from "../tools/strategy-router.js";
 import { recordPoolDeploy, isPoolOnCooldown, getPoolCooldownReason } from "../pool-memory.js";
@@ -412,6 +414,77 @@ function testPumpUpsideCoverGate() {
   }
 }
 
+// ── Spot dump gate (P1c, SPOT_LOSS_ANALYSIS.md — SEMAN lesson) ─────
+function testSpotDumpGate() {
+  const savedCap = config.autoStrategy.maxPumpPct1h;
+  try {
+    config.autoStrategy.maxPumpPct1h = 15;
+
+    // Replay: SEMAN spot 62/20 deployed while token was actively dumping
+    // -28.65% 1h (SPOT_LOSS_ANALYSIS.md) — must now be blocked.
+    const seman = applySpotDumpGate(
+      { strategy: "spot", market_view: "retracement", entry_allowed: true, entry_reason: "ok", notes: [] },
+      { priceChange1h: -28.65 },
+    );
+    assert(!seman.entry_allowed, "spot entry during -28.65% 1h dump must be blocked");
+    assert(/dump/i.test(seman.entry_reason), `entry_reason should mention the dump, got: ${seman.entry_reason}`);
+
+    // Mild dump within cap → spot still allowed.
+    const mild = applySpotDumpGate(
+      { strategy: "spot", market_view: "sideways", entry_allowed: true, entry_reason: "ok", notes: [] },
+      { priceChange1h: -5 },
+    );
+    assert(mild.entry_allowed, "mild -5% dump (within 15% cap) must not block spot");
+
+    // bid_ask (ladder buy into a dip) is by design — gate is spot-only.
+    const bidAsk = applySpotDumpGate(
+      { strategy: "bid_ask", market_view: "retracement", entry_allowed: true, entry_reason: "ok", notes: [] },
+      { priceChange1h: -28.65 },
+    );
+    assert(bidAsk.entry_allowed, "bid_ask ladder-buy must not be touched by the spot-only dump gate");
+
+    // Missing price data fails open, consistent with the other indicator gates.
+    const noData = applySpotDumpGate(
+      { strategy: "spot", market_view: "retracement", entry_allowed: true, entry_reason: "ok", notes: [] },
+      { priceChange1h: null },
+    );
+    assert(noData.entry_allowed, "missing priceChange1h must fail open (consistent with other gates)");
+
+    console.log("  spot dump gate: SEMAN -28.65% replay blocked, mild dump allowed, bid_ask untouched, missing-data fail-open OK");
+  } finally {
+    config.autoStrategy.maxPumpPct1h = savedCap;
+  }
+}
+
+// ── ATH gate fail-open/fail-closed (P2a, SPOT_LOSS_ANALYSIS.md) ────
+function testAthGateFailMode() {
+  // Indicators available, gate passes → never blocked, regardless of fail mode.
+  const passResult = { pass: true };
+  assert(!resolveAthGateOutcome(passResult, "open").blocked, "passing gate must not block (open)");
+  assert(!resolveAthGateOutcome(passResult, "closed").blocked, "passing gate must not block (closed)");
+
+  // Indicators available, gate fails → always blocked, regardless of fail mode.
+  const failResult = { pass: false, reason: "no fresh ATH" };
+  const openFail = resolveAthGateOutcome(failResult, "open");
+  assert(openFail.blocked && openFail.reason === "no fresh ATH", "failing gate must block and carry its reason (open)");
+  const closedFail = resolveAthGateOutcome(failResult, "closed");
+  assert(closedFail.blocked && closedFail.reason === "no fresh ATH", "failing gate must block and carry its reason (closed)");
+
+  // Indicators unavailable (athGate === null) — this is the actual fail-mode split.
+  const openUnavailable = resolveAthGateOutcome(null, "open");
+  assert(!openUnavailable.blocked, "unavailable indicators must NOT block in fail-open (default) mode");
+  assert(/fail-open/.test(openUnavailable.note), "fail-open must leave an explanatory note");
+
+  const closedUnavailable = resolveAthGateOutcome(null, "closed");
+  assert(closedUnavailable.blocked, "unavailable indicators must block in fail-closed mode");
+  assert(/fail-closed/.test(closedUnavailable.reason), "fail-closed must carry an explanatory reason");
+
+  // Undefined/missing failMode must default to the safe "open" behavior (backward compat).
+  assert(!resolveAthGateOutcome(null, undefined).blocked, "missing failMode must default to fail-open");
+
+  console.log("  ath-gate fail-mode: pass/fail always deterministic, unavailable splits open-vs-closed, default is open OK");
+}
+
 // ── Volatile-pool recall (force spot on recent pump-OOR close) ─
 async function testVolatileRecall() {
   const saved = backup(POOL_MEMORY_PATH);
@@ -499,6 +572,8 @@ async function main() {
   testMacdExit();
   testHolderRatios();
   testPumpUpsideCoverGate();
+  testSpotDumpGate();
+  testAthGateFailMode();
   await testVolatileRecall();
   testAthEntryGate();
   console.log("test-strategy-matrix: OK");

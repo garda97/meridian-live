@@ -53,15 +53,22 @@ Tidak ada gate arah-bawah sama sekali: `solRegimeGate` cuma SOL-wide, `maxPumpPc
 Setelah `buildDeployPlan`: kalau `plan.strategy === "spot"` dan `fee_tvl_ratio < spotFeeTvlMin` → konversi ke bid_ask sol_below (atau skip kalau view pump). Doktrin yang sudah ada, tinggal dipindah dari bias path ke semua path.
 - FABLE (0.92 < 2) blocked; SEMAN sideways (0.37) blocked.
 
-### P1c — Dump gate untuk spot (simetri P1a, ~5 baris)
-`plan.strategy === "spot"` dan `price_change_1h < -maxPumpPct1h` → block/konversi. Retracement bid_ask-below (ladder buy) tetap boleh — itu by design; yang diblok cuma spot (exposure token langsung) ke dalam dump aktif.
+### P1c — Dump gate untuk spot (simetri P1a, ~5 baris) — ✅ DONE (Claude, 2026-07-07)
+`plan.strategy === "spot"` dan `price_change_1h < -maxPumpPct1h` → block. Retracement bid_ask-below (ladder buy) tetap boleh — itu by design; yang diblok cuma spot (exposure token langsung) ke dalam dump aktif.
 - SEMAN spot saat -28.65% 1h → **blocked**.
+- Implementasi: `applySpotDumpGate()` di `tools/strategy-router.js`, di-wire setelah `applySpotFeeFloor`. Test: `test/test-strategy-matrix.js::testSpotDumpGate` (replay fixture SEMAN -28.65%, semua 5 test suite pass). Daemon restarted 2026-07-07 07:38 UTC, aktif live.
 
-### P2a — ATH gate fail-closed + 429 hardening
-Config baru `athGateFailMode: "open"` (default, kompatibel) / `"closed"` (preset evil-panda). Plus: 1x retry backoff pada 429 + cache respons indikator per mint 2-3 menit (429 spam menunjukkan kita hammer Jupiter tiap kandidat tiap cycle).
+### P2a — ATH gate fail-closed + 429 hardening — ✅ DONE (Claude, 2026-07-07)
+Config baru `athGateFailMode: "open"` (default, kompatibel, live sekarang) / `"closed"` (preset `evil-panda.strict.json` diupdate ke ini). Plus: 1x retry (max 2 attempt, budget 8s) pada 429/5xx via `agentMeridianJson`'s existing retry option (sebelumnya gak dipakai di `fetchChartIndicatorsForMint`) + cache respons indikator per mint 150s (`config.indicators.cacheTtlSec`), dengan sweep otomatis biar cache gak growth-unbounded di proses daemon multi-hari.
+- Implementasi: `resolveAthGateOutcome()` (pure, testable) + cache/retry di `tools/chart-indicators.js`. Test: `test/test-strategy-matrix.js::testAthGateFailMode` (pass/fail/unavailable × open/closed matrix). Semua 5 test suite pass.
+- **Catatan penting:** live `user-config.json` TIDAK otomatis dapet `athGateFailMode`, defaultnya `"open"` (no behavior change) sampai owner eksplisit set `"closed"` atau re-apply preset (`npm run preset:evil-panda`). Cache+retry 429 hardening-nya aktif sekarang juga (gak butuh opt-in).
+- Daemon restarted 2026-07-07 07:50 UTC, aktif live.
 
-### P2b — Normalisasi boolean config
+### P2b — Normalisasi boolean config — ✅ DONE (Claude, 2026-07-07)
 `athEntryGateEnabled: 0` (number) lolos sebagai falsy — kebetulan benar, tapi `"0"` (string) akan jadi truthy. Coerce boolean di config load / CONFIG_MAP.
+- Implementasi: `boolConfig(value, default)` helper (exported) di `config.js` — handle boolean/number/string ("0"/"false"/"no"/"off" → false, "1"/"true"/"yes"/"on" → true, case/whitespace-insensitive), unrecognized value fail-safe ke default (bukan blind `Boolean()` cast). Diterapkan ke **34 flag boolean** di seluruh `config.js` (semua pola `u.xFlag ?? default` dan `u.xFlag !== false` lama), termasuk 1 duplicate key (`exitRule3ConditionsEnabled`, sudah ada sebelumnya, dibiarkan — di luar scope P2b).
+- Test: `test/test-config-bool.js` (unset/real-boolean/number/string-bug-fix/unrecognized-fail-safe). Semua 20 test file di repo pass, gak ada regresi.
+- Daemon restarted 2026-07-07 08:05 UTC, aktif live.
 
 ### Alternatif config-only (tanpa kode, bisa sekarang oleh Hermes/Grok + owner)
 `autoStrategyAllowSpot: false` → pump view otomatis skip ("spot disabled, skip"), sideways/flat fallback bid_ask. Menutup FABLE+SEMAN sekaligus, trade-off: kehilangan winner spot (BABYANSEM +$1.6, DR TRUMP +$0.58, SEMAN +$1.68). Net historis spot = **negatif** (-$9.9), jadi ini defensible sampai P1a-c masuk.
