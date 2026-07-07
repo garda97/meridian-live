@@ -1,12 +1,12 @@
 {
-  "updated_at": "2026-07-07T11:55:57.657040+00:00",
+  "updated_at": "2026-07-07T12:23:41.944280+00:00",
   "updated_by": "agent_sync",
   "project": "meridian",
   "phase": "Evil Panda strict live",
   "git": {
     "branch": "github-main",
-    "last_commit": "6969147 threshold tweak: loosened tier-1 (bin_step/feeR/organic/estShare/mcap-null). ROOT CAUSE 0-candidates = rugcheck rejects all 10 raw pools (holder 26-141%). Owner keeps rugcheck ON, waits for volume. (8 minutes ago)",
-    "dirty_files": 12,
+    "last_commit": "49f6ce2 RUGCHECK FIX (by Hermes): batch 10/chunk + 429 retry + FAIL-CLOSED on error (was false-pass). Prevents bundled tokens slipping through at 500-pool scale. Verified syntax+dryrun+unittest. (3 minutes ago)",
+    "dirty_files": 11,
     "is_dirty": true
   },
   "meridian": {

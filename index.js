@@ -15,7 +15,7 @@ import { getTopCandidates, degenScore, estimateSharePct, getPoolDetail } from ".
 import { checkPositionChartExit } from "./tools/chart-indicators.js";
 import { config, reloadScreeningThresholds, reloadUserConfigFromDisk, computeDeployAmount, minTokenFeesSolForMcap, MIN_SAFE_BINS_BELOW } from "./config.js";
 import { canTriggerScreening, checkScreeningDeployGate } from "./utils/screening-gate.js";
-import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
+import { evolveThresholds, getPerformanceSummary, observeOpenPosition } from "./lessons.js";
 import { recordScreeningOutcome } from "./filter-autotune.js";
 import { executeTool, registerCronRestarter, swapBaseToSolWithRetry } from "./tools/executor.js";
 import {
@@ -507,6 +507,24 @@ export async function runManagementCycle({ silent = false } = {}) {
     // action: CLOSE | CLAIM | STAY | INSTRUCTION (needs LLM)
     const actionMap = new Map();
     for (const p of positionData) {
+      // ── Self-learning: observe every open position each cycle (telemetry only) ──
+      observeOpenPosition({
+        position: p.position,
+        pool: p.pool,
+        pool_name: p.pair,
+        strategy: p.strategy,
+        amount_sol: p.amount_sol,
+        pnl_pct: p.pnl_pct,
+        in_range: p.in_range,
+        minutes_out_of_range: p.minutes_out_of_range,
+        age_minutes: p.age_minutes,
+        total_value_usd: p.total_value_usd,
+        unclaimed_fees_usd: p.unclaimed_fees_usd,
+        fee_per_tvl_24h: p.fee_per_tvl_24h,
+        volatility: p.volatility,
+        fee_tvl_ratio: p.fee_tvl_ratio,
+        organic_score: p.organic_score,
+      });
       // Hard exit — highest priority
       if (exitMap.has(p.position)) {
         actionMap.set(p.position, { action: "CLOSE", rule: "exit", reason: exitMap.get(p.position) });

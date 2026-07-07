@@ -176,7 +176,24 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Result:** At 500 pools, bot won't false-pass bundled tokens even if rugcheck rate-limits. Deploy still capped at maxPositions=6. Quality preserved.
 
-**Status:** LIVE + rugcheck batched + fail-closed. Full code fix by Hermes complete.
+**Status:** LIVE + rugcheck batched + fail-closed + SELF-LEARNING ENABLED. Full code fix by Hermes complete.
+
+## 2026-07-07 12:55 UTC | hermes → owner (SELF-LEARNING SYSTEM ENABLED — by Hermes, no Grok/Claude)
+
+**Owner wanted:** bot learns from open-position experience — auto-adapt screening filter, exit strategy, position sizing, coin analysis.
+
+**Built (all by Hermes, verified):**
+- **L0 — Open-position observer** (`observeOpenPosition` in lessons.js, hooked into management loop index.js:509). Every 5m cycle, appends telemetry to `notes/open_position_experience.jsonl`. Pure observation, no behavior change.
+- **L1 — Screening filter autotune ENABLED** (`filterAutotuneEnabled=True`, maxSteps=8). Already existed in filter-autotune.js: relaxes thresholds 15%/step after 2 no-deploy cycles, with STATIC_FLOORS (minMcap 250K, minHolders 300, minTokenFeesSol 30) + never touches quality-bar keys (minOrganic/minFeeActiveTvlRatio). Locks after 8 steps.
+- **L2 — Exit strategy adapt** (extended `evolveThresholds`): tightens stopLossPct toward observed SL cluster (guard -50..-5), raises trailingTriggerPct toward winner TP (guard 2..15).
+- **L3 — Sizing adapt:** nudges deployAmountSol ±0.05 by win-rate (guard 0.1..0.5 SOL, needs ≥8 samples).
+- **L4 — Coin analysis:** `profileInsight()` aggregates winner vs loser profiles (volatility/organic/feeTVL) → surfaced as INSIGHT lesson. No auto-prioritize yet (observational, owner/LLM uses it).
+
+**Verified:** node -c syntax OK both files. Unit test: evolveThresholds returned stopLossPct -20→-17 (SL cluster -14), deployAmountSol 0.3→0.35 (70% win-rate), all guards passed. Daemon restarted (PID 3821466), log confirms `Filter autotune: no-deploy streak 1/2`, rugcheck batched working, LIVE, 0 positions.
+
+**Safety:** every adaptation has clamp guards + min-sample requirements. filterAutotune has floors + maxSteps lock. No config change without owner-approved bounds.
+
+**Status:** LIVE + self-learning active. Will adapt from real position outcomes. Owner observes via lessons.json + open_position_experience.jsonl.
 
 ## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
 

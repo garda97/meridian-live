@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-07T11:55:57.657040+00:00 by **agent_sync**_
+_Updated: 2026-07-07T12:23:41.944280+00:00 by **agent_sync**_
 
 ## Quick status
 
@@ -8,8 +8,8 @@ _Updated: 2026-07-07T11:55:57.657040+00:00 by **agent_sync**_
 |------|-------|
 | Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
-| Uncommitted files | 12 |
-| Last commit | 6969147 threshold tweak: loosened tier-1 (bin_step/feeR/organic/estShare/mcap-null). ROOT CAUSE 0-candidates = rugcheck rejects all 10 raw pools (holder 26-141%). Owner keeps rugcheck ON, waits for volume. (8 minutes ago) |
+| Uncommitted files | 11 |
+| Last commit | 49f6ce2 RUGCHECK FIX (by Hermes): batch 10/chunk + 429 retry + FAIL-CLOSED on error (was false-pass). Prevents bundled tokens slipping through at 500-pool scale. Verified syntax+dryrun+unittest. (3 minutes ago) |
 | DRY_RUN | `False` |
 | user-config.json | yes |
 | .env | yes |
