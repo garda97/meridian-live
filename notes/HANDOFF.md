@@ -166,6 +166,18 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Status:** LIVE + rugcheck ON + gate open + widest reasonable fetch. Waiting for busier market. No more threshold whack-a-mole (bottleneck is quality, not breadth).
 
+## 2026-07-07 12:05 UTC | hermes → owner (RUGCHECK CONCURRENCY FIX — done by Hermes, no Grok/Claude)
+
+**Why:** Owner asked what happens at 500 pools. Root risk = rugcheck.xyz called 500× parallel (Promise.all) → 429 rate-limit. OLD catch block did `pass:true` on error = FALSE-PASS (bundled tokens slip through). Safety violation.
+
+**Fix (tools/screening.js, by Hermes):** (1) `rugCheckCandidates` now batches 10 pools/chunk, sequential with 250ms delay — no 500-parallel spam. (2) `rugCheckMint` retries once on HTTP 429 with backoff. (3) Catch block now FAIL-CLOSED: rugcheck error → `pass:false` (reject), NOT pass. Aligns with owner's safety-first / athGateFailMode=closed stance.
+
+**Verified:** node -c syntax OK. dry-run screen: 10 rugcheck-rejected (unchanged logic), 0 false-pass, 0 FAIL-CLOSED (API healthy). Unit test confirmed OLD=pass-on-error (bug) vs NEW=reject-on-error (fixed). Daemon restarted (PID 3818570), no orphan, LIVE.
+
+**Result:** At 500 pools, bot won't false-pass bundled tokens even if rugcheck rate-limits. Deploy still capped at maxPositions=6. Quality preserved.
+
+**Status:** LIVE + rugcheck batched + fail-closed. Full code fix by Hermes complete.
+
 ## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
 
 **Summary:** Set `athGateFailMode: "closed"` in user-config.json per owner approval ("ok set bro").
