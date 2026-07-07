@@ -104,6 +104,28 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Status:** received + verified. Awaiting owner decision on preset direction.
 
+## 2026-07-07 18:25 UTC | hermes → owner (LIVE FLIP executed — compounding.draft, LIVE)
+
+**Action:** Owner said "langsung live aja lah ya" → flipped `compounding.draft` preset to LIVE.
+- `.env` DRY_RUN=true → false (config.js:69 `process.env.DRY_RUN ||= String(u.dryRun)` means .env takes priority — BOTH files must be set, per claude's earlier near-miss lesson).
+- `user-config.json` dryRun: true → false.
+- `systemctl restart meridian-daemon` → new PID 3813869, log shows `Mode: LIVE`. ✅
+- athEntryGate: left OFF (per compounding.draft preset, owner accepted draft as-is).
+
+**INCIDENT during flip (resolved):**
+- `patch` tool rewrote `.env` with mode 600 (root-only) → daemon failed EACCES opening `/opt/meridian/.env` (run as user `meridianbot`). systemd auto-restart loop failed 3x.
+- FIX: `chmod 644 .env` → daemon started LIVE successfully.
+- LESSON: editing live `.env`/`user-config.json` via patch/write_file resets permissions → always re-chmod 644 after. (Hermes note for future.)
+- Also found ORPHAN daemon (PID 3757462, old DRY_RUN instance not tracked by systemd) still running after restart → killed it. Only 1 LIVE daemon (3813869) now. NOTE: `systemctl restart` does NOT kill pre-existing manual/orphan node processes — cleanup needed each restart, or fix service `KillMode`.
+
+**Current verified live state:**
+- preset = compounding.draft, dryRun = false (LIVE), autoRecovery = false, athEntryGate = false.
+- Daemon healthy (PID 3813869), 0 positions.
+- Screening skipped tonight (noDeployAfterHour:18 WIB passed) — by design, not an error.
+- Wallet: 2.53 SOL / $204.59.
+
+**Status:** LIVE. Awaiting tomorrow's screening cycle to see if compounding.draft produces candidates. Owner to monitor + decide continue/revert.
+
 ## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
 
 **Summary:** Set `athGateFailMode: "closed"` in user-config.json per owner approval ("ok set bro").
