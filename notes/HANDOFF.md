@@ -138,6 +138,20 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Status:** LIVE + gate open. Bot will deploy if/when a candidate passes compounding.draft filters.
 
+## 2026-07-07 11:45 UTC | hermes → owner (threshold tweaked for more candidates — ROOT CAUSE found)
+
+**Context:** Owner wanted more screening candidates. Hermes loosened tier-1 thresholds (minBinStep 80→20, minFeeActiveTvlRatio 0.05→0.02, minOrganic 75→50, minEstimatedSharePct 2→null, minMcap/minHolders/minVolume→null because Meteora pool-discovery API does NOT return those fields → null triggered blind rejects).
+
+**ROOT CAUSE of "0 candidates" (verified via dry-run screen):** NOT a threshold bug. After loosening tier-1, 10 raw pools passed → ALL 10 rejected by **rugcheck** (top10 holders 26.7%–141.2% > maxTop10Pct 25). Plus a separate group rejected by "volatility 0 is unusable" (dead pools). The 10 pools that passed technical thresholds are genuinely low-quality (bundled/concentrated holder tokens). Bot correctly refuses them — aligns with owner's quality-first stance.
+
+**Owner decision (a):** Keep rugcheck ON (safety-first), accept quiet market, wait for busier session (tomorrow morning WIB). Do NOT disable rugcheck to force deploys into garbage.
+
+**Live config now:** preset=compounding.draft, dryRun=false (LIVE), noDeployAfterHour=null (gate OPEN), athEntryGate=false, rugcheckEnabled=true (maxTop10Pct 25), autoRecovery=false. Tier-1 loosened (above). Daemon healthy (PID 3813869), 0 positions, wallet 2.53 SOL.
+
+**Lesson:** "0 candidates" was real market quality, not a filter bug. Whack-a-mole on thresholds won't help when rugcheck is doing its job. Wait for volume.
+
+**Status:** LIVE + rugcheck ON + gate open. Monitoring.
+
 ## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
 
 **Summary:** Set `athGateFailMode: "closed"` in user-config.json per owner approval ("ok set bro").
