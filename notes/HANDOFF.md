@@ -176,7 +176,26 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Result:** At 500 pools, bot won't false-pass bundled tokens even if rugcheck rate-limits. Deploy still capped at maxPositions=6. Quality preserved.
 
-**Status:** LIVE + rugcheck batched + fail-closed + SELF-LEARNING + A/B strategy from @bengsharksol thread. Full code by Hermes.
+**Note:** Telegram notif dirapihin (header bold + emoji + divider + status warna). File `utils/telegram-id.js`. Verified render test. Daemon restart PID 3826232, no error.
+
+## 2026-07-07 13:46 UTC | hermes → owner (Telegram notif rapi)
+
+**Ask:** "rapihin notif Telegram biar enak dilihat."
+
+**Done:** Rombak semua formatter di `utils/telegram-id.js` (isi fungsi, gak ubah nama → caller aman):
+- `TG.deployed` → 🚀 DEPLOY BARU + divider + Pair bold
+- `TG.closed` → 🔒 TUTUP POSISI + 🟢/🔴 PnL + fee line
+- `TG.managementCycle`/`screeningCycle` → header bold + divider + footer tip
+- `TG.error`/`closedManual`/`closeFailed`/`configUpdated`/`noteSet` → ❌/✅ bold + divider
+- `formatPositionsListId` → tiap posisi jadi block (pair bold + 💰/PnL/fee/age), divider antar posisi
+- `formatWalletStatusId` → 💼 header + kv(divider)
+- `formatConfigSnapshotId` → ⚙️ header + baris lebih padat
+- `describeLatestCandidatesId` → 🔎 header + tiap kandidat block + divider
+- Tambah helper `fmtUsd`, `div()`, `kv()` untuk konsistensi.
+
+**Verified:** node -c OK. Render test lolos (deploy/closed/positions/wallet/candidates all formatted). Daemon restart PID 3826232, no import error, Telegram commands registered.
+
+**Status:** LIVE + format Telegram rapi + A/B + self-learning + rugcheck fail-closed.
 
 ## 2026-07-07 13:14 UTC | hermes → owner (A+B strategy from tweet @bengsharksol — by Hermes)
 

@@ -112,7 +112,9 @@ export function formatNoDeployReport({ candidateName, skipReason, rejectedLine }
 
 export const TG = {
   deployed: (pair, amountSol, priceStr, coverageStr, poolStr, position, tx) =>
-    `✅ <b>Deploy</b> ${pair}\n` +
+    `🚀 <b>DEPLOY BARU</b>\n` +
+    `──────────────\n` +
+    `Pair: <b>${pair}</b>\n` +
     `Jumlah: ${amountSol} SOL\n` +
     priceStr +
     coverageStr +
@@ -129,44 +131,61 @@ export const TG = {
   poolMeta: (binStep, baseFee) =>
     `Bin step: ${binStep ?? "?"}  |  Base fee: ${baseFee != null ? baseFee + "%" : "?"}\n`,
 
-  closed: (pair, pnlUsd, pnlPct) => {
+  closed: (pair, pnlUsd, pnlPct, feesUsd) => {
     const sign = pnlUsd >= 0 ? "+" : "";
+    const color = pnlUsd >= 0 ? "🟢" : "🔴";
+    const feeLine = feesUsd != null ? `\nFee: ${fmtUsd(feesUsd)}` : "";
     return (
-      `🔒 <b>Tutup</b> ${pair}\n` +
-      `PnL: ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)`
+      `🔒 <b>TUTUP POSISI</b> ${pair}\n` +
+      `──────────────\n` +
+      `PnL: ${color} ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)${feeLine}`
     );
   },
 
   swapped: (inSym, outSym, amountIn, amountOut, tx) =>
-    `🔄 <b>Swap</b> ${inSym} → ${outSym}\n` +
-    `Masuk: ${amountIn ?? "?"} | Keluar: ${amountOut ?? "?"}\n` +
+    `🔄 <b>SWAP</b> ${inSym} → ${outSym}\n` +
+    `──────────────\n` +
+    `Masuk: ${amountIn ?? "?"}\n` +
+    `Keluar: ${amountOut ?? "?"}\n` +
     `Tx: <code>${tx?.slice(0, 16)}...</code>`,
 
   outOfRange: (pair, minutesOOR) =>
-    `⚠️ <b>Di Luar Range</b> ${pair}\n` +
-    `Sudah OOR selama ${minutesOOR} menit`,
+    `⚠️ <b>DI LUAR RANGE</b> ${pair}\n` +
+    `──────────────\n` +
+    `Sudah OOR: ${minutesOOR} menit`,
 
-  managementCycle: (report) => `🔄 Siklus Manajemen\n\n${localizeTelegramReport(report)}`,
-  screeningCycle: (report) => `🔍 Siklus Screening\n\n${localizeTelegramReport(report)}`,
+  managementCycle: (report) =>
+    `🔄 <b>Siklus Manajemen</b>\n` +
+    `──────────────\n` +
+    `${localizeTelegramReport(report)}\n` +
+    `──────────────\n` +
+    `💡 /positions untuk detail`,
 
-  error: (msg) => `Error: ${msg}`,
-  noOpenPositions: "Tidak ada posisi terbuka.",
+  screeningCycle: (report) =>
+    `🔍 <b>Siklus Screening</b>\n` +
+    `──────────────\n` +
+    `${localizeTelegramReport(report)}\n` +
+    `──────────────\n` +
+    `💡 /candidates untuk daftar`,
+
+  error: (msg) => `❌ <b>Error</b>\n──────────────\n${msg}`,
+  noOpenPositions: "📭 Tidak ada posisi terbuka.",
   invalidIndex: "Nomor tidak valid. Jalankan /positions dulu.",
-  closing: (pair) => `Menutup ${pair}...`,
+  closing: (pair) => `⏳ Menutup ${pair}...`,
   closedManual: (pair, pnl, txs, claimNote) =>
-    `✅ Ditutup ${pair}\nPnL: ${pnl} | tx close: ${txs}${claimNote}`,
-  closeFailed: (result) => `❌ Gagal tutup: ${JSON.stringify(result)}`,
-  closingAll: (n) => `Menutup ${n} posisi...`,
-  closeAllDone: (results) => `Selesai tutup semua.\n\n${results}`,
-  noteSet: (pair, note) => `✅ Catatan untuk ${pair}:\n"${note}"`,
-  configFailed: (unknown) => `Gagal update config.\nTidak dikenal: ${unknown}`,
-  configUpdated: (key, value) => `✅ Diupdate ${key} = ${JSON.stringify(value)}`,
+    `✅ <b>Ditutup</b> ${pair}\n──────────────\nPnL: ${pnl}\nTx close: ${txs}${claimNote ? "\n" + claimNote : ""}`,
+  closeFailed: (result) => `❌ <b>Gagal tutup</b>\n──────────────\n${JSON.stringify(result)}`,
+  closingAll: (n) => `⏳ Menutup ${n} posisi...`,
+  closeAllDone: (results) => `✅ Selesai tutup semua.\n──────────────\n${results}`,
+  noteSet: (pair, note) => `✅ <b>Catatan</b> ${pair}:\n"${note}"`,
+  configFailed: (unknown) => `❌ Gagal update config.\nTidak dikenal: ${unknown}`,
+  configUpdated: (key, value) => `✅ Diupdate <b>${key}</b> = ${JSON.stringify(value)}`,
   queued: (n, text) => `⏳ Antrian (${n}): "${text.slice(0, 60)}"`,
-  queueFull: "Antrian penuh (5 pesan). Tunggu agent selesai.",
+  queueFull: "⚠️ Antrian penuh (5 pesan). Tunggu agent selesai.",
   paused: "⏸ Siklus otomatis dijeda. Kontrol Telegram tetap aktif. /resume untuk lanjut.",
   resumed: "▶️ Siklus otomatis dilanjutkan.",
   alreadyRunning: "Siklus otomatis sudah berjalan.",
-  settingsError: (msg) => `Error settings: ${msg}`,
+  settingsError: (msg) => `❌ Settings error: ${msg}`,
   photoSaved: (filename, path, caption) =>
     [
       "📷 Screenshot disimpan untuk Hermes vision.",
@@ -174,7 +193,7 @@ export const TG = {
       `Path: ${path}`,
       caption ? `Caption: ${caption}` : "Kirim ke Hermes: baca screenshot Telegram terbaru.",
     ].join("\n"),
-  photoSaveFailed: (msg) => `Gagal simpan foto: ${msg}`,
+  photoSaveFailed: (msg) => `❌ Gagal simpan foto: ${msg}`,
   liveUpdate: "🤖 Update Langsung",
   liveStarting: "Memulai...",
   liveRequest: (text) => `Permintaan: ${text.slice(0, 240)}`,
@@ -287,45 +306,47 @@ export function formatWalletStatusId(wallet, positions, maxPositions) {
   const deployAmount = wallet.nextDeploy ?? wallet.deployAmount;
   const hive = wallet.hiveMind ?? "?";
   return [
-    `Wallet: ${wallet.sol} SOL ($${wallet.sol_usd})`,
-    `Harga SOL: $${wallet.sol_price}`,
-    `Posisi terbuka: ${positions.total_positions}/${maxPositions}`,
-    `Deploy berikutnya: ${deployAmount ?? "?"} SOL`,
-    `Dry run: ${wallet.dryRun ? "ya" : "tidak"}`,
-    `HiveMind: ${hive}`,
+    `💼 <b>Status Wallet</b>`,
+    div(),
+    kv("SOL", `${wallet.sol} SOL ($${wallet.sol_usd})`),
+    kv("Harga SOL", `$${wallet.sol_price}`),
+    kv("Posisi", `${positions.total_positions}/${maxPositions}`),
+    kv("Deploy berikutnya", `${deployAmount ?? "?"} SOL`),
+    kv("Dry run", wallet.dryRun ? "ya" : "tidak"),
+    kv("HiveMind", hive),
   ].join("\n");
 }
 
 export function formatConfigSnapshotId(cfg, hiveEnabled, hiveAgentId) {
   return [
-    "Snapshot config",
-    "",
-    `Strategi: ${cfg.strategy} | binsBelow: ${cfg.minBinsBelow}-${cfg.maxBinsBelow} | default ${cfg.defaultBinsBelow}`,
-    `Deploy: ${cfg.deployAmountSol} SOL | cadangan gas: ${cfg.gasReserve} | maxPosisi: ${cfg.maxPositions}`,
-    `Stop loss: ${cfg.stopLossPct}% | take profit: ${cfg.takeProfitPct}%`,
-    `Trailing: ${cfg.trailingTakeProfit ? "on" : "off"} | trigger ${cfg.trailingTriggerPct}% | drop ${cfg.trailingDropPct}%`,
-    `OOR: ${cfg.outOfRangeWaitMinutes}m | cooldown ${cfg.oorCooldownTriggerCount}x / ${cfg.oorCooldownHours}j`,
-    `Cooldown redeploy: ${cfg.repeatDeployCooldownEnabled ? "on" : "off"} | ${cfg.repeatDeployCooldownTriggerCount}x / ${cfg.repeatDeployCooldownHours}j`,
-    `Lantai yield: ${cfg.minFeePerTvl24h}% | min umur ${cfg.minAgeBeforeYieldCheck}m`,
-    `Screening: ${cfg.category} / ${cfg.timeframe} | TVL ${cfg.minTvl}-${cfg.maxTvl}`,
+    `⚙️ <b>Snapshot Config</b>`,
+    div(),
+    `Strategi: ${cfg.strategy} | bins ${cfg.minBinsBelow}-${cfg.maxBinsBelow} (def ${cfg.defaultBinsBelow})`,
+    `Deploy: ${cfg.deployAmountSol} SOL | gas ${cfg.gasReserve} | maxPosisi ${cfg.maxPositions}`,
+    `SL: ${cfg.stopLossPct}% | TP: ${cfg.takeProfitPct}%`,
+    `Trailing: ${cfg.trailingTakeProfit ? "on" : "off"} (trig ${cfg.trailingTriggerPct}% / drop ${cfg.trailingDropPct}%)`,
+    `OOR: ${cfg.outOfRangeWaitMinutes}m | cooldown ${cfg.oorCooldownTriggerCount}x/${cfg.oorCooldownHours}j`,
+    `Repeat cooldown: ${cfg.repeatDeployCooldownEnabled ? "on" : "off"} ${cfg.repeatDeployCooldownTriggerCount}x/${cfg.repeatDeployCooldownHours}j`,
+    `Yield floor: ${cfg.minFeePerTvl24h}% | min umur ${cfg.minAgeBeforeYieldCheck}m`,
+    `Screening: ${cfg.category}/${cfg.timeframe} | TVL ${cfg.minTvl}-${cfg.maxTvl}`,
     `Interval: manage ${cfg.managementIntervalMin}m | screen ${cfg.screeningIntervalMin}m`,
     `HiveMind: ${hiveEnabled ? "aktif" : "nonaktif"}${hiveAgentId ? ` | ${hiveAgentId}` : ""}`,
   ].join("\n");
 }
 
 export function describeLatestCandidatesId(candidates, updatedAt) {
-  if (!candidates?.length) return "Belum ada kandidat cache. Jalankan /screen dulu.";
+  if (!candidates?.length) return "📭 Belum ada kandidat cache. Jalankan /screen dulu.";
   const lines = candidates.map((pool, i) => {
     const feeTvl = pool.fee_active_tvl_ratio ?? pool.fee_tvl_ratio ?? "?";
     const vol = pool.volume_window ?? pool.volume_24h ?? "?";
     const active = pool.active_pct ?? "?";
     const organic = pool.organic_score ?? "?";
-    return `${i + 1}. ${pool.name} | fee/aTVL ${feeTvl}% | vol $${vol} | in-range ${active}% | organic ${organic}`;
+    return `${i + 1}. <b>${pool.name}</b>\n   fee/aTVL ${feeTvl}% | vol $${vol} | in-range ${active}% | organic ${organic}`;
   });
   const age = updatedAt
     ? new Date(updatedAt).toLocaleString("id-ID", { hour12: false })
     : "tidak diketahui";
-  return `Kandidat terbaru (${candidates.length}) — update ${age}\n\n${lines.join("\n")}`;
+  return `🔎 <b>Kandidat Terbaru (${candidates.length})</b>\n${div()}\nupdate ${age}\n${div()}\n${lines.join(`\n${div()}\n`)}`;
 }
 
 export function formatPositionsListId(positions, total, solMode) {
@@ -334,12 +355,25 @@ export function formatPositionsListId(positions, total, solMode) {
     const pnl = p.pnl_usd >= 0 ? `+${cur}${p.pnl_usd}` : `-${cur}${Math.abs(p.pnl_usd)}`;
     const age = p.age_minutes != null ? `${p.age_minutes}m` : "?";
     const oor = !p.in_range ? " ⚠️OOR" : "";
-    return `${i + 1}. ${p.pair} | ${cur}${p.total_value_usd} | PnL: ${pnl} | fee: ${cur}${p.unclaimed_fees_usd} | ${age}${oor}`;
+    return `${i + 1}. <b>${p.pair}</b>${oor}\n   💰 ${cur}${p.total_value_usd} | PnL ${pnl} | fee ${cur}${p.unclaimed_fees_usd} | ${age}`;
   });
-  return `📊 Posisi Terbuka (${total}):\n\n${lines.join("\n")}\n\n/close <n> tutup | /set <n> <catatan> set instruksi`;
+  return `📊 <b>Posisi Terbuka (${total})</b>\n${div()}\n${lines.join(`\n${div()}\n`)}\n${div()}\n/close <n> tutup | /set <n> <catatan>`;
 }
 
 function fmtPct(value) {
   const n = Number(value);
   return Number.isFinite(n) ? `${n.toFixed(2)}%` : "?";
+}
+
+// Helper formatting
+function fmtUsd(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "?";
+  return n >= 0 ? `+$${n.toFixed(2)}` : `-$${Math.abs(n).toFixed(2)}`;
+}
+function div() {
+  return "──────────────";
+}
+function kv(k, v) {
+  return `${k}: ${v}`;
 }
