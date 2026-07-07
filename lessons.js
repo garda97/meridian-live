@@ -213,6 +213,24 @@ export async function recordPerformance(perf) {
 
 }
 
+const OPEN_POS_EXP_FILE = repoPath("notes/open_position_experience.jsonl");
+
+/**
+ * Observe an OPEN position each management cycle. Pure telemetry —
+ * does NOT change any config or behavior. Feeds the self-learning loop
+ * (exit/sizing/analysis adaptation) once enough samples accrue.
+ * @param {Object} snap - position telemetry snapshot
+ */
+export function observeOpenPosition(snap = {}) {
+  if (!snap || !snap.position) return;
+  const rec = { ts: new Date().toISOString(), ...snap };
+  try {
+    fs.appendFileSync(OPEN_POS_EXP_FILE, JSON.stringify(rec) + "\n");
+  } catch (e) {
+    log("lessons_warn", `observeOpenPosition write failed: ${e.message}`);
+  }
+}
+
 /**
  * Derive a lesson from a closed position's performance.
  * Only generates a lesson if the outcome was clearly good or bad.
@@ -408,6 +426,56 @@ export function evolveThresholds(perfData, config) {
     }
   }
 
+  // ── 3. Exit strategy (stopLossPct / trailingTriggerPct) ────────
+  {
+    const slLosers = losers.filter((p) => /stop loss|stoploss/.test(String(p.close_reason || "")));
+    const tpWinners = winners.filter((p) => /take profit|trailing/.test(String(p.close_reason || "")));
+    const curSl = config.management.stopLossPct;
+    const curTrail = config.management.trailingTriggerPct;
+    // If stop-losses cluster at a milder loss than current SL, tighten SL toward that
+    if (slLosers.length >= 2) {
+      const slPnls = slLosers.map((p) => p.pnl_pct).filter(isFiniteNum);
+      if (slPnls.length >= 2) {
+        const worstSl = Math.min(...slPnls); // e.g. -12 means SL fired at -12
+        const target = clamp(worstSl - 3, -50, -5); // tighten (raise toward 0), never loosen past -5
+        if (target > curSl) {
+          changes.stopLossPct = Number(target.toFixed(1));
+          rationale.stopLossPct = `SL fired at ${worstSl.toFixed(1)}% on ${slLosers.length} losers — tightened to ${target.toFixed(1)}%`;
+        }
+      }
+    }
+    // If winners took profit early, raise trailing trigger to capture more run
+    if (tpWinners.length >= 2) {
+      const tpPnls = tpWinners.map((p) => p.pnl_pct).filter(isFiniteNum);
+      if (tpPnls.length >= 2) {
+        const minTp = Math.min(...tpPnls);
+        const target = clamp(Math.round(minTp * 0.8), 2, 15);
+        if (target > curTrail) {
+          changes.trailingTriggerPct = target;
+          rationale.trailingTriggerPct = `Winners TP'd at min ${minTp.toFixed(1)}% — raised trailing trigger to ${target}%`;
+        }
+      }
+    }
+  }
+
+  // ── 4. Position sizing (deployAmountSol) ─────────────────────
+  {
+    const curAmt = config.management.deployAmountSol;
+    const winRate = winners.length / Math.max(1, perfData.length);
+    // Scale sizing with proven win-rate (conservative bounds 0.1–0.5 SOL)
+    if (perfData.length >= 8) {
+      if (winRate >= 0.7 && curAmt < 0.5) {
+        const target = clamp(curAmt + 0.05, 0.1, 0.5);
+        changes.deployAmountSol = Number(target.toFixed(2));
+        rationale.deployAmountSol = `Win-rate ${(winRate * 100).toFixed(0)}% over ${perfData.length} — nudged sizing to ${target.toFixed(2)} SOL`;
+      } else if (winRate < 0.4 && curAmt > 0.1) {
+        const target = clamp(curAmt - 0.05, 0.1, 0.5);
+        changes.deployAmountSol = Number(target.toFixed(2));
+        rationale.deployAmountSol = `Win-rate ${(winRate * 100).toFixed(0)}% over ${perfData.length} — reduced sizing to ${target.toFixed(2)} SOL`;
+      }
+    }
+  }
+
   if (Object.keys(changes).length === 0) return { changes: {}, rationale: {} };
 
   // ── Persist changes to user-config.json ───────────────────────
@@ -426,19 +494,49 @@ export function evolveThresholds(perfData, config) {
   const s = config.screening;
   if (changes.minFeeActiveTvlRatio != null) s.minFeeActiveTvlRatio = changes.minFeeActiveTvlRatio;
   if (changes.minOrganic       != null) s.minOrganic       = changes.minOrganic;
+  const m = config.management;
+  if (changes.stopLossPct        != null) m.stopLossPct        = changes.stopLossPct;
+  if (changes.trailingTriggerPct != null) m.trailingTriggerPct = changes.trailingTriggerPct;
+  if (changes.deployAmountSol    != null) m.deployAmountSol    = changes.deployAmountSol;
+  if (changes.positionSizePct    != null) m.positionSizePct    = changes.positionSizePct;
 
-  // Log a lesson summarizing the evolution
+  // Log a lesson summarizing the evolution (+ L4 profile insight)
+  const insight = profileInsight(perfData);
   const data = load();
   data.lessons.push({
     id: Date.now(),
-    rule: `[AUTO-EVOLVED @ ${perfData.length} positions] ${Object.entries(changes).map(([k, v]) => `${k}=${v}`).join(", ")} — ${Object.values(rationale).join("; ")}`,
-    tags: ["evolution", "config_change"],
+    rule: `[AUTO-EVOLVED @ ${perfData.length} positions] ${Object.entries(changes).map(([k, v]) => `${k}=${v}`).join(", ")} — ${Object.values(rationale).join("; ")}${insight ? ` | INSIGHT: ${insight}` : ""}`,
+    tags: ["evolution", "config_change", "profile_insight"],
     outcome: "manual",
     created_at: new Date().toISOString(),
   });
   save(data);
 
   return { changes, rationale };
+}
+
+// ─── L4: Profile insight (what kind of coin wins/loses) ───────
+// Pure analysis — does NOT change config. Surfaced as an INSIGHT lesson
+// so the owner/LLM can use it for token prioritization.
+function profileInsight(perfData) {
+  const winners = perfData.filter((p) => p.pnl_pct > 0);
+  const losers  = perfData.filter((p) => p.pnl_pct < -5);
+  if (winners.length < 2 || losers.length < 2) return null;
+  const avg = (arr, k) => {
+    const v = arr.map((p) => p[k]).filter(isFiniteNum);
+    return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
+  };
+  const wVol = avg(winners, "volatility"),  lVol = avg(losers, "volatility");
+  const wOrg = avg(winners, "organic_score"), lOrg = avg(losers, "organic_score");
+  const wFee = avg(winners, "fee_tvl_ratio"), lFee = avg(losers, "fee_tvl_ratio");
+  const parts = [];
+  if (wVol != null && lVol != null && Math.abs(wVol - lVol) >= 5)
+    parts.push(`winners vol≈${wVol.toFixed(0)} vs losers ${lVol.toFixed(0)}`);
+  if (wOrg != null && lOrg != null && Math.abs(wOrg - lOrg) >= 8)
+    parts.push(`winners organic≈${wOrg.toFixed(0)} vs losers ${lOrg.toFixed(0)}`);
+  if (wFee != null && lFee != null && Math.abs(wFee - lFee) >= 0.02)
+    parts.push(`winners feeTVL≈${wFee.toFixed(2)} vs losers ${lFee.toFixed(2)}`);
+  return parts.length ? parts.join("; ") : null;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
