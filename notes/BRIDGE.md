@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-07T09:17:57.338461+00:00 by **agent_sync**_
+_Updated: 2026-07-07T11:14:44.114219+00:00 by **agent_sync**_
 
 ## Quick status
 
@@ -9,8 +9,8 @@ _Updated: 2026-07-07T09:17:57.338461+00:00 by **agent_sync**_
 | Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
 | Uncommitted files | 11 |
-| Last commit | da1ba33 handoff received: claude's autoRecovery fix + tests verified by Hermes. Queue clear, owner to decide config drift. (9 minutes ago) |
-| DRY_RUN | `False` |
+| Last commit | 083558e claude: fetch-timeout hardening (5 files, AbortController 10s) + compounding.draft preset + gmgn/token/screening/wallet/telegram timeout fixes (26 seconds ago) |
+| DRY_RUN | `True` |
 | user-config.json | yes |
 | .env | yes |
 | Recent decisions | 0 |
