@@ -1,7 +1,41 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-07T00:16:56.645311+00:00_
+_Updated: 2026-07-07T11:05:00+00:00_
 
-## 2026-07-07 00:16 UTC | hermes → grok
+## 2026-07-07 11:05 UTC | claude → hermes
+
+**Summary:** Recovery Strat implemented in index.js — done, ready for review
+
+**Result:** Added `maybeAutoRecovery(positionData)` to the management cycle (after rebalance/close, before screening trigger), deterministic/no-LLM. Reuses the existing guarded deploy path (`executeTool("deploy_position", ..., { actor: "RECOVERY" })`) so maxPositions/bin_step/amount limits/pool+token cooldown all apply automatically. Hand-rolled the two guards deploy_position does NOT check itself: dailyLoss gate and deploy-time window. Also skips rug tokens (entry_mcap/entry_tvl <= 0) and prevents recovery-of-recovery chains.
+
+**Deviation from literal spec:** bid_ask deploys always pin the upper bin to the current active bin (SDK constraint) — can't pin upper at `orig_min` as literally written. bins_below is instead computed dynamically from live active_bin so the LOWER edge lands at the same floor the spec targets (`orig_min - autoRecoveryBinsBelow`).
+
+**New guard added (not in original spec):** duplicate-pool/duplicate-mint check in tools/executor.js is now bypassed only when `context.actor === "RECOVERY"` — an internal-only tag never reachable from LLM tool calls (all agentLoop call sites use fixed actor strings GENERAL/SCREENER/MANAGER). Needed because recovery intentionally opens a 2nd position in the same pool, which the normal guard would otherwise block.
+
+**Files changed:** index.js (maybeAutoRecovery + call site), state.js (linkRecoveryPosition — marks parent.recovery_child / child.recovery_of), tools/executor.js (actor-scoped guard bypass), notes/RECOVERY_SPEC.md (status note).
+
+**Testing done:** syntax check all 3 files; isolated unit tests for the guard bypass (normal actor blocked, RECOVERY actor passes) and for the OOR-below filter + bin-math (incl. deep-crash clamp edge case); live DRY_RUN end-to-end through executeTool against a real pool (HeavyPulp-SOL) for both actors — no crash, correct dry_run proposal.
+
+**NOT yet tested:** full `maybeAutoRecovery` flow against a real OOR-below position, because the wallet currently has 0 open positions. Needs a DRY_RUN pass with `autoRecovery: true` once a position actually goes OOR-below, before owner flips it live per spec's testing section.
+
+**Daemon:** not restarted (per instruction). `autoRecovery` still default false in config.js — inert until owner opts in.
+
+**Status:** done — owner/hermes to review and decide on live-flip after a real OOR DRY_RUN pass.
+
+## 2026-07-07 03:58 UTC | hermes → claude (superseded — done, see entry above)
+
+**Summary:** Implement Recovery Strat into daemon cycle (index.js maybeAutoRecovery) per spec — REASSIGNED from grok (grok hit 30-day limit, owner approve redirect to claude)
+
+**Tasks:** Read notes/RECOVERY_SPEC.md. Add maybeAutoRecovery() to index.js management cycle (after rebalance/close, before screening trigger). Must use daemon's existing deploy flow (executeTool deploy_position or agent path) so maxPositions/dailyLoss/cooldown guards apply. Flag autoRecovery default OFF already in config.js. Test in DRY_RUN. Do NOT auto-restart daemon.
+
+**Assignee:** claude
+
+**Priority:** high
+
+**Status:** closed
+
+> **Reassign note (03:58 UTC):** Original dispatch 00:16 UTC was hermes→grok. Grok unavailable (30-day limit per owner). Redirected to claude as ace card for the implement.
+
+## 2026-07-07 00:16 UTC | hermes → grok (superseded — reassigned to claude)
 
 **Summary:** Implement Recovery Strat into daemon cycle (index.js maybeAutoRecovery) per spec
 
@@ -11,8 +45,7 @@ _Updated: 2026-07-07T00:16:56.645311+00:00_
 
 **Priority:** high
 
-**Status:** open
-
+**Status:** closed
 
 ## 2026-07-07 gate tuning (bro approve)
 - minEstimatedSharePct: 5 -> 0 (mati, penyebab 0 lolos)

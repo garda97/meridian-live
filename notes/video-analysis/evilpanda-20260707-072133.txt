@@ -1,0 +1,10 @@
+Evil Panda video archived 20260707-072133
+source_url: https://video.twimg.com/amplify_video/2073960817918386177/vid/avc1/1920x1080/pl.m3u8
+video: evilpanda-20260707-072133.mp4
+audio: evilpanda-20260707-072133.mp3
+
+Layer-1 analysis (preferred, no whisper needed):
+  Search companion thread on X via GETXAPI:
+  from:bengsharksol "Evil Panda" OR DLMM OR Meteora -filter:replies
+  Also check @narkokek, @MeteoraCIS, @tendorian9 for breakdowns.
+  Then patch concrete params (Supertrend/RSI(2)/BB/MACD) into notes/METEORA_LP.md

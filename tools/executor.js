@@ -786,7 +786,7 @@ export async function executeTool(name, args, context = {}) {
     args = applyPendingPlanToDeployArgs(args);
   }
   if (PROTECTED_TOOLS.has(name)) {
-    const safetyCheck = await runSafetyChecks(name, args);
+    const safetyCheck = await runSafetyChecks(name, args, context);
     if (!safetyCheck.pass) {
       log("safety_block", `${name} blocked: ${safetyCheck.reason}`);
       return {
@@ -860,7 +860,7 @@ export async function executeTool(name, args, context = {}) {
 /**
  * Run safety checks before executing write operations.
  */
-async function runSafetyChecks(name, args) {
+async function runSafetyChecks(name, args, context = {}) {
   switch (name) {
     case "deploy_position": {
       const autoPlan = args._auto_strategy_plan ?? null;
@@ -972,26 +972,31 @@ async function runSafetyChecks(name, args) {
           reason: `Max positions (${config.risk.maxPositions}) reached. Close a position first.`,
         };
       }
-      const alreadyInPool = positions.positions.some(
-        (p) => p.pool === args.pool_address
-      );
-      if (alreadyInPool) {
-        return {
-          pass: false,
-          reason: `Already have an open position in pool ${args.pool_address}. Cannot open duplicate.`,
-        };
-      }
-
-      // Block same base token across different pools
-      if (args.base_mint) {
-        const alreadyHasMint = positions.positions.some(
-          (p) => p.base_mint === args.base_mint
+      // Recovery Strat deliberately opens a second position in the same pool/token
+      // (below the parent's range) — internal-only actor, never LLM-reachable.
+      const isRecoveryDeploy = context.actor === "RECOVERY";
+      if (!isRecoveryDeploy) {
+        const alreadyInPool = positions.positions.some(
+          (p) => p.pool === args.pool_address
         );
-        if (alreadyHasMint) {
+        if (alreadyInPool) {
           return {
             pass: false,
-            reason: `Already holding base token ${args.base_mint} in another pool. One position per token only.`,
+            reason: `Already have an open position in pool ${args.pool_address}. Cannot open duplicate.`,
           };
+        }
+
+        // Block same base token across different pools
+        if (args.base_mint) {
+          const alreadyHasMint = positions.positions.some(
+            (p) => p.base_mint === args.base_mint
+          );
+          if (alreadyHasMint) {
+            return {
+              pass: false,
+              reason: `Already holding base token ${args.base_mint} in another pool. One position per token only.`,
+            };
+          }
         }
       }
 
