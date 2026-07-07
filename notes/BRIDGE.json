@@ -1,16 +1,16 @@
 {
-  "updated_at": "2026-07-07T11:14:44.114219+00:00",
+  "updated_at": "2026-07-07T11:26:18.385450+00:00",
   "updated_by": "agent_sync",
   "project": "meridian",
   "phase": "Evil Panda strict live",
   "git": {
     "branch": "github-main",
-    "last_commit": "083558e claude: fetch-timeout hardening (5 files, AbortController 10s) + compounding.draft preset + gmgn/token/screening/wallet/telegram timeout fixes (26 seconds ago)",
+    "last_commit": "ff6d068 handoff received: claude wrap-up (compounding.draft exp + fetch-timeout fix). Verified dryRun=true both files, 0 positions. (12 minutes ago)",
     "dirty_files": 11,
     "is_dirty": true
   },
   "meridian": {
-    "dry_run": true,
+    "dry_run": false,
     "max_positions": 8,
     "deploy_amount_sol": 0.3,
     "screening_interval_min": 15,
