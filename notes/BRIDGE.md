@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-07T09:08:50.832982+00:00 by **agent_sync**_
+_Updated: 2026-07-07T09:17:57.338461+00:00 by **agent_sync**_
 
 ## Quick status
 
@@ -8,8 +8,8 @@ _Updated: 2026-07-07T09:08:50.832982+00:00 by **agent_sync**_
 |------|-------|
 | Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
-| Uncommitted files | 8 |
-| Last commit | afbd2d1 receive claude handoff: autoRecovery=false live, real recovery tests, spot-dump/ath-gate/boolConfig fixes, LLM->OpenRouter (23 seconds ago) |
+| Uncommitted files | 11 |
+| Last commit | da1ba33 handoff received: claude's autoRecovery fix + tests verified by Hermes. Queue clear, owner to decide config drift. (9 minutes ago) |
 | DRY_RUN | `False` |
 | user-config.json | yes |
 | .env | yes |
