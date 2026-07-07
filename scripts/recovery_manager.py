@@ -31,6 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / "state.json"
+DECISION = ROOT / "decision-log.json"
 PROPOSALS = ROOT / "notes" / "RECOVERY_PROPOSALS.md"
 SEEN = ROOT / ".recovery_seen.json"
 CONFIG = ROOT / "user-config.json"
@@ -138,8 +139,11 @@ def main():
             f"  - action: open recovery bid-ask BELOW, compound fees to upper\n"
         )
         if auto:
-            ok, msg = execute_recovery(r)
-            status = "DEPLOYED" if ok else f"BLOCKED: {msg}"
+            if daily_loss_blocked():
+                status = "BLOCKED: daily loss gate (-$%s hit)" % get_daily_loss_limit()
+            else:
+                ok, msg = execute_recovery(r)
+                status = "DEPLOYED" if ok else f"BLOCKED: {msg}"
             lines.append(f"  - RESULT: {status}\n")
             if ok:
                 deployed.append(r)
@@ -152,6 +156,52 @@ def main():
 
     send_telegram_alert(proposals, auto, deployed)
     save_seen(seen)
+
+
+def get_daily_loss_limit():
+    cfg = load_json(CONFIG) or {}
+    # management.dailyLossLimitUsd (config.js) or top-level
+    m = cfg.get("management", {})
+    if isinstance(m, dict) and "dailyLossLimitUsd" in m:
+        return m["dailyLossLimitUsd"]
+    if "dailyLossLimitUsd" in cfg:
+        return cfg["dailyLossLimitUsd"]
+    return 300  # default fallback
+
+
+def daily_loss_blocked():
+    """Redundant safety: cli deploy does NOT check dailyLossLimitUsd,
+    so recovery must check it itself before deploying."""
+    try:
+        d = load_json(DECISION)
+        if not d:
+            return False
+        limit = get_daily_loss_limit()
+        # realize PnL today from close decisions
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        realized = 0.0
+        for e in d.get("decisions", []):
+            if e.get("type") != "close":
+                continue
+            ts = e.get("timestamp", "")
+            if not ts.startswith(today):
+                continue
+            pnl = e.get("metrics", {}).get("realized_pnl_usd_today")
+            if pnl is None:
+                # try generic pnl_usd / value
+                pnl = e.get("metrics", {}).get("pnl_usd")
+            if pnl is None:
+                # parse from reason text "realized X USD"
+                import re
+                m = re.search(r"realized\s*(-?[\d.]+)\s*USD", str(e.get("reason", "")), re.I)
+                if m:
+                    pnl = float(m.group(1))
+            if pnl is not None:
+                realized += float(pnl)
+        return realized <= -limit
+    except Exception:
+        return False
 
 
 def execute_recovery(r):
