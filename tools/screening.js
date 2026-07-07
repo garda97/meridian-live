@@ -210,12 +210,21 @@ function getRawPoolScreeningRejectReason(pool, s) {
   return null;
 }
 
-async function rugCheckMint(mint) {
+const RUGCHECK_BATCH = 10;
+const RUGCHECK_BATCH_DELAY_MS = 250;
+const RUGCHECK_MAX_RETRY = 2;
+
+async function rugCheckMint(mint, attempt = 0) {
   if (!mint) return { pass: true, rug_score: null };
   try {
     const res = await fetch(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, {
       signal: AbortSignal.timeout(10_000),
     });
+    // Retry on 429 (rate-limit) instead of spamming — avoids false-pass
+    if (res.status === 429 && attempt < RUGCHECK_MAX_RETRY) {
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      return rugCheckMint(mint, attempt + 1);
+    }
     if (!res.ok) throw new Error(`rugcheck HTTP ${res.status}`);
     const data = await res.json();
     if (data.rugged) return { pass: false, reason: "rugcheck: token is rugged" };
@@ -226,20 +235,28 @@ async function rugCheckMint(mint) {
     if (top10pct > top10Max) return { pass: false, reason: `rugcheck: top10 holders ${top10pct.toFixed(1)}% > ${top10Max}%` };
     return { pass: true, rug_score: data.score || 0 };
   } catch (error) {
-    log("screening", `Rugcheck API error for ${mint.slice(0, 8)}: ${error.message} — passing`);
-    return { pass: true, rug_score: null };
+    // FAIL-CLOSED: rugcheck outages must NOT deploy unknown tokens (anti false-pass)
+    log("screening", `Rugcheck API error for ${mint.slice(0, 8)}: ${error.message} — FAIL-CLOSED (reject)`);
+    return { pass: false, reason: `rugcheck unavailable: ${error.message}` };
   }
 }
 
 async function rugCheckCandidates(pools) {
   const results = new Map();
-  await Promise.all(
-    pools.map(async (pool) => {
-      const mint = getPoolBaseMint(pool) || pool?.base?.mint;
-      const key = pool.pool || pool.pool_address;
-      results.set(key, await rugCheckMint(mint));
-    }),
-  );
+  // Batch to avoid hammering rugcheck.xyz with 500 parallel calls (429 risk + false-pass)
+  for (let i = 0; i < pools.length; i += RUGCHECK_BATCH) {
+    const batch = pools.slice(i, i + RUGCHECK_BATCH);
+    await Promise.all(
+      batch.map(async (pool) => {
+        const mint = getPoolBaseMint(pool) || pool?.base?.mint;
+        const key = pool.pool || pool.pool_address;
+        results.set(key, await rugCheckMint(mint));
+      }),
+    );
+    if (i + RUGCHECK_BATCH < pools.length) {
+      await new Promise((r) => setTimeout(r, RUGCHECK_BATCH_DELAY_MS));
+    }
+  }
   return results;
 }
 
