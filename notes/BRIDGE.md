@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-07T11:26:18.385450+00:00 by **agent_sync**_
+_Updated: 2026-07-07T11:28:33.058135+00:00 by **agent_sync**_
 
 ## Quick status
 
@@ -8,8 +8,8 @@ _Updated: 2026-07-07T11:26:18.385450+00:00 by **agent_sync**_
 |------|-------|
 | Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
-| Uncommitted files | 11 |
-| Last commit | ff6d068 handoff received: claude wrap-up (compounding.draft exp + fetch-timeout fix). Verified dryRun=true both files, 0 positions. (12 minutes ago) |
+| Uncommitted files | 12 |
+| Last commit | e21a2c4 LIVE FLIP: compounding.draft preset to LIVE (dryRun=false both .env+user-config). Incident: .env perm reset to 600 by patch -> EACCES, fixed chmod 644. Orphan daemon killed. Daemon healthy, 0 positions. (2 minutes ago) |
 | DRY_RUN | `False` |
 | user-config.json | yes |
 | .env | yes |
