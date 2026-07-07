@@ -9,6 +9,7 @@ import { log } from "../logger.js";
 import { config } from "../config.js";
 import { heliusFetch, getHeliusKeys } from "../utils/helius-rotator.js";
 import { withHeliusRpcRetry } from "../utils/rpc-connection.js";
+import { fetchWithTimeout } from "../utils/fetch-timeout.js";
 
 let _wallet = null;
 
@@ -26,7 +27,7 @@ const SOL_MINT_PRICE = "So11111111111111111111111111111111111111112";
 
 async function fetchSolPriceUsd() {
   try {
-    const res = await fetch(`${JUPITER_PRICE_API}?ids=${SOL_MINT_PRICE}`);
+    const res = await fetchWithTimeout(`${JUPITER_PRICE_API}?ids=${SOL_MINT_PRICE}`, {}, 10_000);
     if (!res.ok) return 0;
     const data = await res.json();
     const price = Number(data?.[SOL_MINT_PRICE]?.usdPrice ?? data?.data?.[SOL_MINT_PRICE]?.price ?? 0);

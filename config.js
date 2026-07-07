@@ -350,6 +350,10 @@ export const config = {
     baseUrl: nonEmptyString(gmgnUserConfig.baseUrl, u.gmgnBaseUrl, "https://openapi.gmgn.ai"),
     requestDelayMs: Number(gmgnUserConfig.requestDelayMs ?? u.gmgnRequestDelayMs ?? 2500),
     maxRetries: Number(gmgnUserConfig.maxRetries ?? u.gmgnMaxRetries ?? 2),
+    // Hard per-request timeout — the underlying fetch() has none by default,
+    // so a hung GMGN connection used to stall the whole screening cycle
+    // forever (no error, no timeout, _screeningBusy never released).
+    requestTimeoutMs: Number(gmgnUserConfig.requestTimeoutMs ?? u.gmgnRequestTimeoutMs ?? 10_000),
     // gmgn = use GMGN total_fee for global_fees_sol; jupiter = legacy Jupiter fees
     feeSource: nonEmptyString(gmgnUserConfig.feeSource, u.gmgnFeeSource, "gmgn"),
     // Enrich token audit with GMGN security + holder tags when API key is present.

@@ -3,6 +3,9 @@ import path from "path";
 import { log } from "./logger.js";
 import { repoPath } from "./repo-root.js";
 import { atomicWriteFileSync } from "./utils/atomic-write.js";
+import { fetchWithTimeout } from "./utils/fetch-timeout.js";
+
+const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 import {
   TG,
   BOT_COMMANDS_ID,
@@ -118,11 +121,11 @@ export function isEnabled() {
 async function postTelegram(method, body) {
   if (!TOKEN || !chatId) return null;
   try {
-    const res = await fetch(`${BASE}/${method}`, {
+    const res = await fetchWithTimeout(`${BASE}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, ...body }),
-    });
+    }, TELEGRAM_FETCH_TIMEOUT_MS);
     if (!res.ok) {
       const err = await res.text();
       if (res.status === 401) {
@@ -142,11 +145,11 @@ async function postTelegram(method, body) {
 async function postTelegramRaw(method, body) {
   if (!TOKEN) return null;
   try {
-    const res = await fetch(`${BASE}/${method}`, {
+    const res = await fetchWithTimeout(`${BASE}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    });
+    }, TELEGRAM_FETCH_TIMEOUT_MS);
     if (!res.ok) {
       const err = await res.text();
       if (res.status === 401) {
@@ -366,7 +369,7 @@ async function downloadTelegramFile(fileId) {
   const meta = await postTelegramRaw("getFile", { file_id: fileId });
   const filePath = meta?.result?.file_path;
   if (!filePath) throw new Error("Telegram getFile returned no file_path");
-  const fileRes = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${filePath}`);
+  const fileRes = await fetchWithTimeout(`https://api.telegram.org/file/bot${TOKEN}/${filePath}`, {}, TELEGRAM_FETCH_TIMEOUT_MS);
   if (!fileRes.ok) throw new Error(`Telegram file download failed: ${fileRes.status}`);
   return {
     buffer: Buffer.from(await fileRes.arrayBuffer()),
@@ -534,11 +537,11 @@ const BOT_COMMANDS = BOT_COMMANDS_ID;
 async function registerCommands() {
   if (!BASE) return;
   try {
-    await fetch(`${BASE}/setMyCommands`, {
+    await fetchWithTimeout(`${BASE}/setMyCommands`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ commands: BOT_COMMANDS }),
-    });
+    }, TELEGRAM_FETCH_TIMEOUT_MS);
     log("telegram", "Bot commands registered");
   } catch (e) {
     log("telegram_warn", `Failed to register bot commands: ${e.message}`);
