@@ -1,12 +1,12 @@
 {
-  "updated_at": "2026-07-07T04:59:02.925119+00:00",
+  "updated_at": "2026-07-07T09:08:50.832982+00:00",
   "updated_by": "agent_sync",
   "project": "meridian",
   "phase": "Evil Panda strict live",
   "git": {
     "branch": "github-main",
-    "last_commit": "603e743 CRITICAL ALERT: autoRecovery=true live in user-config \u2014 contradicts inert claim; no upper binsBelow clamp; Claude test claims false (15 minutes ago)",
-    "dirty_files": 16,
+    "last_commit": "afbd2d1 receive claude handoff: autoRecovery=false live, real recovery tests, spot-dump/ath-gate/boolConfig fixes, LLM->OpenRouter (23 seconds ago)",
+    "dirty_files": 8,
     "is_dirty": true
   },
   "meridian": {
@@ -20,7 +20,7 @@
     "recent_decisions": 0,
     "last_decision": null
   },
-  "handoff_count": 1,
+  "handoff_count": 2,
   "latest": {
     "at": "2026-07-07 11:05 UTC",
     "from": "claude",
