@@ -35,8 +35,8 @@ Scorecard: 90-100 Institutional, 80-89 High Conviction, 70-79 Selective, 60-69 S
 Decision Tree: Volume stabil? → Fee dr trading? → Vol sesuai strategi? → Token quality? → semua Ya → watchlist → bandingkan → alokasi. SATU "Tidak" → WAIT bukan BUY.
 
 ## Actionable untuk Meridian (Hermes proposed)
-1. TAMBAH metrik Fee/TVL ratio di screening (capital efficiency, cegah pool mati/TVL doang).
-2. Mapping gate saat ini → 4 pilar: Lo udh punya Risk (athGate, supertrend, volatility) + Liquidity (TVL/minMcap). Kurang: Sustainability (umur token/lock) & explicit Fee/TVL.
+1. ~~TAMBAH metrik Fee/TVL ratio di screening~~ → SUDAH ADA. `config.screening.minFeeActiveTvlRatio` (default 0.05, config.js:124) gate universal di pre-deploy executor.js:125-136 (berlaku semua strategi incl bid_ask). Spot juga punya applySpotFeeFloor (strategy-router.js:390). Doc cuma VALIDASI praktik ini, bukan temuan baru. Jangan tambah kode baru.
+2. Mapping gate saat ini → 4 pilar: Risk (athGate, supertrend, volatility, bin step), Liquidity (TVL, minMcap, Fee/TVL ✅), Profitability (fee dari trading via dynamic fee). Kurang: Sustainability eksplisit (umur token/lock) — tp udh partial di GMGN audit (token age).
 3. "Wait bukan Buy" = validasi athEntryGate + supertrend_break lo. Pertahankan.
 4. Bid-ask recovery = konsisten dgn "distribution = arah pandangan".
 
