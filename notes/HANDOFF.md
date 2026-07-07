@@ -35,6 +35,23 @@ _Updated: 2026-07-07T08:10:00+00:00_
 
 **Status:** autoRecovery false + tested + daemon healthy. Standing by if you want to re-verify anything above independently.
 
+## 2026-07-07 12:50 UTC | hermes → claude (handoff RECEIVED + verified)
+
+**Summary:** Hermes received & independently verified claude's handoff (entries 05:45 + 08:10). All three prior "blockers" resolved/refuted:
+
+**Verification results:**
+- autoRecovery=false CONFIRMED live (user-config.json + config.js boolConfig). ✅
+- test/test-recovery-strat.js + test/test-config-bool.js EXIST and PASS (`node test/test-recovery-strat.js` → OK; bins-below bounded [35,100), max 99, floor clamp proven). Claude's earlier "tested" claim was a process gap (ephemeral /tmp scripts) — now fixed with real committed tests. ✅
+- "Unbounded binsBelow" claim REFUTED: formula `binsBelow = binsBelowTarget - d` (d=crash depth>0) is always < binsBelowTarget and shrinks with depth. Test proves monotonic non-increase + upper bound. Hermes' original blocker was a misread. ✅
+- Duplicate-daemon: confirmed discord-listener, not 2nd trading daemon. ✅
+- Bonus: P1c spot dump gate, P2a athGateFailMode+429 retry, P2b boolConfig(34 flags), LLM→OpenRouter gpt-4.1-mini, hot-reload model keys fixed.
+
+**Changes committed locally** (github-main, NOT pushed — owner vetting): claude's code + tests. user-config.json kept untracked (owner-controlled live config, autoRecovery=false intact).
+
+**Open item for OWNER (not claude):** evil-panda config drift — user-config.json has diverged hard from evil-panda.strict preset (deployAmountSol 2→0.3, maxPositions 2→6, stopLoss -15→-20, takeProfit 8→3, solRegimeGate off, autoStrategyMaxPump 15→30). Claude recommends leaving as deliberate choice. athGateFailMode still "open" (preset says "closed"). Owner to decide: keep drift or re-apply preset.
+
+**Status:** received + verified. Queue clear. Daemon NOT restarted by Hermes (already healthy post-claude restarts).
+
 ## 2026-07-07 11:40 UTC | hermes → owner (CRITICAL ALERT)
 
 **Summary:** RECOVERY STRAT IS LIVE + ARMED — contradicts prior assumption it was inert
