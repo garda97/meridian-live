@@ -106,13 +106,23 @@ def main():
             seen[pid] = ts()
             continue
 
-        rec_min = min_bin - RECOVERY_BINS_BELOW
-        rec_max = min_bin
+        peak = p.get("peak_pnl_pct") or p.get("pnl_pct") or 0
+        # CrimeXBT: if token pumps (OOR above, still in profit), CHASE UP
+        # by adding buy-side LP above. Else recover below (conservative).
+        if peak >= 10:
+            direction = "CHASE_UP"
+            rec_min = max_bin
+            rec_max = max_bin + RECOVERY_BINS_BELOW
+        else:
+            direction = "RECOVER_BELOW"
+            rec_min = min_bin - RECOVERY_BINS_BELOW
+            rec_max = min_bin
         proposals.append({
             "pid": pid,
             "pool_addr": pool_addr,
             "pool": p.get("pool_name", "?"),
             "strategy": p.get("strategy", "?"),
+            "direction": direction,
             "oor_since": p.get("out_of_range_since"),
             "orig_range": f"[{min_bin}, {max_bin}]",
             "recovery_range": f"[{rec_min}, {rec_max}]",
@@ -209,12 +219,17 @@ def execute_recovery(r):
     Returns (ok, message). Safety checks (maxPositions, dailyLoss, maxTvl...)
     are enforced by the CLI itself."""
     try:
+        # CrimeXBT chase-up: if OOR above (token pumped), add buy-side LP above
+        if r.get("direction") == "CHASE_UP":
+            bins_below, bins_above = 0, RECOVERY_BINS_BELOW
+        else:
+            bins_below, bins_above = RECOVERY_BINS_BELOW, 0
         cmd = [
             "node", "cli.js", "deploy",
             "--pool", r["pool_addr"],
             "--amount", "0.3",
-            "--bins-below", str(RECOVERY_BINS_BELOW),
-            "--bins-above", "0",
+            "--bins-below", str(bins_below),
+            "--bins-above", str(bins_above),
             "--strategy", "bid_ask",
         ]
         res = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=120)
