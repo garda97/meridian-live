@@ -147,6 +147,8 @@ export const config = {
     repeatDeployCooldownHours: u.repeatDeployCooldownHours ?? 12,
     repeatDeployCooldownScope: u.repeatDeployCooldownScope ?? "token", // pool | token | both
     repeatDeployCooldownMinFeeEarnedPct: u.repeatDeployCooldownMinFeeEarnedPct ?? u.repeatDeployCooldownMinFeeYieldPct ?? 0,
+    autoRecovery:          u.autoRecovery          ?? false, // Hermes: open recovery position below OOR-dropped position (off by default, owner opt-in)
+    autoRecoveryBinsBelow: u.autoRecoveryBinsBelow ?? 100,  // how far below original lower bin to open recovery
     lossRedeployBlockEnabled: u.lossRedeployBlockEnabled !== false,
     lossRedeployCooldownHours: u.lossRedeployCooldownHours ?? 24,
     winOorRedeployCooldownHours: u.winOorRedeployCooldownHours ?? 3, // block redeploy after a win that still went OOR (volatile pool)
