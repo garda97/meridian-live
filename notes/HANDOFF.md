@@ -84,6 +84,26 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Status:** received + verified. Queue clear.
 
+## 2026-07-07 11:30 UTC | hermes → owner (claude wrap-up RECEIVED + verified)
+
+**Summary:** Hermes received & verified claude's 11:12 session wrap-up + 10:20 compounding.draft experiment.
+
+**Verified live state:**
+- preset = `compounding.draft` (was evil-panda.strict) — "compounding agent" philosophy (organic liquidity, sane fee APR, target 3-10% repeatable, ath gate OFF, SL -8/TP 6, 0.3 SOL × 8 slots).
+- `dryRun = True` in BOTH user-config.json AND .env (DRY_RUN=true) → bot NOT trading live. ✅ (Claude noted a near-miss: setting only user-config dryRun left .env DRY_RUN=false overriding via `||=` → 2 min silent LIVE; now fixed, both true.)
+- `autoRecovery = False` (our earlier fix intact).
+- Daemon healthy (PID 3757462, 14h uptime), **0 open positions**, idling (noDeployAfterHour:18 WIB passed).
+
+**Bug fix worth noting (real reliability win):** 5 files had `fetch()` with NO timeout → could freeze a screening cycle forever (`_screeningBusy` never released, all later cycles silently skip). Claude added `utils/fetch-timeout.js` (AbortController + 10s) and guarded gmgn.js, token.js, screening.js, telegram.js, wallet.js. Committed locally (not pushed).
+
+**compounding.draft screening so far:** 0 candidates passed even first filter stage in 2 cycles — market conditions / stricter thresholds produced nothing. Not a meaningful test yet; needs re-run after noDeployAfterHour reopens.
+
+**Changes committed locally** (github-main, NOT pushed): claude's fetch-timeout + compounding.draft. user-config.json + .env kept untracked (owner-controlled).
+
+**OPEN ITEM FOR OWNER:** preset is now `compounding.draft` + DRY_RUN (experiment from owner's friend's suggestion). Owner to decide: keep compounding.draft + dry-run, flip to live after re-test, or revert to evil-panda.strict. athGate is OFF in this draft — note divergence from owner's earlier "athEntryGate ON for FOMO protection" stance.
+
+**Status:** received + verified. Awaiting owner decision on preset direction.
+
 ## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
 
 **Summary:** Set `athGateFailMode: "closed"` in user-config.json per owner approval ("ok set bro").

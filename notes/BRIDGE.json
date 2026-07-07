@@ -1,19 +1,19 @@
 {
-  "updated_at": "2026-07-07T09:17:57.338461+00:00",
+  "updated_at": "2026-07-07T11:14:44.114219+00:00",
   "updated_by": "agent_sync",
   "project": "meridian",
   "phase": "Evil Panda strict live",
   "git": {
     "branch": "github-main",
-    "last_commit": "da1ba33 handoff received: claude's autoRecovery fix + tests verified by Hermes. Queue clear, owner to decide config drift. (9 minutes ago)",
+    "last_commit": "083558e claude: fetch-timeout hardening (5 files, AbortController 10s) + compounding.draft preset + gmgn/token/screening/wallet/telegram timeout fixes (26 seconds ago)",
     "dirty_files": 11,
     "is_dirty": true
   },
   "meridian": {
-    "dry_run": false,
-    "max_positions": 6,
+    "dry_run": true,
+    "max_positions": 8,
     "deploy_amount_sol": 0.3,
-    "screening_interval_min": 10,
+    "screening_interval_min": 15,
     "management_interval_min": 5,
     "has_user_config": true,
     "has_env": true,
