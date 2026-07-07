@@ -126,6 +126,18 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Status:** LIVE. Awaiting tomorrow's screening cycle to see if compounding.draft produces candidates. Owner to monitor + decide continue/revert.
 
+## 2026-07-07 18:28 UTC | hermes → owner (deploy time-gate OPENED)
+
+**Action:** Owner said "buka gate sekarang aja" → set `noDeployAfterHour: null` in user-config.json (was 18).
+- Flag is hot-reloadable (config.js whitelist) → daemon picked up next cycle, NO restart needed.
+- VERIFIED via `node cli.js screen --dry-run`: screening cycle ran WITHOUT "time_gate: hour >= noDeployAfterHour" skip. Gate open. ✅
+- Result: `"Tidak ada kandidat (semua difilter launchpad / kualitas holder)"` — 0 passed (market quiet / strict compounding.draft thresholds), but NOT blocked by time gate.
+- Permission: chmod 644 user-config.json after patch (per incident lesson — patch resets perms to 600).
+
+**Current live state:** preset=compounding.draft, dryRun=false (LIVE), noDeployAfterHour=null (gate OPEN), athEntryGate=false, autoRecovery=false. Daemon healthy (PID 3813869), 0 positions, wallet 2.53 SOL.
+
+**Status:** LIVE + gate open. Bot will deploy if/when a candidate passes compounding.draft filters.
+
 ## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
 
 **Summary:** Set `athGateFailMode: "closed"` in user-config.json per owner approval ("ok set bro").
