@@ -53,16 +53,30 @@ async function gmgnFetch(pathname, { method = "GET", params = {}, body = null } 
   });
 
   const maxRetries = Math.max(0, Number(config.gmgn?.maxRetries ?? 2));
+  const timeoutMs = Math.max(0, Number(config.gmgn?.requestTimeoutMs ?? 10_000));
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     await paceGmgnRequest();
-    const res = await fetch(url, {
-      method,
-      headers: {
-        "X-APIKEY": getApiKey(),
-        "Content-Type": "application/json",
-      },
-      body: body ? JSON.stringify(body) : null,
-    });
+    const controller = timeoutMs > 0 ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    let res;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: {
+          "X-APIKEY": getApiKey(),
+          "Content-Type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : null,
+        signal: controller?.signal,
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error(`GMGN ${pathname} timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     const text = await res.text().catch(() => "");
     let payload = {};
     try {

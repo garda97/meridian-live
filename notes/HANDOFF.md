@@ -1,5 +1,37 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-07T08:10:00+00:00_
+_Updated: 2026-07-07T11:12:00+00:00_
+
+## 2026-07-07 11:12 UTC | claude → hermes (session wrap-up — safe, paused for the night)
+
+**Summary:** Spent most of this session chasing a screening-cycle hang while trying to dry-run test `compounding.draft`. Root cause was NOT the preset — it was a codebase-wide pattern of `fetch()` calls with zero timeout, scattered across 5 files, any one of which could freeze a cycle forever with `_screeningBusy` never releasing. Found and fixed all 5. Confirmed fixed via 2 complete screening cycles (~1s each) after the last fix. Then immediately hit `compounding.draft`'s own `noDeployAfterHour: 18` gate (now past 18:00 WIB) — so no more screening tonight. This is by design, not a bug. Owner chose to stop here and re-test tomorrow rather than temporarily lift the gate.
+
+**Bugs found + fixed (all via new `utils/fetch-timeout.js`, AbortController + 10s default):**
+1. `tools/gmgn.js` — `gmgnFetch()`, used by holder-stats checks on every passing screening candidate.
+2. `tools/token.js` — `getTokenNarrative`/`getTokenInfo`/`getTokenHolders`, called per-candidate in the recon loop.
+3. `tools/screening.js` — `fetchPoolDiscoveryPage`/`fetchPoolDiscoveryDetail`/`searchAssetsBySymbol`/`findRivalPool`/discord-signal fetch. This one is the FIRST network call of every screening cycle.
+4. `telegram.js` — `postTelegram`/`postTelegramRaw`/file-download/`setMyCommands`. The long-poll `getUpdates` already had its own `AbortSignal.timeout` — left alone.
+5. `tools/wallet.js` — `fetchSolPriceUsd()`, called on every `getTopCandidates()` (5-min cache, so cold on most restarts). Diagnosed via kernel-level introspection (`/proc/<pid>/status`, `wchan`, `lsof -i`) after 4 file-by-file guesses failed — should have started there. Real lesson for next time this happens: check syscall-level state before re-guessing at the file level.
+
+**Actual compounding.draft screening result so far:** 0 candidates passed even the *first* filter stage (TVL/fee-ratio/volatility/cooldown/estimated-share) in both completed cycles — never reached PVP/rugcheck/GMGN/LLM. Not yet a meaningful test of the new gate profile; current market conditions (or the stricter thresholds) just didn't produce any candidate tonight. Needs a re-run tomorrow once `noDeployAfterHour` reopens (or owner can widen the window / test earlier in the day).
+
+**Also observed tonight (unrelated, not investigated further):** Helius wallet API returned a 502 once (`WALLET_FALLBACK` correctly caught it and fell back to RPC `getBalance` — that fallback path already works correctly, no action needed).
+
+**Current live state:** `preset: "compounding.draft"`, `dryRun: true` in both `user-config.json` and `.env` (`DRY_RUN=true`) — bot is NOT trading live. Daemon healthy, 0 open positions, idling until `noDeployAfterHour` gate reopens. Same revert instructions as the 10:20 UTC entry below apply if anyone wants back to `evil-panda.strict` + live trading.
+
+## 2026-07-07 10:20 UTC | claude → hermes (ACTIVE EXPERIMENT — bot not trading live right now)
+
+**Summary:** Owner's friend suggested pivoting from "catch the runner" (momentum/ATH chase, evil-panda doctrine) to a "compounding agent" philosophy (organic liquidity, sane fee APR, low dev/holder risk, target repeatable 3-10% instead of moonshots). I sketched it as a new draft preset and we're now live-testing it in DRY_RUN. **This is in-progress, not finished — flagging now so nobody sees "0 deploys" and assumes something's broken.**
+
+**Current live state (important):**
+- `user-config.json`: `preset: "compounding.draft"` (was `evil-panda.strict`). Full diff logged via `node scripts/apply-preset.js compounding.draft --dry-run`. Auto-backup at `user-config.json.bak.1783417211557`.
+- `dryRun: true` in user-config.json **AND** `.env` (`DRY_RUN=true`) — the bot will NOT send real transactions right now. Both had to be set because `.env`'s `DRY_RUN=false` takes priority over user-config.json's value via `||=` in config.js — I initially only set user-config.json and the daemon silently stayed in LIVE mode for ~2 min before I caught it (0 open positions at the time, no harm done, but worth knowing about this interaction for next time).
+- New preset file: `presets/compounding.draft.json` — full rationale in its `_meta.notes`. Athens gate off (`athEntryGateEnabled: false`), tighter stop loss (-8%), takeProfitPct 6%, more/smaller diversified positions (0.3 SOL × 8 slots vs evil-panda's 2 SOL × 2).
+
+**Bug found + fixed along the way:** `tools/gmgn.js`'s `gmgnFetch()` used a plain `fetch()` with **no timeout at all**. The screening cycle's per-candidate GMGN holder-stats loop (index.js:820-825, runs unconditionally regardless of which gmgn gates are enabled) hung the daemon completely twice in a row — no error, no timeout, `_screeningBusy` never released, every subsequent cycle silently skipped ("previous cycle still running") until I manually restarted. Added `config.gmgn.requestTimeoutMs` (default 10s) + AbortController in `gmgnFetch()`. Verified with an isolated test against a blackhole IP (10.255.255.1) — timed out at exactly the configured window instead of hanging. This wasn't caused by the new preset (the fetch loop runs unconditionally either way) but the preset may have changed how many candidates reach that stage.
+
+**Not yet done:** actually seeing the compounding.draft screening results (candidates pass/reject breakdown) — waiting on the post-timeout-fix screening cycle to complete. Will report real numbers once available.
+
+**To revert to evil-panda.strict + live trading:** `node scripts/apply-preset.js evil-panda.strict`, then set `dryRun: false` in user-config.json AND `.env` (`DRY_RUN=false`), then restart the daemon. Don't forget the `.env` half — that's the part that bit me.
 
 ## 2026-07-07 08:10 UTC | claude → hermes
 
