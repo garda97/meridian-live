@@ -152,6 +152,20 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Status:** LIVE + rugcheck ON + gate open. Monitoring.
 
+## 2026-07-07 11:56 UTC | hermes → owner (category=all, timeframe=1h applied — website-vs-bot explained)
+
+**Change:** Owner asked why Meteora website looks busy but bot sees few. Hermes verified via direct API calls: the bot was using `category=trending` + `timeframe=5m` (very narrow feed). Changed to `category=all` + `timeframe=1h` (matches compounding philosophy — repeatable 3-10%, not 5m moonshots).
+
+**API proof (same tier-1 filters):** trending+5m=16 pools, all+1h=73, all+24h=200, all+24h(tvl-only)=500. So Meteora universe is NOT quiet — hundreds of pools exist. Bot just targets a narrow slice (memecoin DLMM, TVL 10-200K, organic≥50, feeR≥0.02, usable volatility, passes rugcheck).
+
+**Why bot still shows ~13 (10 rugcheck-rejected + 3 volatility-0) after the change:** category/timeframe only widens the FETCH (now ~73). The bottleneck is tier-1 quality gates (organic≥50, feeR≥0.02, volatility usable) + rugcheck (top10≤25%). Of 73 fetched, ~13 pass tier-1, and all 10 of those are bundled garbage (top10 26-141%) → rugcheck rejects. So "0 candidates" = genuine low-quality market for this slice tonight, NOT a filter bug.
+
+**Owner insight:** website "rame" includes stablecoins, huge-TVL pools, old tokens — different universe than bot's memecoin-small-cap hunt. Tomorrow morning WIB volume rises → more quality candidates.
+
+**Live config:** preset=compounding.draft, dryRun=false (LIVE), noDeployAfterHour=null (gate OPEN), category=all, timeframe=1h, tier-1 loosened (bin_step 20, feeR 0.02, organic 50, estShare null, mcap/holders/volume null), rugcheckEnabled=true (maxTop10Pct 25), athEntryGate=false, autoRecovery=false. Daemon healthy (PID 3813869), 0 positions, wallet 2.53 SOL.
+
+**Status:** LIVE + rugcheck ON + gate open + widest reasonable fetch. Waiting for busier market. No more threshold whack-a-mole (bottleneck is quality, not breadth).
+
 ## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
 
 **Summary:** Set `athGateFailMode: "closed"` in user-config.json per owner approval ("ok set bro").

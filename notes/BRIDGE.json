@@ -1,11 +1,11 @@
 {
-  "updated_at": "2026-07-07T11:47:44.827045+00:00",
+  "updated_at": "2026-07-07T11:55:57.657040+00:00",
   "updated_by": "agent_sync",
   "project": "meridian",
   "phase": "Evil Panda strict live",
   "git": {
     "branch": "github-main",
-    "last_commit": "499e8b3 gate opened: noDeployAfterHour=null (hot-reload, verified via dry-run screen). LIVE + gate open, 0 candidates tonight (market quiet). (19 minutes ago)",
+    "last_commit": "6969147 threshold tweak: loosened tier-1 (bin_step/feeR/organic/estShare/mcap-null). ROOT CAUSE 0-candidates = rugcheck rejects all 10 raw pools (holder 26-141%). Owner keeps rugcheck ON, waits for volume. (8 minutes ago)",
     "dirty_files": 12,
     "is_dirty": true
   },
