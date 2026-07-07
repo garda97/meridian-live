@@ -178,6 +178,23 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Note:** Telegram notif dirapihin (header bold + emoji + divider + status warna). File `utils/telegram-id.js`. Verified render test. Daemon restart PID 3826232, no error.
 
+## 2026-07-07 13:56 UTC | hermes → owner (WATCHDOG auto-monitor)
+
+**Ask:** "biarkan jalan, pastikan semua service lancar tanpa error."
+
+**Done:** Pasang independent watchdog (preferensi owner: no active session needed).
+- Script: `~/.hermes/scripts/meridian_watchdog.sh` (no_agent, silent when healthy)
+- Cron job: `36827d536ff6`, every 15m, deliver=telegram
+- Checks: (1) daemon active, (2) orphan/multiple node procs, (3) fatal log 30m (exclude screening rejects), (4) SOL drain < baseline 2.40, (5) self cron-health.
+- Alert: Telegram HTML ke chat 590074498 (via Bot API curl + cron deliver). Silent when healthy (no spam).
+- Tested: run once = ok, silent (healthy). No false-alarm.
+
+**Baseline SOL alert:** 2.40 (owner balance 2.53). Drop >0.13 SOL = anomali alert.
+
+**Verified:** cron run success=true. Daemon active PID 3826232, no errors, SOL 2.53.
+
+**Status:** LIVE + watchdog 15m active. Owner bisa biarkan jalan; watchdog alert otomatis kalau ada masalah.
+
 ## 2026-07-07 13:46 UTC | hermes → owner (Telegram notif rapi)
 
 **Ask:** "rapihin notif Telegram biar enak dilihat."
