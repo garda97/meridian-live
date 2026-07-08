@@ -12,6 +12,7 @@ import fs from "fs";
 import { log } from "./logger.js";
 import { repoPath } from "./repo-root.js";
 import { atomicWriteFileSync } from "./utils/atomic-write.js";
+import { calculateIlConcentrated } from "./utils/impermanent-loss.js";
 
 const STATE_FILE = repoPath("state.json");
 
@@ -418,6 +419,67 @@ export function getStateSummary() {
   };
 }
 
+// ─── Impermanent-loss tracking ─────────────────────────────────
+
+// DLMM bin price = (1 + bin_step/10000)^binId — same curve as the SDK's
+// getPriceOfBinByBinId. Only price *ratios* feed the IL formula, so token
+// decimal scaling cancels out and no on-chain read is needed.
+function binPrice(binId, binStep) {
+  return Math.pow(1 + binStep / 10000, binId);
+}
+
+/**
+ * Theoretical price-only IL for a tracked position, plus the gap to real PnL.
+ * il_pct is negative (loss vs holding the entry bundle). fee_vs_il_gap_pct =
+ * pnl_pct - il_pct ≈ how much fee income (and directional move) is offsetting
+ * the IL — same convention as debug_il.js.
+ * @param {object} tracked - state entry: bin_step, active_bin_at_deploy
+ * @param {object} positionData - live fields: active_bin, lower_bin, upper_bin, pnl_pct
+ * Returns { il_pct, fee_vs_il_gap_pct } (2-decimal) or null when bin data is missing.
+ */
+export function computeIlMetrics(tracked, positionData = {}) {
+  const binStep = Number(tracked?.bin_step);
+  const entryBin = tracked?.active_bin_at_deploy;
+  const { active_bin, lower_bin, upper_bin, pnl_pct } = positionData;
+  if (!Number.isFinite(binStep) || binStep <= 0) return null;
+  if (entryBin == null || active_bin == null || lower_bin == null || upper_bin == null) return null;
+
+  const il = calculateIlConcentrated(
+    binPrice(entryBin, binStep),
+    binPrice(active_bin, binStep),
+    binPrice(lower_bin, binStep),
+    binPrice(upper_bin, binStep),
+  );
+  if (il == null) return null;
+
+  const il_pct = Math.round(il * 10000) / 100;
+  const pnl = Number(pnl_pct);
+  const fee_vs_il_gap_pct = pnl_pct != null && Number.isFinite(pnl)
+    ? Math.round((pnl - il_pct) * 100) / 100
+    : null;
+  return { il_pct, fee_vs_il_gap_pct };
+}
+
+/**
+ * Opt-in IL-gap exit: fire when |IL| has outrun earned fees by more than
+ * ilGapCloseThresholdPct (fee_vs_il_gap_pct < -threshold). Pure — used by
+ * getDeterministicCloseRule in index.js. Returns { il_pct, gap_pct, reason } or null.
+ */
+export function checkIlGapExit(tracked, positionData, mgmtConfig) {
+  if (!mgmtConfig?.ilGapCloseEnabled) return null;
+  if (positionData?.pnl_pct_suspicious) return null;
+  const metrics = computeIlMetrics(tracked, positionData);
+  if (metrics?.fee_vs_il_gap_pct == null) return null;
+  const threshold = Number(mgmtConfig.ilGapCloseThresholdPct ?? 15);
+  if (!Number.isFinite(threshold) || threshold <= 0) return null;
+  if (metrics.fee_vs_il_gap_pct >= -threshold) return null;
+  return {
+    il_pct: metrics.il_pct,
+    gap_pct: metrics.fee_vs_il_gap_pct,
+    reason: `IL gap: PnL trails IL by ${Math.abs(metrics.fee_vs_il_gap_pct).toFixed(1)}% (IL ${metrics.il_pct.toFixed(1)}%, threshold -${threshold}%)`,
+  };
+}
+
 /**
  * Check all exit conditions for a position (trailing TP, stop loss, OOR, low yield).
  * Updates peak_pnl_pct, trailing_active, and OOR state.
@@ -433,6 +495,14 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   if (!pos || pos.closed) return null;
 
   let changed = false;
+
+  // Real-time IL tracking (persisted so debug_il/cli/history can read it back)
+  const ilMetrics = computeIlMetrics(pos, positionData);
+  if (ilMetrics && (pos.il_pct !== ilMetrics.il_pct || pos.fee_vs_il_gap_pct !== ilMetrics.fee_vs_il_gap_pct)) {
+    pos.il_pct = ilMetrics.il_pct;
+    pos.fee_vs_il_gap_pct = ilMetrics.fee_vs_il_gap_pct;
+    changed = true;
+  }
 
   // Activate trailing TP once trigger threshold is reached (never during PnL warmup)
   if (mgmtConfig.trailingTakeProfit && !pos.trailing_active && !isInPnlWarmup(pos, mgmtConfig.pnlWarmupMinutes) && (pos.peak_pnl_pct ?? 0) >= mgmtConfig.trailingTriggerPct) {
@@ -682,6 +752,7 @@ export function syncOpenPositions(active_addresses) {
       pool_name: pos.pool_name || null,
       strategy: pos.strategy || null,
       volatility: pos.volatility ?? null,
+      il_pct: pos.il_pct ?? null,
       amount_sol: pos.amount_sol ?? null,
       deployed_at: pos.deployed_at || null,
       closed_at: pos.closed_at,

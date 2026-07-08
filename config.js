@@ -132,6 +132,9 @@ export const config = {
     maxMcap:           u.maxMcap           ?? 10_000_000,
     minBinStep:        u.minBinStep        ?? 80,
     maxBinStep:        u.maxBinStep        ?? 125,
+    // Volatility-aware bin-step screening (opt-in): volatile pools accept a
+    // wider [minBinStep, maxBinStep] window than the static bounds alone.
+    binStepVolatilityScalingEnabled: boolConfig(u.binStepVolatilityScalingEnabled, false),
     timeframe:         u.timeframe         ?? "5m",
     category:          u.category          ?? "trending",
     minTokenFeesSol:   u.minTokenFeesSol   ?? 30,  // floor (SOL); Evil Panda rule: <30 SOL total fees = bundled/scam signal
@@ -203,6 +206,7 @@ export const config = {
     rebalanceCooldownMinutes:  u.rebalanceCooldownMinutes  ?? 15,  // between attempts on the same position
     rebalanceMinPnlPct:        u.rebalanceMinPnlPct        ?? -8,  // below this, close instead of rebalance
     rebalanceOnStrategyDrift:  boolConfig(u.rebalanceOnStrategyDrift, true), // in-range bid_ask→spot conversion
+    rebalanceVolatilityScalingEnabled: boolConfig(u.rebalanceVolatilityScalingEnabled, false), // opt-in: scale OOR/cooldown minutes by pool volatility
     // TVL dilution exit (opt-in): close when our share collapsed AND the pool
     // TVL exploded since entry AND yield is under the low-yield floor.
     shareExitEnabled:      boolConfig(u.shareExitEnabled, false),
@@ -213,6 +217,10 @@ export const config = {
     rebalanceTxFeeBufferSol:   u.rebalanceTxFeeBufferSol   ?? 0.02, // headroom for claim/remove/add/close txs
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
+    // IL-gap close rule (opt-in): close when |IL| outruns earned fees by more
+    // than the threshold (fee_vs_il_gap_pct < -ilGapCloseThresholdPct).
+    ilGapCloseEnabled:      boolConfig(u.ilGapCloseEnabled, false),
+    ilGapCloseThresholdPct: u.ilGapCloseThresholdPct ?? 15,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
     // Min hold before deterministic take-profit may fire (deposits + PnL cache settle).

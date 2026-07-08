@@ -56,7 +56,7 @@ Output: { positions: [{position, pool, pair, in_range, age_minutes, ...}], total
 ### meridian pnl <position_address>
 Returns PnL for a specific position.
 \`\`\`
-Output: { pnl_pct, pnl_usd, unclaimed_fee_usd, all_time_fees_usd, current_value_usd, lower_bin, upper_bin, active_bin }
+Output: { pnl_pct, pnl_usd, unclaimed_fee_usd, all_time_fees_usd, current_value_usd, lower_bin, upper_bin, active_bin, il_pct, fee_vs_il_gap_pct }
 \`\`\`
 
 ### meridian screen [--dry-run] [--silent]
@@ -300,6 +300,10 @@ switch (subcommand) {
     const pnl = await getPositionPnl({ pool_address: poolAddress, position_address: positionAddress });
     if (tracked?.strategy) pnl.strategy = tracked.strategy;
     if (tracked?.instruction) pnl.instruction = tracked.instruction;
+    const { computeIlMetrics } = await import("./state.js");
+    const ilMetrics = computeIlMetrics(tracked, pnl);
+    pnl.il_pct = ilMetrics?.il_pct ?? null;
+    pnl.fee_vs_il_gap_pct = ilMetrics?.fee_vs_il_gap_pct ?? null;
     out(pnl);
     break;
   }
