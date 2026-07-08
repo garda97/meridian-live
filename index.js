@@ -46,7 +46,7 @@ import {
   formatPositionsListId,
 } from "./utils/telegram-id.js";
 import { generateBriefing } from "./briefing.js";
-import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, confirmPeak, registerExitSignal, shouldPartialTakeProfit, isInPnlWarmup, canFireTakeProfit, linkRecoveryPosition } from "./state.js";
+import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, confirmPeak, registerExitSignal, shouldPartialTakeProfit, isInPnlWarmup, canFireTakeProfit, linkRecoveryPosition, checkIlGapExit } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -1471,6 +1471,13 @@ function getDeterministicCloseRule(position, managementConfig) {
     (position.age_minutes ?? 0) >= tgeMaxHoldHours * 60
   ) {
     return { action: "CLOSE", rule: 6, reason: `TGE max hold ${tgeMaxHoldHours}h reached` };
+  }
+  // Rule 7 (opt-in, ilGapCloseEnabled): |IL| outran earned fees beyond the gap threshold.
+  if (!pnlSuspect) {
+    const ilExit = checkIlGapExit(tracked, position, managementConfig);
+    if (ilExit) {
+      return { action: "CLOSE", rule: 7, reason: ilExit.reason };
+    }
   }
   return null;
 }

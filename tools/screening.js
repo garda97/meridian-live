@@ -142,7 +142,30 @@ function getVolatilityTimeframe(sourceTimeframe) {
   return sourceMinutes != null && sourceMinutes >= minMinutes ? source : MIN_VOLATILITY_TIMEFRAME;
 }
 
-function getRawPoolScreeningRejectReason(pool, s) {
+/**
+ * Volatility-widened bin-step window (mirrors volatilityScaledBins' vol/5
+ * pivot in strategy-router.js). Opt-in via binStepVolatilityScalingEnabled:
+ * volatile pools accept a wider [minBinStep, maxBinStep] window than the
+ * static config alone. Widening saturates at ±50% of each bound (vol >= 5)
+ * and the min is floored at 1 so the window can never invert or collapse.
+ * discoverPools' API-level pre-filter keeps the static bounds as the outer
+ * fetch envelope; this only relaxes the post-fetch checks.
+ */
+export function volatilityScaledBinStepWindow(volatility, screening = config.screening) {
+  const lo = numeric(screening.minBinStep);
+  const hi = numeric(screening.maxBinStep);
+  const flat = { minBinStep: lo, maxBinStep: hi };
+  if (screening.binStepVolatilityScalingEnabled !== true) return flat;
+  const vol = Number(volatility);
+  if (!Number.isFinite(vol) || vol <= 0) return flat;
+  const widen = Math.min(vol / 5, 1) * 0.5;
+  return {
+    minBinStep: lo == null ? null : Math.max(1, Math.floor(lo * (1 - widen))),
+    maxBinStep: hi == null ? null : Math.ceil(hi * (1 + widen)),
+  };
+}
+
+export function getRawPoolScreeningRejectReason(pool, s) {
   const base = pool?.token_x || {};
   const quote = pool?.token_y || {};
   const binStep = numeric(pool?.dlmm_params?.bin_step);
@@ -174,8 +197,9 @@ function getRawPoolScreeningRejectReason(pool, s) {
   if (volume == null || volume < s.minVolume) return `volume ${volume ?? "unknown"} below minVolume ${s.minVolume}`;
   if (tvl == null || tvl < s.minTvl) return `TVL ${tvl ?? "unknown"} below minTvl ${s.minTvl}`;
   if (s.maxTvl != null && tvl > s.maxTvl) return `TVL ${tvl} above maxTvl ${s.maxTvl}`;
-  if (binStep == null || binStep < s.minBinStep) return `bin_step ${binStep ?? "unknown"} below minBinStep ${s.minBinStep}`;
-  if (binStep > s.maxBinStep) return `bin_step ${binStep} above maxBinStep ${s.maxBinStep}`;
+  const binStepWindow = volatilityScaledBinStepWindow(volatility, s);
+  if (binStep == null || binStep < binStepWindow.minBinStep) return `bin_step ${binStep ?? "unknown"} below minBinStep ${binStepWindow.minBinStep}`;
+  if (binStep > binStepWindow.maxBinStep) return `bin_step ${binStep} above maxBinStep ${binStepWindow.maxBinStep}`;
   if (feeActiveTvlRatio == null || feeActiveTvlRatio < s.minFeeActiveTvlRatio) {
     return `fee/active-TVL ${feeActiveTvlRatio ?? "unknown"} below minFeeActiveTvlRatio ${s.minFeeActiveTvlRatio}`;
   }
