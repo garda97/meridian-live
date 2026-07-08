@@ -17,6 +17,10 @@ export function clearPendingDeployPlans() {
 
 export function setPendingDeployPlan(poolAddress, plan) {
   if (poolAddress && plan) pendingPlans.set(poolAddress, plan);
+  // Also index by base mint so deploy_position works even if the LLM picks a
+  // different pool variant of the same token (one token can have several pools).
+  const mint = plan?.base_mint || plan?.pool_base_mint;
+  if (mint && plan) pendingPlans.set(mint, plan);
 }
 
 export function getPendingDeployPlan(poolAddress) {
@@ -73,6 +77,25 @@ export function classifyMarketView({ pool, priceChange1h, signal }) {
     return { view: "pump", confidence: "high", reason: `Strong upside momentum (${priceChange1h ?? "?"}% 1h, ST bullish)` };
   }
   if (Number.isFinite(vol) && vol < 2 && absChange < 8) {
+    // C — Bid-Ask Chill (LP Army 2-4): token mapan/stable.
+    if (config.autoStrategy?.bidAskChillEnabled) {
+      const tvl = Number(pool?.tvl ?? pool?.tvl_usd ?? 0);
+      const createdRaw = Number(pool?.base?.created_at ?? pool?.created_at ?? 0);
+      // created_at from Meteora API is in MILLISECONDS; normalize to seconds.
+      const created = createdRaw > 1e12 ? createdRaw / 1000 : createdRaw;
+      const ageHours = created > 0 ? (Date.now() / 1000 - created) / 3600 : 0;
+      if (
+        tvl >= (config.autoStrategy.chillMinTvl ?? 100000) &&
+        ageHours >= (config.autoStrategy.chillMinAgeHours ?? 168) &&
+        vol < (config.autoStrategy.chillMaxVolatility ?? 2)
+      ) {
+        return {
+          view: "chill",
+          confidence: "high",
+          reason: `Bid-Ask Chill: stable token (TVL $${Math.round(tvl).toLocaleString()}, age ${Math.round(ageHours / 24)}d, vol ${vol.toFixed(2)})`,
+        };
+      }
+    }
     return { view: "flat", confidence: "medium", reason: "Low volatility and tight price range" };
   }
   if (absChange < 12 && Number.isFinite(vol) && vol >= 2 && vol <= 6) {
@@ -262,6 +285,25 @@ export function buildDeployPlan({ pool, classification, signal, fibHint }) {
         strategy = "bid_ask";
         depositSide = "sol_below";
         binsBelow = baseBins;
+      }
+      break;
+    }
+    case "chill": {
+      // C — Bid-Ask Chill (LP Army 2-4): mapan/stable → wide range bid_ask balanced,
+      // ambil fee + DCA (jual di atas, beli di bawah). Pakai max width.
+      if (allowSpot) {
+        strategy = "bid_ask";
+        depositSide = "sol_balanced";
+        const total = clampInt(config.autoStrategy?.maxBins ?? 200, config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
+        binsBelow = clampInt(total * 0.5, Math.ceil(config.strategy.minBinsBelow * 0.5), total);
+        binsAbove = Math.max(0, total - binsBelow);
+        notes.push("Bid-Ask Chill: wide balanced range, fee capture + DCA on stable token");
+      } else {
+        strategy = "bid_ask";
+        depositSide = "sol_below";
+        binsBelow = clampInt(config.autoStrategy?.maxBins ?? 200, config.strategy.minBinsBelow, config.autoStrategy?.maxBins ?? 200);
+        binsAbove = 0;
+        notes.push("Bid-Ask Chill: wide SOL-below range (spot disabled)");
       }
       break;
     }
@@ -598,14 +640,17 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
 }
 
 export async function resolveDeployPlansForCandidates(candidates) {
-  clearPendingDeployPlans();
+//  clearPendingDeployPlans(); // Hermes: Removed - plans should persist until consumed by deploy_position
   const plans = await Promise.all(
     candidates.map(async (entry) => {
       const plan = await resolveDeployStrategyForCandidate({
         pool: entry.pool,
         tokenInfo: entry.ti,
       });
-      if (entry.pool?.pool) setPendingDeployPlan(entry.pool.pool, plan);
+      if (entry.pool?.pool) {
+        plan.base_mint = plan.base_mint || entry.pool.base?.mint || entry.pool.base_mint || null;
+        setPendingDeployPlan(entry.pool.pool, plan);
+      }
       return { entry, plan };
     }),
   );
@@ -617,6 +662,7 @@ export function formatDeployPlanBlock(plan) {
   const lines = [
     `  auto_strategy: ${plan.strategy} | market_view: ${plan.market_view} (${plan.view_reason})`,
     `  deploy_plan: SOL-only | bins_below=${plan.bins_below} bins_above=${plan.bins_above}${plan.wide_range ? " WIDE" : ""}`,
+    `  FINAL_BINS_OK: ${plan.bins_below + plan.bins_above} total bins (min 60 satisfied) — USE THESE EXACT NUMBERS, do not recompute`,
     `  entry_gate: ${plan.entry_allowed ? "ALLOW" : "BLOCK"} — ${plan.entry_reason}`,
   ];
   if (plan.oor_risk != null) lines.push(`  oor_risk: ${plan.oor_risk}/100`);
@@ -629,7 +675,10 @@ export function formatDeployPlanBlock(plan) {
 
 export function applyPendingPlanToDeployArgs(args) {
   if (!config.autoStrategy?.enabled || !args?.pool_address) return args;
-  const plan = getPendingDeployPlan(args.pool_address);
+  let plan = getPendingDeployPlan(args.pool_address);
+  // Fallback: the LLM may pass a different pool variant of the same token, or
+  // a base mint directly. Look up by base_mint so the router plan still applies.
+  if (!plan && args.base_mint) plan = getPendingDeployPlan(args.base_mint);
   if (!plan) return args;
 
   // TGE Play override (opt-in): konservatif untuk pool TGE
@@ -648,9 +697,22 @@ export function applyPendingPlanToDeployArgs(args) {
   }
 
   const merged = { ...args };
-  if (!merged.strategy && plan.strategy) merged.strategy = plan.strategy;
-  if (merged.bins_below == null && plan.bins_below != null) merged.bins_below = plan.bins_below;
-  if (merged.bins_above == null && plan.bins_above != null) merged.bins_above = plan.bins_above;
+  // FORCE mode: when autoStrategy is enabled, the router's resolved plan is the
+  // source of truth. The LLM occasionally hallucinates bin counts (e.g. reads
+  // bin_step and invents "26 bins" < minBinsBelow) and then refuses to deploy a
+  // perfectly valid plan. Override the LLM's bins/strategy with the router's
+  // authoritative values instead of only filling when null.
+  if (plan.strategy) merged.strategy = plan.strategy;
+  if (plan.bins_below != null) merged.bins_below = plan.bins_below;
+  if (plan.bins_above != null) merged.bins_above = plan.bins_above;
+  // The router plans use bins_below/bins_above directly. If the LLM also passed
+  // downside_pct/upside_pct, deployPosition (dlmm.js) would RE-DERIVE bins from
+  // those percentages and collapse to 0 bins when pct≈0. Strip them so dlmm.js
+  // honors the router's exact bin counts instead of recomputing from pct.
+  if (plan.bins_below != null || plan.bins_above != null) {
+    delete merged.downside_pct;
+    delete merged.upside_pct;
+  }
   if (merged.amount_x == null) merged.amount_x = plan.amount_x ?? 0;
   if (plan.volatility != null && merged.volatility == null) merged.volatility = plan.volatility;
   if (plan.oor_risk != null && merged.oor_risk == null) merged.oor_risk = plan.oor_risk;

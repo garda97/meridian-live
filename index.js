@@ -56,6 +56,7 @@ import { stageSignals } from "./signal-tracker.js";
 import {
   resolveDeployPlansForCandidates,
   formatDeployPlanBlock,
+  applyPendingPlanToDeployArgs,
 } from "./tools/strategy-router.js";
 import { getWeightsSummary } from "./signal-weights.js";
 import { bootstrapHiveMind, ensureAgentId, getHiveMindPullMode, isHiveMindEnabled, pullHiveMindLessons, pullHiveMindPresets, registerHiveMindAgent, startHiveMindBackgroundSync } from "./hivemind.js";
@@ -827,7 +828,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
       }
       const gmgnTop10 = ti?.audit?.gmgn_top10_pct ?? ti?.gmgn_security?.top_10_holder_pct;
       const maxTop10Pct = config.screening.maxTop10Pct;
-      if (gmgnTop10 != null && maxTop10Pct != null && Number(gmgnTop10) > maxTop10Pct) {
+      // B — Spray mode: allow higher top10 concentration (up to sprayMaxTop10Pct)
+      // for tokens that pass CPO (renounced+lp_burned+SM). CPO is the safety net.
+      const top10Ceiling = (config.management?.sprayModeEnabled)
+        ? Math.max(maxTop10Pct, config.management.sprayMaxTop10Pct ?? 70)
+        : maxTop10Pct;
+      if (gmgnTop10 != null && top10Ceiling != null && Number(gmgnTop10) > top10Ceiling) {
         log("screening", `GMGN top10 filter: dropped ${pool.name} — top10 ${gmgnTop10}% > ${maxTop10Pct}%`);
         filteredOut.push({ name: pool.name, reason: `GMGN top10 ${gmgnTop10}% > ${maxTop10Pct}%` });
         return false;
@@ -1029,6 +1035,7 @@ STEPS:
 2. Pick the best candidate based on narrative quality, smart wallets, pool metrics, and auto_strategy fit. Skip candidates with entry_gate: BLOCK.
 3. Call deploy_position (active_bin is pre-fetched above — no need to call get_active_bin).
 ${config.autoStrategy?.enabled ? `   Use the winner's deploy_plan EXACTLY: strategy, bins_below, bins_above from its candidate block.
+   DO NOT recompute or guess bin counts from bin_step, volatility, or any other number — the deploy_plan block is authoritative. If the block says bins_below=100, deploy with bins_below=100 (it already satisfies the min 60 floor). Passing a different bin count than the block states is a critical error.
    pass deploy_position.volatility = candidate volatility.
    amount_y = deploy amount from goal, amount_x = 0.` : `   bins_below = round(${config.strategy.minBinsBelow} + (candidate volatility/5)*(${config.strategy.maxBinsBelow - config.strategy.minBinsBelow})) clamped to [${config.strategy.minBinsBelow},${config.strategy.maxBinsBelow}].
    pass deploy_position.volatility = the candidate volatility value.
@@ -1859,10 +1866,22 @@ async function deployLatestCandidate(index) {
     }
   }
   const deployAmount = computeDeployAmount((await getWalletBalances()).sol);
+  // B — Spray mode: if this candidate passed ONLY via the spray ceiling (top10 > base maxTop10Pct),
+  // deploy a small spray amount instead of the full amount (limits rugpull damage).
+  const candTop10 = Number(candidate?.top10_pct ?? candidate?.audit?.gmgn_top10_pct ?? 0);
+  const baseMaxTop10 = config.screening.maxTop10Pct;
+  const sprayOn = config.management?.sprayModeEnabled;
+  const useSpray = sprayOn && candTop10 > baseMaxTop10 && candTop10 <= (config.management.sprayMaxTop10Pct ?? 70);
+  const finalDeployAmount = useSpray ? (config.management.sprayAmountSol ?? 0.05) : deployAmount;
   const binsBelow = computeBinsBelow(candidate.volatility);
-  const result = await executeTool("deploy_position", {
+  // Use the auto_strategy router plan (resolved earlier in the screening cycle)
+  // instead of the generic volatility formula — the router plan carries the
+  // correct strategy (spot/bid_ask/curve) + bins tuned to market view, and is
+  // the single source of truth when autoStrategy is enabled. Fall back to the
+  // formula only if no pending plan exists (e.g. autoStrategy off).
+  let deployArgs = {
     pool_address: candidate.pool,
-    amount_y: deployAmount,
+    amount_y: finalDeployAmount,
     strategy: config.strategy.strategy,
     bins_below: binsBelow,
     bins_above: 0,
@@ -1874,7 +1893,11 @@ async function deployLatestCandidate(index) {
     fee_tvl_ratio: candidate.fee_active_tvl_ratio ?? candidate.fee_tvl_ratio,
     organic_score: candidate.organic_score,
     initial_value_usd: candidate.tvl ?? candidate.active_tvl ?? null,
-  });
+  };
+  if (config.autoStrategy?.enabled) {
+    deployArgs = applyPendingPlanToDeployArgs(deployArgs);
+  }
+  const result = await executeTool("deploy_position", deployArgs);
   if (result?.success === false || result?.error) {
     throw new Error(result.error || "Deploy failed");
   }
@@ -2563,7 +2586,7 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
   log("startup", "Non-TTY mode — starting cron cycles immediately.");
   startCronJobs();
   maybeRunMissedBriefing().catch(() => { });
-  startPolling(telegramHandler);
+  // startPolling(telegramHandler); // Moved to TTY block after prompt
   (async () => {
     try {
       await runScreeningCycle({ silent: false });

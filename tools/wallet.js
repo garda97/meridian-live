@@ -57,10 +57,25 @@ export async function getSolPriceUsd() {
 }
 
 async function getWalletBalancesViaRpc(walletAddress) {
-  const lamports = await withHeliusRpcRetry(
-    (conn) => conn.getBalance(new PublicKey(walletAddress), "confirmed"),
-  );
-  const sol = lamports / LAMPORTS_PER_SOL;
+  let lamports = null;
+  let rpcSource = "helius";
+  try {
+    lamports = await withHeliusRpcRetry(
+      (conn) => conn.getBalance(new PublicKey(walletAddress), "confirmed"),
+    );
+  } catch (heliusErr) {
+    log("wallet_fallback", `Helius RPC getBalance failed (${heliusErr.message}) — trying public Solana RPC`);
+    try {
+      const { Connection } = await import("@solana/web3.js");
+      const pub = new Connection("https://api.mainnet-beta.solana.com", "confirmed");
+      lamports = await pub.getBalance(new PublicKey(walletAddress), "confirmed");
+      rpcSource = "public";
+    } catch (pubErr) {
+      log("wallet_error", `Public RPC getBalance also failed: ${pubErr.message}`);
+      throw heliusErr;
+    }
+  }
+  const sol = (lamports ?? 0) / LAMPORTS_PER_SOL;
   const solPrice = await fetchSolPriceUsd();
   const solUsd = solPrice > 0 ? sol * solPrice : 0;
   return {
@@ -71,7 +86,7 @@ async function getWalletBalancesViaRpc(walletAddress) {
     usdc: 0,
     tokens: [],
     total_usd: Math.round(solUsd * 100) / 100,
-    source: "rpc_fallback",
+    source: `rpc_fallback_${rpcSource}`,
   };
 }
 const DEFAULT_JUPITER_API_KEY = "b15d42e9-e0e4-4f90-a424-ae41ceeaa382";
@@ -114,8 +129,12 @@ export async function getWalletBalances() {
   try {
     getHeliusKeys();
   } catch (err) {
-    log("wallet_error", err.message);
-    return { wallet: walletAddress, sol: 0, sol_price: 0, sol_usd: 0, usdc: 0, tokens: [], total_usd: 0, error: err.message };
+    log("wallet_fallback", `Helius keys unavailable (${err.message}) — using public RPC for balance`);
+    try {
+      return await getWalletBalancesViaRpc(walletAddress);
+    } catch (rpcErr) {
+      return { wallet: walletAddress, sol: 0, sol_price: 0, sol_usd: 0, usdc: 0, tokens: [], total_usd: 0, error: rpcErr.message };
+    }
   }
 
   try {

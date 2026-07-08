@@ -204,13 +204,56 @@ export async function getGmgnTokenFees(mint) {
   }
 }
 
+// --- GMGN call cache + daily budget (429/rate-limit hardening) ---
+// Free-tier GMGN quota (per day): security 20, holders 4 (see notes/GMGN_RATE_LIMITS.md).
+// Without caching, screening (~96 cycles/day) exhausts quota fast -> "IP temporarily banned".
+const _gmgnCache = new Map(); // mint -> { at, security, holders }
+const GMGN_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const _gmgnDaily = { security: 0, holders: 0, resetAt: Date.now() };
+const GMGN_DAILY_CAP = { security: 18, holders: 3 }; // buffer below 20/4
+function gmgnDailyResetIfNeeded() {
+  if (Date.now() - _gmgnDaily.resetAt > GMGN_CACHE_TTL_MS) {
+    _gmgnDaily.security = 0;
+    _gmgnDaily.holders = 0;
+    _gmgnDaily.resetAt = Date.now();
+  }
+}
+function gmgnBudgetAllows(type) {
+  gmgnDailyResetIfNeeded();
+  return _gmgnDaily[type] < (GMGN_DAILY_CAP[type] ?? 0);
+}
+function gmgnBudgetConsume(type) {
+  gmgnDailyResetIfNeeded();
+  _gmgnDaily[type] = (_gmgnDaily[type] ?? 0) + 1;
+}
+function gmgnCacheGet(mint) {
+  const hit = _gmgnCache.get(mint);
+  if (hit && Date.now() - hit.at < GMGN_CACHE_TTL_MS) return hit;
+  return null;
+}
+function gmgnCacheSet(mint, patch) {
+  const cur = _gmgnCache.get(mint) ?? { at: Date.now() };
+  cur.at = Date.now();
+  _gmgnCache.set(mint, { ...cur, ...patch });
+}
+
 export async function getGmgnTokenSecurity(mint) {
   if (!mint || !hasGmgnApiKey()) return null;
+  // Cache hit (same day) -> no quota cost
+  const cached = gmgnCacheGet(mint);
+  if (cached?.security) return cached.security;
+  // Budget exhausted -> return stale cache if any, else null (CPO fails closed safely)
+  if (!gmgnBudgetAllows("security")) {
+    if (cached) return cached.security;
+    log("gmgn", `daily security budget exhausted; skipping ${String(mint).slice(0, 8)}`);
+    return null;
+  }
   try {
     const payload = await gmgnFetch("/v1/token/security", { params: { chain: "sol", address: mint } });
     const data = unwrapGmgnData(payload);
     if (!data || typeof data !== "object") return null;
-    return {
+    const security = {
       top_10_holder_pct: pctFromRate(data.top_10_holder_rate),
       burn_status: data.burn_status ?? null,
       burn_ratio: num(data.burn_ratio),
@@ -220,6 +263,9 @@ export async function getGmgnTokenSecurity(mint) {
       is_show_alert: data.is_show_alert ?? null,
       flags: Array.isArray(data.flags) ? data.flags : [],
     };
+    gmgnBudgetConsume("security");
+    gmgnCacheSet(mint, { security });
+    return security;
   } catch (error) {
     log("gmgn", `token security lookup failed for ${String(mint).slice(0, 8)}: ${error.message}`);
     return null;
@@ -228,14 +274,27 @@ export async function getGmgnTokenSecurity(mint) {
 
 export async function getGmgnTokenTopHolders(mint, { limit = 100 } = {}) {
   if (!mint || !hasGmgnApiKey()) return null;
+  // Cache hit (same day) -> no quota cost. Note: limit only affects how many we keep,
+  // but we cache the full top-100 list so any limit can be served from cache.
+  const cached = gmgnCacheGet(mint);
+  if (cached?.holders) {
+    const list = cached.holders.holders ?? [];
+    return { ...cached.holders, holders: list.slice(0, Math.min(Math.max(limit, 1), 100)) };
+  }
+  // Budget exhausted -> return stale cache if any, else null (CPO fails closed safely)
+  if (!gmgnBudgetAllows("holders")) {
+    if (cached?.holders) return cached.holders;
+    log("gmgn", `daily holders budget exhausted; skipping ${String(mint).slice(0, 8)}`);
+    return null;
+  }
   try {
     const payload = await gmgnFetch("/v1/market/token_top_holders", {
       params: { chain: "sol", address: mint, limit: Math.min(Math.max(limit, 1), 100) },
     });
     const data = unwrapGmgnData(payload);
-    const list = Array.isArray(data?.list) ? data.list : [];
-    return {
-      holders: list.map((holder) => ({
+    const rawList = Array.isArray(data?.list) ? data.list : [];
+    const holders = {
+      holders: rawList.map((holder) => ({
         address: holder.address,
         pct: pctFromRate(holder.amount_percentage),
         usd_value: num(holder.usd_value),
@@ -245,8 +304,11 @@ export async function getGmgnTokenTopHolders(mint, { limit = 100 } = {}) {
         is_sniper: holderHasTag(holder, "sniper") || undefined,
         is_dev: holderHasTag(holder, "dev") || undefined,
       })),
-      ...summarizeGmgnHolders(list),
+      ...summarizeGmgnHolders(rawList),
     };
+    gmgnBudgetConsume("holders");
+    gmgnCacheSet(mint, { holders });
+    return holders;
   } catch (error) {
     log("gmgn", `token holders lookup failed for ${String(mint).slice(0, 8)}: ${error.message}`);
     return null;

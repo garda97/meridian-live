@@ -130,7 +130,7 @@ ${config.autoStrategy?.enabled ? `- AUTO STRATEGY MODE: Each candidate has auto_
 - amount_y only, amount_x=0. bid_ask = bins_above 0. spot/curve may use bins_above > 0.
 - Pass deploy_position.volatility from the candidate metrics.` : `- bins_below = round(config.strategy.minBinsBelow + (candidate volatility/5)*(config.strategy.maxBinsBelow-config.strategy.minBinsBelow)) clamped to [minBinsBelow,maxBinsBelow]. Volatility must be a positive number; 0/unknown means skip.
 - Use amount_y only, keep amount_x=0 and bins_above=0.`}
-- Bin steps must be [80-125].
+- Bin steps must be within configured screening thresholds (minBinStep/maxBinStep).
 - Pick ONE pool only when conviction is real. If only one weak candidate survives, skip and explain why none qualify.
 
 ${weightsSummary ? `${weightsSummary}\nPrioritize candidates whose strongest attributes align with high-weight signals.\n\n` : ""}${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}

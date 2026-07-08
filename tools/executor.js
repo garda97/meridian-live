@@ -893,9 +893,14 @@ async function runSafetyChecks(name, args, context = {}) {
           reason: "Token-only deploys are not supported yet. Use amount_y/amount_sol and keep amount_x=0.",
         };
       }
-      const requestedBinsBelow = Number(args.bins_below ?? config.strategy.defaultBinsBelow ?? config.strategy.minBinsBelow);
-      const requestedBinsAbove = Number(args.bins_above ?? 0);
       const minBinsBelow = Math.max(MIN_SAFE_BINS_BELOW, Number(config.strategy.minBinsBelow ?? MIN_SAFE_BINS_BELOW));
+      const argBinsBelow = Number(args.bins_below ?? args.binsBelow ?? config.strategy.defaultBinsBelow ?? config.strategy.minBinsBelow);
+      const requestedBinsBelow = Math.min(
+        Math.max(MIN_SAFE_BINS_BELOW, Number(config.strategy.maxBinsBelow ?? config.strategy.minBinsBelow)),
+        Math.max(minBinsBelow, Number.isFinite(argBinsBelow) && argBinsBelow > 0 ? argBinsBelow : config.strategy.defaultBinsBelow ?? minBinsBelow)
+      );
+      const argBinsAbove = Number(args.bins_above ?? args.binsAbove ?? 0);
+      const requestedBinsAbove = Math.max(0, Number.isFinite(argBinsAbove) ? argBinsAbove : 0);
       const isSingleSidedSol = deployAmountY > 0 && deployAmountX <= 0;
       const requestedTotalBins = requestedBinsBelow + requestedBinsAbove;
       const requestedVolatility = args.volatility == null ? null : Number(args.volatility);
