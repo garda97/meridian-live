@@ -13,6 +13,7 @@ import {
 import { confirmIndicatorPreset } from "./chart-indicators.js";
 import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { fetchWithTimeout } from "../utils/fetch-timeout.js";
+import { getGmgnTokenSecurity, getGmgnTokenTopHolders, hasGmgnApiKey } from "./gmgn.js";
 
 const SCREENING_FETCH_TIMEOUT_MS = 10_000;
 
@@ -147,7 +148,10 @@ function getRawPoolScreeningRejectReason(pool, s) {
   const binStep = numeric(pool?.dlmm_params?.bin_step);
   const tvl = numeric(pool?.tvl ?? pool?.active_tvl);
   const feeActiveTvlRatio = numeric(pool?.fee_active_tvl_ratio);
-  const volatility = numeric(pool?.volatility);
+  // Volatility: if API/GMGN didn't supply it (e.g. GMGN banned), fall back to a
+  // moderate default so deploy can still proceed (Evil-Panda-style: market-make in any condition).
+  const volatility = numeric(pool?.volatility) || 2;
+  pool.volatility = volatility; // normalize so later checks see the defaulted value
   const volume = numeric(pool?.volume);
   const holders = numeric(pool?.base_token_holders);
   const mcap = numeric(base?.market_cap);
@@ -258,6 +262,93 @@ async function rugCheckCandidates(pools) {
     }
   }
   return results;
+}
+
+/**
+ * Concentration Paradox Override (CPO)
+ * -----------------------------------
+ * Re-accepts a candidate that the rugcheck gate rejected SOLELY for high top-10
+ * holder concentration (top10 > rugcheckTop10MaxPct), when on-chain fundamentals
+ * are clean AND smart-money presence is strong. This restores the "escape hatch"
+ * that lets legit early pumps (dev=0, LP burned, mint/freeze renounced, many SM
+ * wallets) through the hard concentration gate instead of being false-rejected.
+ *
+ * Requires a GMGN API key (uses /v1/token/security + top holders). If the key is
+ * absent or any lookup fails, the override is skipped and the token STAYS
+ * rejected (fail-closed — never deploys unknown tokens).
+ *
+ * Maps the original 6-condition checklist to data available in Meridian:
+ *   1. dev_holdings_pct == 0      → dev_token_burn_ratio >= 0.95 (proxy)
+ *   2. lp_burned == true          → burn_status == "burned" || burn_ratio >= 0.95
+ *   3. mint_renounced == true     → security.mint_renounced === true
+ *   4. freeze_renounced == true   → security.freeze_renounced === true
+ *   (5+6) SM count >= minSmCount  → count of top holders tagged smart_degen/renowned
+ *   Bonus guard: no GMGN alert (is_show_alert === false) and no rug flags.
+ */
+async function concentrationParadoxOverride(mint, reason) {
+  const sec = config.screening?.security ?? config.security;
+  if (!sec || sec.concentrationParadoxOverrideEnabled !== true) return { override: false, reason: "disabled" };
+  if (!mint || !hasGmgnApiKey()) {
+    return { override: false, reason: "gmgn key unavailable" };
+  }
+  const minSmCount = Number(sec.concentrationParadoxMinSmCount ?? 8);
+
+  try {
+    const [security, holders] = await Promise.all([
+      getGmgnTokenSecurity(mint),
+      getGmgnTokenTopHolders(mint, { limit: 100 }).catch(() => null),
+    ]);
+    if (!security) return { override: false, reason: "gmgn security lookup failed" };
+
+    const mintRenounced = security.mint_renounced === true;
+    const freezeRenounced = security.freeze_renounced === true;
+    const lpBurned =
+      security.burn_status === "burned" ||
+      (Number(security.burn_ratio) ?? 0) >= 0.95;
+    const devBurned = (Number(security.dev_token_burn_ratio) ?? 0) >= 0.95;
+    const noAlert = security.is_show_alert !== true;
+    const noRugFlags =
+      !Array.isArray(security.flags) ||
+      security.flags.filter((f) => /rug|scam|honeypot|mint/i.test(String(f))).length === 0;
+
+    // Smart-money count from tagged top holders (renowned + smart_degen proxy SM).
+    let smCount = 0;
+    if (holders?.holders?.length) {
+      for (const h of holders.holders) {
+        const tags = Array.isArray(h.tags) ? h.tags.map((t) => String(t).toLowerCase()) : [];
+        if (tags.includes("smart_degen") || tags.includes("renowned")) smCount += 1;
+      }
+    }
+
+    const checks = {
+      mintRenounced,
+      freezeRenounced,
+      lpBurned,
+      devBurned,
+      noAlert,
+      noRugFlags,
+      smCountOk: smCount >= minSmCount,
+    };
+    const passed = Object.values(checks).every(Boolean);
+
+    if (!passed) {
+      return {
+        override: false,
+        reason: "fundamentals/SM insufficient",
+        checks,
+        smCount,
+      };
+    }
+
+    log(
+      "screening",
+      `[CONCENTRATION_PARADOX_OVERRIDE] ${mint.slice(0, 8)} passed — devBurned=${devBurned} lpBurned=${lpBurned} renounced(m/f)=${mintRenounced}/${freezeRenounced} smCount=${smCount} (rugcheck reason was: ${reason})`,
+    );
+    return { override: true, checks, smCount };
+  } catch (error) {
+    log("screening", `[CONCENTRATION_PARADOX_OVERRIDE] error for ${mint?.slice(0, 8)}: ${error.message} — stay rejected`);
+    return { override: false, reason: `error: ${error.message}` };
+  }
 }
 
 const DISCORD_SIGNALS_FILE = repoPath("discord-signals.json");
@@ -722,6 +813,22 @@ export async function discoverPools({
  * Returns eligible pools for the agent to evaluate and pick from.
  * Hard filters applied in code, agent decides which to deploy into.
  */
+/**
+ * Metlex Terminal candidate feed — load parsed signals from metlex-signals.json.
+ * Fail-safe: returns [] if file missing/unreadable so screening is never blocked.
+ */
+function loadMetlexSignals() {
+  try {
+    const p = repoPath("metlex-signals.json");
+    if (!fs.existsSync(p)) return [];
+    const data = JSON.parse(fs.readFileSync(p, "utf8"));
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    log("screening", `Metlex feed load failed: ${e.message}`);
+    return [];
+  }
+}
+
 export async function getTopCandidates({ limit = 10, timeframe = null } = {}) {
   const { config } = await import("../config.js");
   const discovery = await discoverPools({ page_size: 50 });
@@ -798,6 +905,35 @@ export async function getTopCandidates({ limit = 10, timeframe = null } = {}) {
     .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
     .slice(0, limit);
 
+  // ─── Metlex Terminal candidate feed boost ──────────────────────────────
+  // Pools whose base mint matches a recent Metlex "New DLMM Found" signal get
+  // priority boost (sorted to top) but STILL pass all GMGN/rugcheck gates in
+  // index.js. Fail-safe: no metlex-signals.json → no effect.
+  // Dedupe by base mint so the SAME token never gets boosted twice (no twin coins).
+  const metlex = loadMetlexSignals();
+  if (metlex.length) {
+    const metlexByMint = new Map(metlex.map((m) => [m.address, m]));
+    const boostedMints = new Set();
+    let boosted = 0;
+    for (const p of eligible) {
+      const mint = p.base?.mint || p.base_mint;
+      if (mint && metlexByMint.has(mint) && !boostedMints.has(mint)) {
+        p.metlex_boost = true;
+        p.metlex_signal = metlexByMint.get(mint);
+        boostedMints.add(mint);
+        boosted++;
+      }
+    }
+    if (boosted > 0) {
+      eligible.sort(
+        (a, b) =>
+          (b.metlex_boost ? 1 : 0) - (a.metlex_boost ? 1 : 0) ||
+          scoreCandidate(b) - scoreCandidate(a)
+      );
+      log("screening", `Metlex feed boosted ${boosted} unique candidate(s) to top priority (deduped by mint)`);
+    }
+  }
+
   if (config.screening.avoidPvpSymbols && eligible.length > 0) {
     await enrichPvpRisk(eligible);
     if (config.screening.blockPvpSymbols) {
@@ -831,14 +967,53 @@ export async function getTopCandidates({ limit = 10, timeframe = null } = {}) {
   if (config.screening.rugcheckEnabled !== false && eligible.length > 0) {
     const rugResults = await rugCheckCandidates(eligible);
     const before = eligible.length;
+    const overrideCandidates = [];
     const rugFiltered = eligible.filter((p) => {
       const check = rugResults.get(p.pool) ?? { pass: true, rug_score: null };
       p.rug_score = check.rug_score ?? null;
       if (check.pass) return true;
+      // Concentration-only failure → candidate for paradox override
+      const isConcentrationOnly = /top10 holders .*% >/.test(check.reason);
+      if (isConcentrationOnly) {
+        overrideCandidates.push({ pool: p, reason: check.reason });
+        return false; // tentatively drop; re-added below if override passes
+      }
       pushFilteredReason(filteredOut, p, check.reason);
       log("screening", `Rugcheck rejected ${p.name} (${p.pool?.slice(0, 8)}): ${check.reason}`);
       return false;
     });
+
+    // Try Concentration Paradox Override on concentration-only rejects
+    if (overrideCandidates.length > 0 && config.screening?.security?.concentrationParadoxOverrideEnabled === true) {
+      const rescued = [];
+      await Promise.all(
+        overrideCandidates.map(async ({ pool, reason }) => {
+          const mint = getPoolBaseMint(pool) || pool?.base?.mint;
+          const result = await concentrationParadoxOverride(mint, reason);
+          if (result.override) {
+            pool.paradox_override = true;
+            pool.cpo_checks = result.checks;
+            pool.cpo_sm_count = result.smCount;
+            rescued.push(pool);
+          } else {
+            // stays rejected — record original rugcheck reason
+            pushFilteredReason(filteredOut, pool, reason);
+            log("screening", `Rugcheck rejected ${pool.name} (${pool.pool?.slice(0, 8)}): ${reason} [CPO skip: ${result.reason}]`);
+          }
+        }),
+      );
+      if (rescued.length > 0) {
+        rugFiltered.push(...rescued);
+        log("screening", `[CONCENTRATION_PARADOX_OVERRIDE] rescued ${rescued.length} candidate(s) past concentration gate`);
+      }
+    } else {
+      // no override configured → keep original rejection reasons
+      for (const { pool, reason } of overrideCandidates) {
+        pushFilteredReason(filteredOut, pool, reason);
+        log("screening", `Rugcheck rejected ${pool.name} (${pool.pool?.slice(0, 8)}): ${reason}`);
+      }
+    }
+
     eligible.splice(0, eligible.length, ...rugFiltered);
     if (eligible.length < before) log("screening", `Rugcheck removed ${before - eligible.length} candidate(s)`);
   }

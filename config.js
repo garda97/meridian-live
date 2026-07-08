@@ -149,7 +149,18 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     rugcheckEnabled:    boolConfig(u.rugcheckEnabled, true), // rugcheck.xyz gate on final candidates (fails open on API error)
-    rugcheckTop10MaxPct: u.rugcheckTop10MaxPct ?? 60, // rugcheck top-10 holder concentration cap
+    rugcheckTop10MaxPct: (() => {
+      const base = u.rugcheckTop10MaxPct ?? 60;
+      const sprayOn = boolConfig(u.sprayModeEnabled, false);
+      return sprayOn ? Math.max(base, Number(u.sprayMaxTop10Pct ?? 70)) : base;
+    })(),
+    // Concentration Paradox Override (CPO) — escape hatch for legit early pumps
+    // rejected solely for high top-10 concentration. Loaded from user-config `security`.
+    security: {
+      concentrationParadoxOverrideEnabled: boolConfig(u.security?.concentrationParadoxOverrideEnabled, false),
+      concentrationParadoxMinSmCount: Number(u.security?.concentrationParadoxMinSmCount ?? 8),
+      concentrationParadoxMinSmInflowRatio: Number(u.security?.concentrationParadoxMinSmInflowRatio ?? 0.5),
+    },
     solRegimeGateEnabled: boolConfig(u.solRegimeGateEnabled, true),
     solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
     // Competitiveness floor: min estimated TVL share (%) our deploy must take.
@@ -221,6 +232,9 @@ export const config = {
     minSolToOpen:          u.minSolToOpen          ?? 0.55,
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
     gasReserve:            u.gasReserve            ?? 0.2,
+    sprayModeEnabled:      boolConfig(u.sprayModeEnabled, false),
+    sprayAmountSol:        Number(u.sprayAmountSol ?? 0.05),
+    sprayMaxTop10Pct:      Number(u.sprayMaxTop10Pct ?? 70),
     positionSizePct:       u.positionSizePct       ?? 0.35,
     // Trailing take-profit
     trailingTakeProfit:    boolConfig(u.trailingTakeProfit, true),
@@ -411,6 +425,13 @@ export const config = {
     dropEntryGate: boolConfig(u.dropEntryGate, false),
     dropEntryMin: Number(u.dropEntryMin ?? -50),
     dropEntryMax: Number(u.dropEntryMax ?? -30),
+    // C — Bid-Ask Chill (opt-in, LP Army 2-4): token mapan/stable (flat view +
+    // TVL tinggi + umur tua) → wide-range bid_ask balanced, fee capture + DCA.
+    // Disabled by default so it never changes existing behavior until enabled.
+    bidAskChillEnabled: boolConfig(u.bidAskChillEnabled, false),
+    chillMinTvl: Number(u.chillMinTvl ?? 100000),
+    chillMinAgeHours: Number(u.chillMinAgeHours ?? 168), // 7 hari
+    chillMaxVolatility: Number(u.chillMaxVolatility ?? 2),
   },
 
   indicators: {

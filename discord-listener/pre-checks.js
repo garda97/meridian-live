@@ -1,3 +1,5 @@
+import { config } from "../config.js";
+
 /**
  * Discord signal pre-check pipeline
  * Stages: dedup → blacklist → pool resolution → rug check → deployer check → fees check → screening gate
@@ -12,32 +14,7 @@ const ROOT = path.resolve(__dirname, "..");
 const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
 
 function loadScreeningConfig() {
-  const defaults = {
-    timeframe: "1h",
-    category: "trending",
-    excludeHighSupplyConcentration: true,
-    minTvl: 20_000,
-    maxTvl: 230_000,
-    minVolume: 12_750,
-    minOrganic: 60,
-    minQuoteOrganic: 60,
-    minHolders: 300,
-    minMcap: 250_000,
-    maxMcap: 1_500_000,
-    minBinStep: 80,
-    maxBinStep: 125,
-    minFeeActiveTvlRatio: 0.04,
-    minTokenAgeHours: null,
-    maxTokenAgeHours: null,
-    allowedLaunchpads: [],
-    blockedLaunchpads: [],
-  };
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, "user-config.json"), "utf8"));
-    return { ...defaults, ...cfg };
-  } catch {
-    return defaults;
-  }
+  return config.screening;
 }
 
 function numeric(value) {
@@ -63,7 +40,10 @@ function screeningRejectReason(pool, s) {
   const tvl = numeric(pool?.tvl ?? pool?.active_tvl);
   const binStep = numeric(pool?.bin_step);
   const feeActiveTvlRatio = numeric(pool?.fee_active_tvl_ratio);
-  const volatility = numeric(pool?.volatility ?? pool?.[`volatility_${s.timeframe}`]);
+  let volatility = numeric(pool?.volatility ?? pool?.[`volatility_${s.timeframe}`]);
+  // Volatility fallback: if API/GMGN didn't supply it, use moderate default
+  // (Evil-Panda-style: market-make in any condition). Only blocks if truly absent after fallback.
+  if (volatility == null || volatility <= 0) volatility = 2;
   const mcap = numeric(base?.market_cap);
   const baseOrganic = numeric(base?.organic_score);
   const quoteOrganic = numeric(quote?.organic_score);
@@ -230,15 +210,7 @@ export async function deployerCheck(poolAddress) {
 export async function feesCheck(mint) {
   if (!mint) return { pass: true, global_fees_sol: null };
 
-  let screening = { minTokenFeesSol: 10, mcapScaledTokenFees: true, minTokenFeesSolPer100kMcap: 10 };
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, "user-config.json"), "utf8"));
-    screening = {
-      minTokenFeesSol: cfg.minTokenFeesSol ?? 10,
-      mcapScaledTokenFees: cfg.mcapScaledTokenFees ?? true,
-      minTokenFeesSolPer100kMcap: cfg.minTokenFeesSolPer100kMcap ?? 10,
-    };
-  } catch { /* use default */ }
+  const screening = config.screening;
 
   const minFeesForMcap = (mcap) => {
     const floor = Number(screening.minTokenFeesSol ?? 10);

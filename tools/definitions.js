@@ -133,7 +133,7 @@ PRIORITY ORDER for strategy and bins:
 3. No user/auto spec → use config.strategy.strategy and volatility-scaled bins
 
 HARD RULES:
-- Bin Step: Only deploy in pools with bin_step between 80 and 125.
+- Bin Step: Only deploy in pools whose bin_step is within screening thresholds (configured minBinStep/maxBinStep).
 - Volatility must be positive. If volatility is 0, null, or missing, do not deploy.
 - Range must cover at least 35 total bins. Never deploy 1-bin/tiny ranges.
 - bid_ask + SOL only: bins_above=0, upper bin pinned to active bin.
