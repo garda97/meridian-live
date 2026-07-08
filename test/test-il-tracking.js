@@ -192,21 +192,27 @@ function testStatePersistence() {
 
 // ── config wiring: new keys exist and default OFF ──────────────
 function testConfigDefaults() {
+  // Note: ilGapCloseEnabled is owner-configurable in user-config.json (owner
+  // confirmed 2026-07-08 it's intentionally live/on), so this must not assert
+  // a fixed value on the live-loaded config singleton — it tests the on/off
+  // mechanism directly instead.
+  assert(typeof config.management.ilGapCloseThresholdPct === "number", "ilGapCloseThresholdPct must be a number");
   const savedEnabled = config.management.ilGapCloseEnabled;
   const savedThreshold = config.management.ilGapCloseThresholdPct;
   try {
-    assert(config.management.ilGapCloseEnabled === false, `ilGapCloseEnabled must default false, got ${config.management.ilGapCloseEnabled}`);
-    assert(config.management.ilGapCloseThresholdPct === 15, `ilGapCloseThresholdPct must default 15, got ${config.management.ilGapCloseThresholdPct}`);
-
-    // Flipping the live flag arms the rule through the same config object
-    config.management.ilGapCloseEnabled = true;
     const dumped = { ...RANGE, active_bin: -60, pnl_pct: expectedIlPct(-60) - 20 };
-    assert(checkIlGapExit(TRACKED, dumped, config.management) != null, "enabled live config must arm the rule");
+
+    config.management.ilGapCloseEnabled = false;
+    assert(checkIlGapExit(TRACKED, dumped, config.management) == null, "disabled flag must keep the rule inert");
+
+    config.management.ilGapCloseEnabled = true;
+    config.management.ilGapCloseThresholdPct = 15;
+    assert(checkIlGapExit(TRACKED, dumped, config.management) != null, "enabled flag must arm the rule");
   } finally {
     config.management.ilGapCloseEnabled = savedEnabled;
     config.management.ilGapCloseThresholdPct = savedThreshold;
   }
-  console.log("  config: ilGapCloseEnabled=false / ilGapCloseThresholdPct=15 defaults, live toggle OK");
+  console.log("  config: ilGapCloseEnabled gates the rule on/off, ilGapCloseThresholdPct wired OK");
 }
 
 testComputeIlMetrics();
