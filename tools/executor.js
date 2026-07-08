@@ -1,4 +1,4 @@
-import { discoverPools, getPoolDetail, getTopCandidates } from "./screening.js";
+import { discoverPools, getPoolDetail, getTopCandidates, volatilityScaledBinStepWindow } from "./screening.js";
 import {
   getActiveBin,
   deployPosition,
@@ -157,8 +157,9 @@ async function validateDeployPoolThresholds(args) {
   }
 
   const actualBinStep = poolDetailBinStep(detail);
-  const minStep = numberOrNull(config.screening.minBinStep);
-  const maxStep = numberOrNull(config.screening.maxBinStep);
+  const binStepWindow = volatilityScaledBinStepWindow(volatility);
+  const minStep = numberOrNull(binStepWindow.minBinStep);
+  const maxStep = numberOrNull(binStepWindow.maxBinStep);
   if (actualBinStep != null && minStep != null && actualBinStep < minStep) {
     return {
       pass: false,
@@ -874,8 +875,7 @@ async function runSafetyChecks(name, args, context = {}) {
       if (poolThresholds.entryMarketData) Object.assign(args, poolThresholds.entryMarketData);
 
       // Reject pools with bin_step out of configured range
-      const minStep = config.screening.minBinStep;
-      const maxStep = config.screening.maxBinStep;
+      const { minBinStep: minStep, maxBinStep: maxStep } = volatilityScaledBinStepWindow(args.volatility);
       if (args.bin_step != null && (args.bin_step < minStep || args.bin_step > maxStep)) {
         return {
           pass: false,
