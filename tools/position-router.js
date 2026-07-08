@@ -20,6 +20,25 @@ import { buildSignalSummary, fetchChartIndicatorsForMint } from "./chart-indicat
 import { getPoolDetail } from "./screening.js";
 import { getTokenInfo } from "./token.js";
 
+/**
+ * Volatility-scaled rebalance timing (mirrors volatilityScaledBins' vol/5
+ * pivot in strategy-router.js): higher volatility shrinks the wait windows
+ * (faster reaction), lower volatility stretches them. The factor is clamped
+ * to 0.3-2x of base so a noisy volatility feed can never zero-out or freeze
+ * the timers. Invalid/missing volatility returns the flat base values.
+ */
+export function volatilityScaledRebalanceTiming(volatility, { baseOorMinutes, baseCooldownMinutes } = {}) {
+  const oorBase = Number(baseOorMinutes);
+  const cooldownBase = Number(baseCooldownMinutes);
+  const vol = Number(volatility);
+  if (!Number.isFinite(vol) || vol <= 0) {
+    return { oorMinutes: oorBase, cooldownMinutes: cooldownBase };
+  }
+  const factor = Math.max(0.3, Math.min(2, 2 - (vol / 5) * 1.7));
+  const scale = (base) => (Number.isFinite(base) ? Math.round(base * factor * 10) / 10 : base);
+  return { oorMinutes: scale(oorBase), cooldownMinutes: scale(cooldownBase) };
+}
+
 /** Which side of its range a position sits on. */
 export function classifyOorDirection(position = {}) {
   const active = Number(position.active_bin);
@@ -63,6 +82,9 @@ export function buildRebalancePlan({ pool, position, tracked, signal, priceChang
     oor_risk: null,
     upside_cover_pct: null,
     volume,
+    // Threaded through so shouldRebalance can scale its timers without a
+    // second network fetch (pool detail is only available here).
+    volatility: Number(pool?.volatility) || null,
     reason: "",
     notes: [...(base.notes || [])],
     ...overrides,
@@ -192,8 +214,17 @@ export function shouldRebalance({ plan, position, tracked, mgmtConfig, nowMs = D
     };
   }
 
+  // Opt-in volatility scaling; falls back to the flat config minutes when the
+  // flag is off or the plan carries no usable volatility.
+  const scaledTiming = mgmt.rebalanceVolatilityScalingEnabled === true
+    ? volatilityScaledRebalanceTiming(plan.volatility, {
+        baseOorMinutes: Number(mgmt.rebalanceMinOorMinutes ?? 5),
+        baseCooldownMinutes: Number(mgmt.rebalanceCooldownMinutes ?? 15),
+      })
+    : null;
+
   const lastAt = tracked?.last_rebalance_attempt_at || tracked?.last_rebalance_at;
-  const cooldownMin = Number(mgmt.rebalanceCooldownMinutes ?? 15);
+  const cooldownMin = scaledTiming ? scaledTiming.cooldownMinutes : Number(mgmt.rebalanceCooldownMinutes ?? 15);
   if (lastAt && cooldownMin > 0) {
     const elapsedMin = (nowMs - new Date(lastAt).getTime()) / 60000;
     if (elapsedMin < cooldownMin) {
@@ -204,7 +235,7 @@ export function shouldRebalance({ plan, position, tracked, mgmtConfig, nowMs = D
   // OOR rebalances wait a short confirmation window (price may snap back);
   // in-range conversions (strategy drift) have no OOR clock to respect.
   if (plan.oor_direction === "up" || plan.oor_direction === "down") {
-    const oorMin = Number(mgmt.rebalanceMinOorMinutes ?? 5);
+    const oorMin = scaledTiming ? scaledTiming.oorMinutes : Number(mgmt.rebalanceMinOorMinutes ?? 5);
     const oorFor = Number(position?.minutes_out_of_range ?? 0);
     if (oorFor < oorMin) return hold(`OOR ${oorFor}m < rebalanceMinOorMinutes ${oorMin}m — wait`);
   }
