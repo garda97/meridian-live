@@ -491,12 +491,14 @@ async function testVolatileRecall() {
   const savedFetch = config.autoStrategy.fetchIndicators;
   const savedSpot = config.autoStrategy.allowSpot;
   const savedFee = config.autoStrategy.spotFeeTvlMin;
+  const savedPreferSpot = config.autoStrategy.preferSpotHighFee;
   const pool = "TEST_POOL_VOLATILE_RECALL_333333333333333333";
   try {
     fs.writeFileSync(POOL_MEMORY_PATH, "{}");
     config.autoStrategy.fetchIndicators = false; // no network in tests
     config.autoStrategy.allowSpot = true; // live user-config may run with spot off
     config.autoStrategy.spotFeeTvlMin = 0.4; // below the 0.5 test fee — floor exercised separately
+    config.autoStrategy.preferSpotHighFee = false; // isolate the recall-forces-spot path from the unrelated high-fee-prefers-spot path
 
     // Record a FABLE-style close: win but pumped far above range
     recordPoolDeploy(pool, {
@@ -523,6 +525,7 @@ async function testVolatileRecall() {
     config.autoStrategy.fetchIndicators = savedFetch;
     config.autoStrategy.allowSpot = savedSpot;
     config.autoStrategy.spotFeeTvlMin = savedFee;
+    config.autoStrategy.preferSpotHighFee = savedPreferSpot;
     restore(POOL_MEMORY_PATH, saved);
   }
 }

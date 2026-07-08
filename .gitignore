@@ -74,3 +74,7 @@ venv_yt/
 
 # Claude Code runtime lock
 .claude/scheduled_tasks.lock
+
+# Scratch debug scripts and ad-hoc file backups from agent editing sessions
+debug_*.js
+*.bak.*
