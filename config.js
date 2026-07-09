@@ -72,6 +72,7 @@ if (u.agentMeridianApiUrl) process.env.AGENT_MERIDIAN_API_URL ||= u.agentMeridia
 if (u.telegramChatId) process.env.TELEGRAM_CHAT_ID ||= String(u.telegramChatId);
 
 const indicatorUserConfig = u.chartIndicators ?? {};
+const copyTradeUserConfig = u.copyTrade ?? {};
 
 // Jito Bundle integration for MEV protection and transaction guarantees
 const jitoConfig = {
@@ -376,6 +377,28 @@ export const config = {
     // active-TVL floor (≈ minTvl) so it acts as a dust floor, not a stretch goal — the
     // screening minTvl filter already removes tiny pools.
     targetLiquidity: Number(u.degenTargetLiquidity ?? 20000),
+  },
+
+  // ─── Copy-trade (mirror entries from tracked "copytrade"-type wallets) ──
+  // Off by default. Detection is pure on-chain (getWalletPositions), no
+  // external API/key needed. See copytrade.js for the poll/mirror logic.
+  copyTrade: {
+    enabled: boolConfig(copyTradeUserConfig.enabled, false),
+    pollIntervalSec: Number(copyTradeUserConfig.pollIntervalSec ?? 60),
+    // 0 = fall back to computeDeployAmount(wallet balance) — same sizing as
+    // the normal screener, NOT proportional to the tracked wallet's size
+    // (we don't reliably know their total capital, only this one position).
+    amountSol: Number(copyTradeUserConfig.amountSol ?? 0),
+    // Separate cap on top of the global risk.maxPositions the deploy safety
+    // check already enforces — keeps copytrade from eating the whole book.
+    maxPositions: Number(copyTradeUserConfig.maxPositions ?? 2),
+    // false (default): our own SL/TP/OOR/rebalance rules own the exit — we
+    // only copy the entry idea, not their timing. true: also close our
+    // mirror the moment their position disappears on-chain.
+    mirrorExit: boolConfig(copyTradeUserConfig.mirrorExit, false),
+    // Ignore their position if it's smaller than this (USD) — filters out
+    // dust/test positions that aren't a real conviction signal.
+    minPositionUsd: Number(copyTradeUserConfig.minPositionUsd ?? 0),
   },
 
   // ─── GMGN (fee source + holder/security audit) ───────────────

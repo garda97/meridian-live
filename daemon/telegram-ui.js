@@ -10,7 +10,7 @@ import { executeTool } from "../tools/executor.js";
 import { getMyPositions, closePosition } from "../tools/dlmm.js";
 import { getWalletBalances } from "../tools/wallet.js";
 import { getTopCandidates } from "../tools/screening.js";
-import { checkSmartWalletsOnPool } from "../smart-wallets.js";
+import { checkSmartWalletsOnPool, listSmartWallets } from "../smart-wallets.js";
 import { getTokenNarrative, getTokenInfo } from "../tools/token.js";
 import { setPositionInstruction } from "../state.js";
 import { appendDecision } from "../decision-log.js";
@@ -743,6 +743,34 @@ export async function telegramHandler(msg) {
       ].join("\n")).catch(() => {});
     } catch (e) {
       await sendMessage(`Error HiveMind: ${e.message}`).catch(() => {});
+    }
+    return;
+  }
+
+  // Read-only status — adding/removing tracked wallets is CLI-only
+  // (`node cli.js copytrade add <name> <addr>`), deliberately not exposed
+  // here since it moves real money once copyTrade.enabled=true.
+  if (text === "/copytrade") {
+    try {
+      const { getCopyTradeState } = await import("../copytrade.js");
+      const wallets = listSmartWallets().wallets.filter((w) => w.type === "copytrade");
+      const state = getCopyTradeState();
+      if (wallets.length === 0) {
+        await sendMessage("Copytrade: tidak ada wallet dilacak.\nTambah via CLI: node cli.js copytrade add <name> <addr>").catch(() => {});
+        return;
+      }
+      const lines = wallets.map((w) => {
+        const mirrors = Object.keys(state.wallets[w.address]?.mirrors || {}).length;
+        return `${w.name} (${w.address.slice(0, 8)}...): ${mirrors} posisi di-mirror`;
+      });
+      await sendMessage([
+        `Copytrade: ${config.copyTrade.enabled ? "aktif" : "nonaktif"}`,
+        `Poll: ${config.copyTrade.pollIntervalSec}s | Max mirror: ${config.copyTrade.maxPositions} | Mirror exit: ${config.copyTrade.mirrorExit ? "on" : "off"}`,
+        "",
+        ...lines,
+      ].join("\n")).catch(() => {});
+    } catch (e) {
+      await sendMessage(TG.error(e.message)).catch(() => {});
     }
     return;
   }
