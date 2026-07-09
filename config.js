@@ -404,7 +404,11 @@ export const config = {
     fetchIndicators: boolConfig(u.autoStrategyFetchIndicators, true),
     indicatorInterval: nonEmptyString(u.autoStrategyIndicatorInterval, "15_MINUTE"),
     allowSpot: boolConfig(u.autoStrategyAllowSpot, true),
-    allowCurve: boolConfig(u.autoStrategyAllowCurve, true),
+    // Default OFF 2026-07-09: 53-position outcome analysis showed curve
+    // averaging +0.03% (n=5) vs bid_ask +3.59%/spot +1.90% — no single
+    // outlier driving the gap. Override via autoStrategyAllowCurve if
+    // a future analysis with more curve samples justifies re-enabling.
+    allowCurve: boolConfig(u.autoStrategyAllowCurve, false),
     maxBins: Math.max(69, Number(u.autoStrategyMaxBins ?? 200)),
     spotRatioBelow: Number(u.autoStrategySpotRatioBelow ?? 0.75),
     requireEntryConfirm: boolConfig(u.autoStrategyRequireEntryConfirm, false),
