@@ -118,4 +118,24 @@ try {
   }
 }
 
+// DRY_RUN=true from the caller's env must never be downgraded by .env
+{
+  const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), "envcrypt-dryrun-"));
+  try {
+    const envPath = path.join(dir3, ".env");
+    fs.writeFileSync(envPath, "DRY_RUN=false\n");
+
+    process.env.DRY_RUN = "true";
+    loadEnv({ envPath, keyPath: path.join(dir3, "no-key") });
+    assert(process.env.DRY_RUN === "true", "explicit DRY_RUN=true must survive .env override");
+
+    delete process.env.DRY_RUN;
+    loadEnv({ envPath, keyPath: path.join(dir3, "no-key") });
+    assert(process.env.DRY_RUN === "false", ".env DRY_RUN must apply when caller sets nothing");
+  } finally {
+    delete process.env.DRY_RUN;
+    fs.rmSync(dir3, { recursive: true, force: true });
+  }
+}
+
 console.log("test-envcrypt: all assertions passed ✅");
