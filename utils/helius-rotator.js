@@ -4,6 +4,7 @@ import path from "path";
 import { log } from "../logger.js";
 import { repoPath } from "../repo-root.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
+import { formatEnvAssignment } from "../envcrypt.js";
 
 const DATA_DIR = path.join(os.homedir(), ".meridian");
 const KEYS_PATH = path.join(DATA_DIR, "helius-keys.json");
@@ -158,19 +159,24 @@ export function persistEnvKeys(envPath = repoPath(".env")) {
     RPC_URL: buildHeliusRpcUrl(primary),
   };
   const seen = new Set();
-  const out = lines.map((line) => {
-    for (const [k, v] of Object.entries(fields)) {
-      if (line.startsWith(`${k}=`)) {
-        seen.add(k);
-        return `${k}=${v}`;
-      }
+  const out = [];
+  for (const line of lines) {
+    const hit = Object.entries(fields).find(([k]) => line.startsWith(`${k}=`));
+    if (!hit) {
+      out.push(line);
+      continue;
     }
-    return line;
-  });
+    const [k, v] = hit;
+    seen.add(k);
+    // formatEnvAssignment emits its own "# encrypted" marker — drop the stale one
+    if (out[out.length - 1]?.trim().toLowerCase() === "# encrypted") out.pop();
+    out.push(formatEnvAssignment(k, v));
+  }
   for (const [k, v] of Object.entries(fields)) {
-    if (!seen.has(k)) out.push(`${k}=${v}`);
+    if (!seen.has(k)) out.push(formatEnvAssignment(k, v));
   }
   atomicWriteFileSync(envPath, out.join("\n") + "\n", { mode: 0o600 });
+  fs.chmodSync(envPath, 0o600);
   return true;
 }
 

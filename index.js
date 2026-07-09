@@ -1397,6 +1397,27 @@ async function shutdown(signal) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
+// Last-resort crash handlers. Node 22 kills the process on any unhandled
+// rejection — for a live-money daemon a stray promise in a poller must not
+// take down position monitoring, so rejections are logged loudly and the
+// daemon keeps running (all state writes are already atomic). A synchronous
+// uncaughtException leaves the process in an unknown state: log, fire a
+// best-effort Telegram alert, and exit non-zero so PM2/systemd restarts clean.
+process.on("unhandledRejection", (reason) => {
+  const detail = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+  log("fatal_warn", `Unhandled promise rejection (daemon continues): ${detail}`);
+});
+process.on("uncaughtException", (error) => {
+  const detail = error?.stack || error?.message || String(error);
+  log("fatal", `Uncaught exception — restarting via supervisor: ${detail}`);
+  try {
+    if (telegramEnabled()) {
+      sendMessage(`🚨 Meridian crash (uncaught exception) — restarting.\n${(error?.message || error).toString().slice(0, 300)}`).catch(() => {});
+    }
+  } catch { /* never block the exit path */ }
+  setTimeout(() => process.exit(1), 1500).unref();
+});
+
 // ═══════════════════════════════════════════
 //  FORMAT CANDIDATES TABLE
 // ═══════════════════════════════════════════
