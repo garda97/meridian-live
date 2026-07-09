@@ -678,6 +678,53 @@ switch (subcommand) {
     break;
   }
 
+  // ── copytrade ───────────────────────────────────────────────────
+  // Owner/CLI-only — deliberately not reachable via the LLM tool surface
+  // (add_smart_wallet's type enum excludes "copytrade") since tracking a
+  // wallet here moves real money automatically once copyTrade.enabled=true.
+  case "copytrade": {
+    const action = sub2 || "status";
+    const { addSmartWallet, removeSmartWallet, listSmartWallets } = await import("./smart-wallets.js");
+    const { getCopyTradeState } = await import("./copytrade.js");
+
+    const positional = argv.filter((a) => !a.startsWith("-"));
+    if (action === "add") {
+      const name = positional[2];
+      const address = positional[3];
+      if (!name || !address) die("Usage: meridian copytrade add <name> <address>");
+      out(addSmartWallet({ name, address, category: flags.category || "alpha", type: "copytrade" }));
+      break;
+    }
+    if (action === "remove") {
+      const address = positional[2];
+      if (!address) die("Usage: meridian copytrade remove <address>");
+      out(removeSmartWallet({ address }));
+      break;
+    }
+    if (action === "list") {
+      out({ wallets: listSmartWallets().wallets.filter((w) => w.type === "copytrade") });
+      break;
+    }
+    if (action === "status") {
+      const { config } = await import("./config.js");
+      const wallets = listSmartWallets().wallets.filter((w) => w.type === "copytrade");
+      const state = getCopyTradeState();
+      out({
+        enabled: config.copyTrade.enabled,
+        pollIntervalSec: config.copyTrade.pollIntervalSec,
+        maxPositions: config.copyTrade.maxPositions,
+        mirrorExit: config.copyTrade.mirrorExit,
+        tracked_wallets: wallets.map((w) => ({
+          name: w.name,
+          address: w.address,
+          mirrors_open: Object.keys(state.wallets[w.address]?.mirrors || {}).length,
+        })),
+      });
+      break;
+    }
+    die("Usage: meridian copytrade [add <name> <addr>|remove <addr>|list|status]");
+  }
+
   case "helius-keys": {
     const action = sub2 || "status";
     const { getRotatorStatus, reloadHeliusKeys } = await import("./utils/helius-rotator.js");

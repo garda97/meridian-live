@@ -59,6 +59,7 @@ import { resolveDeployPlansForCandidates, formatDeployPlanBlock } from "../tools
 import { getWeightsSummary } from "../signal-weights.js";
 import { appendDecision, enrichDecisionEntry, getRecentDecisions } from "../decision-log.js";
 import { checkDailyLossGate } from "../utils/daily-loss.js";
+import { runCopyTradePoll } from "../copytrade.js";
 import { timers, stripThink, sanitizeUntrustedPromptText } from "./runtime.js";
 
 // ═══════════════════════════════════════════
@@ -136,6 +137,7 @@ export function stopCronJobs() {
   for (const task of _cronTasks) task.stop();
   if (_cronTasks._pnlPollInterval) clearInterval(_cronTasks._pnlPollInterval);
   if (_cronTasks._opportunityPollInterval) clearInterval(_cronTasks._opportunityPollInterval);
+  if (_cronTasks._copyTradePollInterval) clearInterval(_cronTasks._copyTradePollInterval);
   _cronTasks = [];
 }
 
@@ -1304,11 +1306,32 @@ Summarize the current portfolio health, total fees earned, and performance of al
     }, oppMs);
   }
 
+  // Copy-trade poller — off by default (config.copyTrade.enabled). Diffs
+  // tracked "copytrade"-type wallets' live positions against the last poll
+  // and mirrors newly-opened ones. See copytrade.js for the full flow.
+  let copyTradePollInterval = null;
+  if (config.copyTrade.enabled) {
+    const ctMs = Math.max(15, Number(config.copyTrade.pollIntervalSec ?? 60)) * 1000;
+    let _copyTradePollBusy = false;
+    copyTradePollInterval = setInterval(async () => {
+      if (_managementBusy || _screeningBusy || _copyTradePollBusy) return;
+      _copyTradePollBusy = true;
+      try {
+        await runCopyTradePoll();
+      } catch (e) {
+        log("cron_error", `Copytrade poll failed: ${e.message}`);
+      } finally {
+        _copyTradePollBusy = false;
+      }
+    }, ctMs);
+  }
+
   _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
   // Store interval refs so stopCronJobs can clear them
   _cronTasks._pnlPollInterval = pnlPollInterval;
   _cronTasks._opportunityPollInterval = opportunityPollInterval;
-  log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m${config.opportunity.enabled ? `, opportunity poll every ${config.opportunity.pollIntervalSec}s` : ""}`);
+  _cronTasks._copyTradePollInterval = copyTradePollInterval;
+  log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m${config.opportunity.enabled ? `, opportunity poll every ${config.opportunity.pollIntervalSec}s` : ""}${config.copyTrade.enabled ? `, copytrade poll every ${config.copyTrade.pollIntervalSec}s` : ""}`);
 }
 
 /**
