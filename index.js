@@ -741,7 +741,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
       return screenReport;
     }
 
-    const regime = checkSolRegimeGate(preBalance?.sol_price);
+    let btcPriceUsd = null;
+    if (config.screening?.solRelativeStrengthEnabled) {
+      const { getBtcPriceUsd } = await import("./tools/btc-price.js");
+      btcPriceUsd = await getBtcPriceUsd();
+    }
+    const regime = checkSolRegimeGate(preBalance?.sol_price, { btcPriceUsd });
     if (regime.blocked) {
       const reason = `SOL regime gate: 1h change ${regime.changePct}% <= ${regime.thresholdPct}%`;
       log("cron", `Screening skipped — ${reason}`);

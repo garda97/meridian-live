@@ -166,6 +166,18 @@ export const config = {
     },
     solRegimeGateEnabled: boolConfig(u.solRegimeGateEnabled, true),
     solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
+    // SOL/BTC relative strength (LP Army "Deep Winter" doctrine, notes/GETXAPI research
+    // 2026-07-09): if SOL is dumping less than BTC over the same 1h window, that's relative
+    // strength, not confirmed weakness — soften the sol-regime block instead of skipping the
+    // cycle outright. Opt-in (off by default): this changes live gate behavior and has no
+    // backtest yet, unlike the sol-regime gate itself.
+    solRelativeStrengthEnabled: boolConfig(u.solRelativeStrengthEnabled, false),
+    // SOL must outperform BTC by at least this many percentage points (solChangePct - btcChangePct)
+    // over the same 1h window to count as "relatively strong".
+    solRelativeStrengthMinOutperformPct: Number(u.solRelativeStrengthMinOutperformPct ?? 3),
+    // How many extra percentage points the sol-regime block threshold relaxes by when SOL is
+    // relatively strong vs BTC (e.g. threshold -3 becomes -3 - 2 = -5).
+    solRelativeStrengthSoftenPct: Number(u.solRelativeStrengthSoftenPct ?? 2),
     // Competitiveness floor: min estimated TVL share (%) our deploy must take.
     // null = off — at 0.5 SOL deploys the share is ~0.2% max, so this only
     // makes sense once the wallet is much larger. Metric always shown to LLM.
