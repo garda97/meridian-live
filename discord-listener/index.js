@@ -12,16 +12,13 @@
  *   DISCORD_SIGNAL_BOTS    — comma-separated bot display names fallback (default: Rick)
  *   DISCORD_MIN_FEES_SOL   — minimum pool fees threshold (default: 5)
  */
+import "../envcrypt.js"; // loads + decrypts .env — must stay the first import
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const require = createRequire(import.meta.url);
-const dotenv = require("dotenv");
-dotenv.config({ path: path.join(ROOT, ".env") });
 
 import { runPreChecks } from "./pre-checks.js";
 

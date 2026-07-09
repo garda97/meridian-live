@@ -8,14 +8,9 @@
  *   node scripts/auto-swap-dust.js --mint <mint> --amount <n>
  */
 
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
+import "../envcrypt.js"; // loads + decrypts .env — must stay the first import
 import { getWalletBalances, swapToken } from "../tools/wallet.js";
 import { config } from "../config.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const SOL_MINT = config.tokens.SOL;
 const MIN_BALANCE = 0.000001;
