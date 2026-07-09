@@ -1166,6 +1166,13 @@ function maybeNum(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function roundNum(value, decimals = 2) {
+  const n = parseFloat(value ?? 0);
+  if (!Number.isFinite(n)) return null;
+  const factor = 10 ** decimals;
+  return Math.round(n * factor) / factor;
+}
+
 /**
  * Deterministic exit rules (no LLM).
  * Returns { action: "CLOSE", rule: string, reason: string } or null.
