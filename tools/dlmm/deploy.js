@@ -100,6 +100,26 @@ export async function deployPosition({
   const { StrategyType, getBinIdFromPrice, getPriceOfBinByBinId } = await getDLMM();
   const pool = await getPool(pool_address);
   const baseMint = pool.lbPair.tokenXMint.toString();
+  // Guard: skip Token-2022 mints. Their ATA creation requires extra rent/extensions,
+  // which makes the deploy simulation fail with "insufficient funds" (custom err 0x1)
+  // even when the wallet has enough SOL. Meteora DLMM standard path doesn't budget for it.
+  try {
+    const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+    const conn = getConnection();
+    const [xInfo, yInfo] = await Promise.all([
+      conn.getAccountInfo(pool.lbPair.tokenXMint),
+      conn.getAccountInfo(pool.lbPair.tokenYMint),
+    ]);
+    const x2022 = xInfo?.owner?.toBase58() === TOKEN_2022_PROGRAM;
+    const y2022 = yInfo?.owner?.toBase58() === TOKEN_2022_PROGRAM;
+    if (x2022 || y2022) {
+      const which = x2022 && y2022 ? "both" : x2022 ? "tokenX" : "tokenY";
+      log("deploy", `Skipping ${pool_address.slice(0, 8)}: ${which} is Token-2022 (ATA rent unsupported by deploy path)`);
+      return { success: false, error: `Token-2022 mint (${which}) not supported by deploy path — skipped.` };
+    }
+  } catch (tokenErr) {
+    log("deploy", `Token-2022 preflight check failed (${tokenErr.message}) — proceeding (fail-open)`);
+  }
   if (isBaseMintOnCooldown(baseMint)) {
     const reason = getBaseMintCooldownReason(baseMint) || "token cooldown active";
     log("deploy", `Base mint ${baseMint.slice(0, 8)} is on cooldown — skipping deploy (${reason})`);
