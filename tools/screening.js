@@ -315,6 +315,14 @@ async function concentrationParadoxOverride(mint, reason) {
   if (!mint || !hasGmgnApiKey()) {
     return { override: false, reason: "gmgn key unavailable" };
   }
+  // HARD GUARD: never override when top-10 holder concentration is extreme
+  // (>100% means a single entity / whale cluster controls the entire float and
+  // can dump at will — that is not a "paradox", it is a genuine rug risk).
+  const top10Match = /top10 holders?\s+([\d.]+)%\s*>/i.exec(reason || "");
+  const top10pct = top10Match ? Number(top10Match[1]) : null;
+  if (top10pct != null && top10pct > 100) {
+    return { override: false, reason: `top10 ${top10pct}% > 100% (whale-dominated, hard block)`, top10pct };
+  }
   const minSmCount = Number(sec.concentrationParadoxMinSmCount ?? 8);
 
   try {
