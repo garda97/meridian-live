@@ -17,6 +17,7 @@ import { calculateIlConcentrated } from "./utils/impermanent-loss.js";
 const STATE_FILE = repoPath("state.json");
 
 const MAX_RECENT_EVENTS = 20;
+const MAX_CLOSED_OUTCOMES = 1000; // machine-readable outcome history for lp-outcome analysis; capped so state.json can't grow unbounded
 const MAX_INSTRUCTION_LENGTH = 280;
 
 function sanitizeStoredText(text, maxLen = MAX_INSTRUCTION_LENGTH) {
@@ -32,7 +33,7 @@ function sanitizeStoredText(text, maxLen = MAX_INSTRUCTION_LENGTH) {
 
 function load() {
   if (!fs.existsSync(STATE_FILE)) {
-    return { positions: {}, recentEvents: [], lastUpdated: null };
+    return { positions: {}, recentEvents: [], closedOutcomes: [], lastUpdated: null };
   }
   try {
     return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
@@ -175,6 +176,46 @@ export function recordClaim(position_address, fees_usd) {
 }
 
 /**
+ * Compact, machine-readable close record for lp-outcome analysis (Fase 2
+ * bot learning). pnl_pct is best-effort from the last tracked tick (pos.pnl_pct,
+ * falling back to peak_pnl_pct) since no call site threads a definitive
+ * close-time PnL through recordClose/syncOpenPositions today.
+ */
+function buildClosedOutcome(pos, reason) {
+  return {
+    position: pos.position,
+    pool: pos.pool,
+    pool_name: pos.pool_name || null,
+    strategy: pos.strategy || null,
+    pnl_pct: pos.pnl_pct ?? pos.peak_pnl_pct ?? null,
+    il_pct: pos.il_pct ?? null,
+    fee_vs_il_gap_pct: pos.fee_vs_il_gap_pct ?? null,
+    entry_mcap: pos.entry_mcap ?? null,
+    entry_tvl: pos.entry_tvl ?? null,
+    entry_volume: pos.entry_volume ?? null,
+    entry_holders: pos.entry_holders ?? null,
+    organic_score: pos.organic_score ?? null,
+    fee_tvl_ratio: pos.fee_tvl_ratio ?? null,
+    initial_fee_tvl_24h: pos.initial_fee_tvl_24h ?? null,
+    volatility: pos.volatility ?? null,
+    amount_sol: pos.amount_sol ?? null,
+    deployed_at: pos.deployed_at || null,
+    closed_at: pos.closed_at || new Date().toISOString(),
+    close_reason: reason || "unknown",
+    total_fees_claimed_usd: pos.total_fees_claimed_usd ?? null,
+  };
+}
+
+/** Append to the bounded closedOutcomes[] history. */
+function pushClosedOutcome(state, pos, reason) {
+  if (!state.closedOutcomes) state.closedOutcomes = [];
+  state.closedOutcomes.push(buildClosedOutcome(pos, reason));
+  if (state.closedOutcomes.length > MAX_CLOSED_OUTCOMES) {
+    state.closedOutcomes = state.closedOutcomes.slice(-MAX_CLOSED_OUTCOMES);
+  }
+}
+
+/**
  * Append to the recent events log (shown in every prompt).
  */
 function pushEvent(state, event) {
@@ -196,6 +237,7 @@ export function recordClose(position_address, reason) {
   pos.closed_at = new Date().toISOString();
   pos.notes.push(`Closed at ${pos.closed_at}: ${reason}`);
   pushEvent(state, { action: "close", position: position_address, pool_name: pos.pool_name || pos.pool, reason });
+  pushClosedOutcome(state, pos, reason);
   save(state);
   log("state", `Position ${position_address} marked closed: ${reason}`);
 }
@@ -504,6 +546,14 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
     changed = true;
   }
 
+  // Persist the last-known live PnL so recordClose/syncOpenPositions has a real
+  // exit-time value for closedOutcomes[] instead of falling back to peak_pnl_pct
+  // (which would misrepresent a stop-loss exit as a profit).
+  if (!pnl_pct_suspicious && Number.isFinite(currentPnlPct) && pos.pnl_pct !== currentPnlPct) {
+    pos.pnl_pct = currentPnlPct;
+    changed = true;
+  }
+
   // Activate trailing TP once trigger threshold is reached (never during PnL warmup)
   if (mgmtConfig.trailingTakeProfit && !pos.trailing_active && !isInPnlWarmup(pos, mgmtConfig.pnlWarmupMinutes) && (pos.peak_pnl_pct ?? 0) >= mgmtConfig.trailingTriggerPct) {
     pos.trailing_active = true;
@@ -746,6 +796,7 @@ export function syncOpenPositions(active_addresses) {
     pos.notes.push(`Auto-closed during state sync (not found on-chain)`);
     changed = true;
     log("state", `Position ${posId} auto-closed (missing from on-chain data)`);
+    pushClosedOutcome(state, pos, "external_close_sync_missing");
     externallyClosed.push({
       position: posId,
       pool: pos.pool || null,
