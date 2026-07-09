@@ -117,8 +117,15 @@ export function envryptDecrypt(value, key) {
 }
 
 export function loadEnv({ envPath = DEFAULT_ENV_PATH, keyPath = DEFAULT_KEY_PATH, override = true } = {}) {
+  // An explicit DRY_RUN=true from the caller's environment must NEVER be
+  // downgraded to live mode by .env — override=true silently flipped
+  // `DRY_RUN=true node ...` into a real deploy when .env said false.
+  // One-directional: dry-run always wins; live never sneaks in.
+  const explicitDryRun = process.env.DRY_RUN === "true";
+
   // override=true so repo .env wins over stale PM2-injected env on restart
   dotenv.config({ path: envPath, override, quiet: true });
+  if (explicitDryRun) process.env.DRY_RUN = "true";
 
   const encryptedKeys = parseEncryptedKeys(envPath);
   if (encryptedKeys.size === 0) return { encryptedKeys: [] };
