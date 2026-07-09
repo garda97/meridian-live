@@ -109,7 +109,8 @@ Autonomous DLMM liquidity provider agent for Meteora pools on Solana.
 | `signal-tracker.js` | 87 | In-memory 10-min staging for screening-time signals (`organic_score`, `fee_tvl_ratio`, …). Cleared on deploy or TTL. **Not persisted** — fine because the staged snapshot is also written to `state.json` via `trackPosition({ signal_snapshot })`. |
 | `signal-weights.js` | 330 | Darwinian signal weighting. Recalculates every 5 closes (or 10-sample min). Splits signals into quartiles; top → `weight*1.05`, bottom → `weight*0.95`. Persists `signal-weights.json`. `getWeightsSummary()` injected into SCREENER prompt. |
 | `strategy-library.js` | 227 | Saved LP strategies. Five defaults preloaded: `custom_ratio_spot`, `single_sided_reseed`, `fee_compounding`, `multi_layer`, `partial_harvest`. `getActiveStrategy()` → used in SCREENER prompt. |
-| `smart-wallets.js` | 103 | Tracked KOL/alpha wallets. `type: "lp"` (default) checks positions; `type: "holder"` only checks token holdings. 5-min position cache. `check_smart_wallets_on_pool` is the deployment confidence signal. |
+| `smart-wallets.js` | 103 | Tracked KOL/alpha wallets. `type: "lp"` (default) checks positions; `type: "holder"` only checks token holdings; `type: "copytrade"` (see below) is excluded from `check_smart_wallets_on_pool`'s confidence-boost scan. 5-min position cache. |
+| `copytrade.js` | ~230 | Copy-trade (off by default, `config.copyTrade.enabled`). Polls `type: "copytrade"` wallets' live positions via `getWalletPositions` (pure on-chain, no external API), diffs against the last poll, and mirrors newly-opened entries through the normal `deploy_position` safety gates (actor `"COPYTRADE"` — duplicate-pool guard stays ON, unlike Recovery Strat's bypass). A wallet's *pre-existing* positions at first-tracked time are never mirrored — the first poll only takes a baseline snapshot. Exit stays on Meridian's own SL/TP/OOR/rebalance rules unless `copyTrade.mirrorExit` is on. Wallets are added via `node cli.js copytrade add <name> <addr>` — deliberately CLI-only, not LLM-reachable (`add_smart_wallet`'s `type` enum excludes `"copytrade"`), since tracking a wallet here moves real money automatically. Persists `copytrade-state.json` (`{ wallets: { [address]: { lastPositions[], mirrors: { [theirPosition]: { ourPosition, pool, openedAt } } } } }`). |
 | `token-blacklist.js` | 103 | Mint → reason. Hard-filtered before LLM in `getTopCandidates`. |
 | `dev-blocklist.js` | 66 | Deployer wallet → reason. Hard-filtered before LLM, fetched from Jupiter dev field. |
 | `hivemind.js` | 346 | Agent Meridian shared learning. `bootstrapHiveMind` on startup, `startHiveMindBackgroundSync` every 15 min. Pushes lessons + performance events; pulls shared lessons + presets. `getSharedLessonsForPrompt` → injected under `── HIVEMIND ──` in prompt. Failures are non-blocking. |
@@ -281,6 +282,7 @@ auto-swap on close (executor.js:610)
 | `deployer-blacklist.json` | `{ _note, addresses: [wallet, …] }` (legacy) | `discord-listener/pre-checks.js` |
 | `discord-signals.json` | Array of signals with status pending/processed | `discord-listener` |
 | `hivemind-cache.json` | `{ sharedLessons: [], presets: [], pulledAt }` | `hivemind.js` |
+| `copytrade-state.json` | `{ wallets: { [address]: { lastPositions[], mirrors: {} } } }` | `copytrade.js` |
 | `logs/agent-YYYY-MM-DD.log` | Plain text | `logger.js` |
 | `logs/actions-YYYY-MM-DD.jsonl` | Audit JSONL | `logger.js logAction` |
 
@@ -357,6 +359,7 @@ Encrypted env flow (optional, see `scripts/envrypt.js`):
 | `/briefing` | `generateBriefing` | On-demand daily report. |
 | `/settings` / `/menu` / `/configmenu` | `renderSettingsMenu` + `applySettingsMenuCallback` | Inline-keyboard menu with toggle/step buttons. Updates flow through `update_config` tool. |
 | `/hive pull` | `pullHiveMindLessons` + `pullHiveMindPresets` | Manual HiveMind fetch. |
+| `/copytrade` | `copytrade.js#getCopyTradeState` | Read-only status. Add/remove tracked wallets via `node cli.js copytrade add/remove/list` (CLI-only, not exposed here). |
 | `/pause` / `/resume` / `/stop` | index.js | Toggle cron jobs / graceful shutdown. |
 | Free-form chat | `agentLoop` with `agentType=GENERAL` | Intent-matched tool subset. |
 | `cfg:*` callback queries | `applySettingsMenuCallback` | Settings menu button presses. |

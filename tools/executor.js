@@ -225,6 +225,8 @@ function normalizeConfigValue(key, value) {
     "solMode",
     "darwinEnabled",
     "lpAgentRelayEnabled",
+    "copyTradeEnabled",
+    "copyTradeMirrorExit",
   ]);
   const arrayKeys = new Set(["allowedLaunchpads", "blockedLaunchpads"]);
   const stringKeys = new Set([
@@ -545,6 +547,13 @@ const toolMap = {
       requireAllIntervals: ["indicators", "requireAllIntervals", ["chartIndicators", "requireAllIntervals"]],
       evilPandaRsiExit: ["indicators", "evilPandaRsiExit", ["chartIndicators", "evilPandaRsiExit"]],
       evilPandaMacdExitEnabled: ["indicators", "evilPandaMacdExitEnabled", ["chartIndicators", "evilPandaMacdExitEnabled"]],
+      // copy-trade
+      copyTradeEnabled: ["copyTrade", "enabled", ["copyTrade", "enabled"]],
+      copyTradePollIntervalSec: ["copyTrade", "pollIntervalSec", ["copyTrade", "pollIntervalSec"]],
+      copyTradeAmountSol: ["copyTrade", "amountSol", ["copyTrade", "amountSol"]],
+      copyTradeMaxPositions: ["copyTrade", "maxPositions", ["copyTrade", "maxPositions"]],
+      copyTradeMirrorExit: ["copyTrade", "mirrorExit", ["copyTrade", "mirrorExit"]],
+      copyTradeMinPositionUsd: ["copyTrade", "minPositionUsd", ["copyTrade", "minPositionUsd"]],
     };
 
     const applied = {};

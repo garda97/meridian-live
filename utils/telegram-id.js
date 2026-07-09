@@ -296,6 +296,7 @@ export function formatHelpTextId() {
     "/briefing — briefing pagi",
     "/hive — status HiveMind",
     "/hive pull — pull HiveMind manual",
+    "/copytrade — status wallet copy-trade (kelola via CLI: node cli.js copytrade)",
     "/pause — hentikan siklus cron",
     "/resume — lanjutkan siklus cron",
     "/stop — matikan agent",
