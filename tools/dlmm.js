@@ -2629,7 +2629,7 @@ export async function closePosition({ position_address, reason }) {
         let feesUsd = tracked.total_fees_claimed_usd || 0;
         try {
           const closedUrl = `https://dlmm.datapi.meteora.ag/positions/${poolAddress}/pnl?user=${wallet.publicKey.toString()}&status=closed&pageSize=50&page=1`;
-          for (let attempt = 0; attempt < 6; attempt++) {
+          for (let attempt = 0; attempt < 12; attempt++) {
             const res = await fetch(closedUrl);
             if (res.ok) {
               const data = await res.json();
@@ -2641,10 +2641,24 @@ export async function closePosition({ position_address, reason }) {
                 finalValueUsd = parseFloat(posEntry.allTimeWithdrawals?.total?.usd || 0);
                 initialUsd = parseFloat(posEntry.allTimeDeposits?.total?.usd || 0);
                 feesUsd = parseFloat(posEntry.allTimeFees?.total?.usd || 0) || feesUsd;
-                break;
+                // Retry until Meteora API settles the withdrawal aggregation — otherwise
+                // it reports a near-zero withdrawal right after close, producing a bogus
+                // -80%+ PnL for positions that actually broke even (race condition).
+                if (finalValueUsd > 0 && finalValueUsd >= initialUsd * 0.5) break;
               }
             }
-            if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 5000));
+            if (attempt < 11) await new Promise((resolve) => setTimeout(resolve, 5000));
+          }
+          // Sanity gate: if API still reports an extreme loss but on-chain IL was ~0
+          // (price barely moved) and the withdrawal did settle, trust the settled delta
+          // instead of the possibly-stale pnlUsd field.
+          const ilPct = tracked?.il_pct ?? 0;
+          if (pnlPct < -50 && Math.abs(ilPct) < 5 && finalValueUsd > 0) {
+            const settledPnlUsd = finalValueUsd - initialUsd + feesUsd;
+            const settledPct = initialUsd > 0 ? (settledPnlUsd / initialUsd) * 100 : 0;
+            log("close_warn", `PnL sanity override for ${position_address.slice(0,8)}: API pnlPct=${pnlPct.toFixed(2)} but IL≈0 (${ilPct}) + withdrawal settled (${finalValueUsd} vs ${initialUsd}) → using settled ${settledPct.toFixed(2)}%`);
+            pnlUsd = config.management.solMode ? settledPnlUsd / (tracked?.sol_price || 0) : settledPnlUsd;
+            pnlPct = settledPct;
           }
         } catch (e) {
           log("close_warn", `Relay closed PnL fetch failed: ${e.message}`);
