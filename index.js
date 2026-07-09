@@ -2598,7 +2598,14 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
   log("startup", "Non-TTY mode — starting cron cycles immediately.");
   startCronJobs();
   maybeRunMissedBriefing().catch(() => { });
-  // startPolling(telegramHandler); // Moved to TTY block after prompt
+  // Telegram inbound polling MUST run in daemon (non-TTY) mode too — otherwise
+  // incoming photos/commands are never received (only outbound sendMessage worked).
+  // Previously this was commented out ("moved to TTY block"), which disabled
+  // inbound entirely under systemd. Guarded by telegramEnabled().
+  if (telegramEnabled()) {
+    startPolling(telegramHandler);
+    log("startup", "Telegram inbound polling started (non-TTY daemon mode).");
+  }
   (async () => {
     try {
       await runScreeningCycle({ silent: false });
