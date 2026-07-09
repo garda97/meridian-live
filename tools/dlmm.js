@@ -2253,6 +2253,35 @@ export async function rebalancePosition({ position_address, plan, reason }) {
       return { success: false, blocked: true, error: solGate.reason, rebalance_path_planned: prePath };
     }
 
+    // Pre-flight bin-array check: refuse to rebalance into a range that would
+    // require Meteora bin-array initialization (non-refundable rent). MUST run
+    // BEFORE withdrawLiquidity — otherwise the position is already emptied and
+    // the failed re-add force-closes it (funds returned, deploy undone).
+    // Mirrors deploy-time guard in assertRangeDoesNotRequireBinArrayInitialization
+    // but here we skip (keep position open) instead of closing.
+    try {
+      await assertRangeDoesNotRequireBinArrayInitialization(pool, preMinBinId, preMaxBinId);
+    } catch (binErr) {
+      recordRebalanceAttempt(position_address);
+      log("rebalance", `Skipped (${prePath}): ${binErr.message}`);
+      appendDecision({
+        type: "skip",
+        actor: "MANAGER",
+        pool: String(poolAddress),
+        pool_name: tracked?.pool_name || poolMeta.name || String(poolAddress).slice(0, 8),
+        position: position_address,
+        summary: "Rebalance skipped — target range needs uninitialized bin-array (would charge non-refundable rent)",
+        reason: binErr.message,
+        metrics: {
+          rebalance_type: plan.rebalance_type ?? null,
+          rebalance_path_planned: prePath,
+          planned_bins: preBinsBelow + preBinsAbove,
+          planned_wide: preIsWide,
+        },
+      });
+      return { success: false, blocked: true, error: binErr.message, rebalance_path_planned: prePath };
+    }
+
     // Cooldown stamp before on-chain work — failures must not retry every tick
     recordRebalanceAttempt(position_address);
 
