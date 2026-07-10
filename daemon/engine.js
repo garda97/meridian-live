@@ -69,25 +69,21 @@ export { filterRecoveryCandidates, computeRecoveryBinsBelow } from "./engine/rec
 // Daemon-side deterministic close rules 1-7 (private — index.js does not re-export;
 // distinct from the same-named generic rule in tools/dlmm/rules.js).
 import { getDeterministicCloseRule } from "./engine/close-rules.js";
+import { engineState } from "./engine/engine-state.js";
 
 // ═══════════════════════════════════════════
 //  CRON DEFINITIONS
 // ═══════════════════════════════════════════
-let _cronTasks = [];
-let _cronStarted = false;
-let _managementBusy = false; // prevents overlapping management cycles
-let _screeningBusy = false;  // prevents overlapping screening cycles
-let _screeningLastTriggered = 0; // epoch ms — prevents management from spamming screening
 // Exit/peak confirmation is done by consecutive-tick counting in state.js
 // (registerExitSignal / confirmPeak), driven by the 3s RPC poller — no setTimeout rechecks.
 
 /** True while a management or screening cycle holds the engine. */
 export function isEngineBusy() {
-  return _managementBusy || _screeningBusy;
+  return engineState.managementBusy || engineState.screeningBusy;
 }
 
 export function isCronStarted() {
-  return _cronStarted;
+  return engineState.cronStarted;
 }
 
 /**
@@ -96,8 +92,8 @@ export function isCronStarted() {
  * Returns true when this call actually started them, false if already running.
  */
 export function ensureCronStarted() {
-  if (_cronStarted) return false;
-  _cronStarted = true;
+  if (engineState.cronStarted) return false;
+  engineState.cronStarted = true;
   timers.managementLastRun = Date.now();
   timers.screeningLastRun = Date.now();
   startCronJobs();
@@ -106,7 +102,7 @@ export function ensureCronStarted() {
 
 export function pauseCronJobs() {
   stopCronJobs();
-  _cronStarted = false;
+  engineState.cronStarted = false;
 }
 
 async function runBriefing() {
@@ -142,11 +138,11 @@ export async function maybeRunMissedBriefing() {
 }
 
 export function stopCronJobs() {
-  for (const task of _cronTasks) task.stop();
-  if (_cronTasks._pnlPollInterval) clearInterval(_cronTasks._pnlPollInterval);
-  if (_cronTasks._opportunityPollInterval) clearInterval(_cronTasks._opportunityPollInterval);
-  if (_cronTasks._copyTradePollInterval) clearInterval(_cronTasks._copyTradePollInterval);
-  _cronTasks = [];
+  for (const task of engineState.cronTasks) task.stop();
+  if (engineState.cronTasks._pnlPollInterval) clearInterval(engineState.cronTasks._pnlPollInterval);
+  if (engineState.cronTasks._opportunityPollInterval) clearInterval(engineState.cronTasks._opportunityPollInterval);
+  if (engineState.cronTasks._copyTradePollInterval) clearInterval(engineState.cronTasks._copyTradePollInterval);
+  engineState.cronTasks = [];
 }
 
 /**
@@ -247,8 +243,8 @@ After evaluating, write a brief one-line result per position.
 }
 
 export async function runManagementCycle({ silent = false } = {}) {
-  if (_managementBusy) return null;
-  _managementBusy = true;
+  if (engineState.managementBusy) return null;
+  engineState.managementBusy = true;
   timers.managementLastRun = Date.now();
   log("cron", "Starting management cycle");
   let mgmtReport = null;
@@ -445,7 +441,7 @@ export async function runManagementCycle({ silent = false } = {}) {
     if (
       postTrigger.ok &&
       afterCount < config.risk.maxPositions &&
-      Date.now() - _screeningLastTriggered > screeningCooldownMs
+      Date.now() - engineState.screeningLastTriggered > screeningCooldownMs
     ) {
       log("cron", `Post-management: ${afterCount}/${config.risk.maxPositions} positions — triggering screening`);
       runScreeningCycle().catch((e) => log("cron_error", `Triggered screening failed: ${e.message}`));
@@ -456,7 +452,7 @@ export async function runManagementCycle({ silent = false } = {}) {
     log("cron_error", `Management cycle failed: ${error.message}`);
     mgmtReport = `Siklus manajemen gagal: ${error.message}`;
   } finally {
-    _managementBusy = false;
+    engineState.managementBusy = false;
     if (!silent && telegramEnabled()) {
       if (mgmtReport) {
         const mgmtOut = localizeTelegramReport(stripThink(mgmtReport));
@@ -474,12 +470,12 @@ export async function runManagementCycle({ silent = false } = {}) {
 }
 
 export async function runScreeningCycle({ silent = false } = {}) {
-  if (_screeningBusy) {
+  if (engineState.screeningBusy) {
     log("cron", "Screening skipped — previous cycle still running");
     return null;
   }
-  _screeningBusy = true; // set immediately — prevents TOCTOU race with concurrent callers
-  _screeningLastTriggered = Date.now();
+  engineState.screeningBusy = true; // set immediately — prevents TOCTOU race with concurrent callers
+  engineState.screeningLastTriggered = Date.now();
 
   let prePositions, preBalance;
   let liveMessage = null;
@@ -961,7 +957,7 @@ PENTING:
     log("cron_error", `Screening cycle failed: ${error.message}`);
     screenReport = `Siklus screening gagal: ${error.message}`;
   } finally {
-    _screeningBusy = false;
+    engineState.screeningBusy = false;
     try {
       const autotune = recordScreeningOutcome(outcome, config);
       if (autotune?.relaxed && autotune.changes) {
@@ -987,7 +983,7 @@ export function startCronJobs() {
   stopCronJobs(); // stop any running tasks before (re)starting
 
   const mgmtTask = cron.schedule(`*/${Math.max(1, config.schedule.managementIntervalMin)} * * * *`, async () => {
-    if (_managementBusy) return;
+    if (engineState.managementBusy) return;
     timers.managementLastRun = Date.now();
     await runManagementCycle();
   });
@@ -995,8 +991,8 @@ export function startCronJobs() {
   const screenTask = cron.schedule(`*/${Math.max(1, config.schedule.screeningIntervalMin)} * * * *`, runScreeningCycle);
 
   const healthTask = cron.schedule(`0 * * * *`, async () => {
-    if (_managementBusy) return;
-    _managementBusy = true;
+    if (engineState.managementBusy) return;
+    engineState.managementBusy = true;
     log("cron", "Starting health check");
     try {
       await agentLoop(`
@@ -1007,7 +1003,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
     } catch (error) {
       log("cron_error", `Health check failed: ${error.message}`);
     } finally {
-      _managementBusy = false;
+      engineState.managementBusy = false;
     }
   });
 
@@ -1030,7 +1026,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
   const confirmTicks = Math.max(1, Number(config.pnl.confirmTicks ?? 2));
   let _pnlPollBusy = false;
   const pnlPollInterval = setInterval(async () => {
-    if (_managementBusy || _screeningBusy || _pnlPollBusy) return;
+    if (engineState.managementBusy || engineState.screeningBusy || _pnlPollBusy) return;
     if (getTrackedPositions(true).length === 0) return;
     _pnlPollBusy = true;
     try {
@@ -1059,7 +1055,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
             const partial = shouldPartialTakeProfit(getTrackedPosition(p.position), p, config.management);
             if (partial) {
               log("state", `[PnL poll] PARTIAL_TP: ${p.pair} — ${partial.reason}`);
-              _managementBusy = true;
+              engineState.managementBusy = true;
               try {
                 const res = await partialClosePosition({ position_address: p.position, close_pct: partial.close_pct, reason: partial.reason });
                 if (res?.success && config.management.autoSwapAfterClose && res.base_mint && res.base_mint !== config.tokens.SOL) {
@@ -1069,7 +1065,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
               } catch (e) {
                 log("cron_error", `Poll-triggered partial close failed: ${e.message}`);
               } finally {
-                _managementBusy = false;
+                engineState.managementBusy = false;
               }
               break; // one action per tick
             }
@@ -1083,7 +1079,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
             const reb = await maybeResolveRebalance(p).catch(() => null);
             if (reb?.action === "REBALANCE") {
               log("state", `[PnL poll] REBALANCE: ${p.pair} — ${reb.reason}`);
-              _managementBusy = true;
+              engineState.managementBusy = true;
               try {
                 const res = await rebalancePosition({ position_address: p.position, plan: reb.plan, reason: reb.reason });
                 log("state", `[PnL poll] ${p.pair}: rebalance ${res?.success
@@ -1092,7 +1088,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
               } catch (e) {
                 log("cron_error", `Poll-triggered rebalance failed: ${e.message}`);
               } finally {
-                _managementBusy = false;
+                engineState.managementBusy = false;
               }
               break; // one action per tick
             }
@@ -1102,7 +1098,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
         log("state", `[PnL poll] ${signal} confirmed (${confirmTicks} ticks): ${p.pair} — ${reason} — closing directly`);
         // Hold the management lock so the cron cycle can't double-act on this position.
-        _managementBusy = true;
+        engineState.managementBusy = true;
         try {
           const actMap = new Map([[p.position, { action: "CLOSE", rule, reason }]]);
           const rpt = await executeManagementActions([p], actMap, {});
@@ -1110,7 +1106,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
         } catch (e) {
           log("cron_error", `Poll-triggered close failed: ${e.message}`);
         } finally {
-          _managementBusy = false;
+          engineState.managementBusy = false;
         }
         break; // one action per tick
       }
@@ -1129,8 +1125,8 @@ Summarize the current portfolio health, total fees earned, and performance of al
     const oppCooldownMs = 5 * 60 * 1000; // don't re-trigger the deploy LLM more than every 5m
     let _opportunityPollBusy = false;
     opportunityPollInterval = setInterval(async () => {
-      if (_screeningBusy || _managementBusy || _opportunityPollBusy) return;
-      if (Date.now() - _screeningLastTriggered < oppCooldownMs) return;
+      if (engineState.screeningBusy || engineState.managementBusy || _opportunityPollBusy) return;
+      if (Date.now() - engineState.screeningLastTriggered < oppCooldownMs) return;
       _opportunityPollBusy = true;
       try {
         reloadUserConfigFromDisk();
@@ -1187,7 +1183,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
     const ctMs = Math.max(15, Number(config.copyTrade.pollIntervalSec ?? 60)) * 1000;
     let _copyTradePollBusy = false;
     copyTradePollInterval = setInterval(async () => {
-      if (_managementBusy || _screeningBusy || _copyTradePollBusy) return;
+      if (engineState.managementBusy || engineState.screeningBusy || _copyTradePollBusy) return;
       _copyTradePollBusy = true;
       try {
         await runCopyTradePoll();
@@ -1199,11 +1195,11 @@ Summarize the current portfolio health, total fees earned, and performance of al
     }, ctMs);
   }
 
-  _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
+  engineState.cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
   // Store interval refs so stopCronJobs can clear them
-  _cronTasks._pnlPollInterval = pnlPollInterval;
-  _cronTasks._opportunityPollInterval = opportunityPollInterval;
-  _cronTasks._copyTradePollInterval = copyTradePollInterval;
+  engineState.cronTasks._pnlPollInterval = pnlPollInterval;
+  engineState.cronTasks._opportunityPollInterval = opportunityPollInterval;
+  engineState.cronTasks._copyTradePollInterval = copyTradePollInterval;
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m${config.opportunity.enabled ? `, opportunity poll every ${config.opportunity.pollIntervalSec}s` : ""}${config.copyTrade.enabled ? `, copytrade poll every ${config.copyTrade.pollIntervalSec}s` : ""}`);
 }
 
@@ -1260,4 +1256,4 @@ export function getLoneCandidateSkipReason({ pool, sw, n, ti } = {}, gmgnHolderS
 }
 
 // Register restarter — when update_config changes intervals, running cron jobs get replaced
-registerCronRestarter(() => { if (_cronStarted) startCronJobs(); });
+registerCronRestarter(() => { if (engineState.cronStarted) startCronJobs(); });
