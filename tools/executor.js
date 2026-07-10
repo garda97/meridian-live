@@ -22,7 +22,7 @@ import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-bla
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
-import { config, reloadScreeningThresholds, reloadUserConfigFromDisk, MIN_SAFE_BINS_BELOW } from "../config.js";
+import { config, reloadScreeningThresholds, reloadUserConfigFromDisk, strategyDeployOverride, MIN_SAFE_BINS_BELOW } from "../config.js";
 import { isScreeningPaused } from "../utils/screening-gate.js";
 import {
   applyPendingPlanToDeployArgs,
@@ -1034,17 +1034,27 @@ async function runSafetyChecks(name, args, context = {}) {
         };
       }
 
-      const minDeploy = Math.max(0.1, config.management.deployAmountSol);
+      // Per-strategy fixed size (e.g. spot 0.5 vs bid_ask 2): when set, that
+      // strategy's deploys are pinned to the override — both floor and ceiling —
+      // so a smaller spot size isn't rejected by the global deployAmountSol floor
+      // and the LLM can't oversize it past the override.
+      const stratOverride = strategyDeployOverride(deployStrategy);
+      const minDeploy = stratOverride != null
+        ? Math.max(0.1, stratOverride)
+        : Math.max(0.1, config.management.deployAmountSol);
+      const maxDeploy = stratOverride != null
+        ? Math.max(minDeploy, stratOverride)
+        : config.risk.maxDeployAmount;
       if (amountY < minDeploy) {
         return {
           pass: false,
-          reason: `Amount ${amountY} SOL is below the minimum deploy amount (${minDeploy} SOL). Use at least ${minDeploy} SOL.`,
+          reason: `Amount ${amountY} SOL is below the minimum deploy amount (${minDeploy} SOL) for strategy ${deployStrategy}. Use at least ${minDeploy} SOL.`,
         };
       }
-      if (amountY > config.risk.maxDeployAmount) {
+      if (amountY > maxDeploy) {
         return {
           pass: false,
-          reason: `SOL amount ${amountY} exceeds maximum allowed per position (${config.risk.maxDeployAmount}).`,
+          reason: `SOL amount ${amountY} exceeds maximum allowed per position (${maxDeploy} SOL) for strategy ${deployStrategy}.`,
         };
       }
 
