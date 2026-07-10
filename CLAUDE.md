@@ -82,7 +82,12 @@ Autonomous DLMM liquidity provider agent for Meteora pools on Solana.
 |---|---:|---|
 | **Entry / orchestration** | | |
 | `index.js` | ~480 | Daemon entrypoint: bootstrap, REPL, graceful shutdown, crash handlers. Re-exports the public cycle API from `daemon/engine.js`. |
-| `daemon/engine.js` | ~1440 | The autonomous engine: management + screening cycles, deterministic close rules 1-7, recovery strat, cron schedules, PnL/opportunity pollers. Busy flags are module-private (`isEngineBusy()`). |
+| `daemon/engine.js` | ~377 | Engine **facade** (refactored 2026-07-10): imports + re-exports the public cycle API and holds the cron wiring (`startCronJobs`, cron-control `isEngineBusy`/`ensureCronStarted`/`stopCronJobs`, `runBriefing`/`maybeRunMissedBriefing`, PnL/opportunity pollers). The heavy logic lives in `daemon/engine/*` submodules below. **Grep the submodules, not this file, for cycle/rule logic.** |
+| `daemon/engine/screening-cycle.js` | ~591 | `runScreeningCycle` + `getLoneCandidateSkipReason`. The multi-stage screening pipeline. |
+| `daemon/engine/management.js` | ~345 | `runManagementCycle` + `executeManagementActions` + `maybeResolveRebalance` (last two also used by `startCronJobs` pollers). |
+| `daemon/engine/close-rules.js` | ~77 | `getDeterministicCloseRule` — daemon close rules 1-7 (private; distinct from the generic one in `tools/dlmm/rules.js`). |
+| `daemon/engine/recovery.js` | ~160 | Recovery Strat: `filterRecoveryCandidates`, `computeRecoveryBinsBelow` (pure, unit-tested), `maybeAutoRecovery`. |
+| `daemon/engine/engine-state.js` | ~12 | Shared mutable `engineState` object (cronTasks + busy flags). Replaced the old module-private `let _cronTasks/_managementBusy/…`; property mutation works cross-module. Busy state read via `isEngineBusy()`. |
 | `daemon/telegram-ui.js` | ~775 | Telegram slash commands, inline settings menu, message queue, deterministic /screen → /deploy N flow. |
 | `daemon/runtime.js` | ~107 | Shared daemon state: cycle timers, interactive busy flag, session history, latest-candidates store, prompt helpers. |
 | `agent.js` | 416 | `agentLoop(goal, maxSteps, history, agentType, model, maxOut, opts)`. The ReAct loop. Provider fallback, JSON repair, once-per-session tool locks, no-tool retries, `onToolStart`/`onToolFinish` callbacks for live Telegram messages. |
