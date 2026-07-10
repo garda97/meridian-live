@@ -467,13 +467,16 @@ async function poll(onMessage) {
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         log("telegram_error", `getUpdates HTTP ${res.status}: ${errText.slice(0, 200)}`);
-        await sleep(5000);
+        // 409 = another getUpdates holds this bot token. Back off longer than the
+        // typical 30s long-poll window so the other session can expire.
+        await sleep(res.status === 409 ? 35_000 : 5000);
         continue;
       }
       const data = await res.json();
       if (data.ok === false) {
         log("telegram_error", `getUpdates API error: ${data.description || JSON.stringify(data).slice(0, 200)}`);
-        await sleep(5000);
+        const desc = String(data.description || "");
+        await sleep(/conflict/i.test(desc) ? 35_000 : 5000);
         continue;
       }
       for (const update of data.result || []) {
@@ -550,6 +553,12 @@ async function registerCommands() {
 
 export function startPolling(onMessage) {
   if (!TOKEN) return;
+  // Re-entry guard: two concurrent getUpdates loops on the same bot token
+  // cause permanent Telegram HTTP 409 Conflict.
+  if (_polling) {
+    log("telegram_warn", "startPolling ignored — inbound poll already running");
+    return;
+  }
   loadChatId();
   if (!chatId) {
     log("telegram_warn", "TELEGRAM_CHAT_ID not set in .env or user-config.telegramChatId — outbound notifications and inbound control disabled until configured.");

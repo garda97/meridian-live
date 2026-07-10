@@ -245,7 +245,12 @@ if (isMain && isTTY) {
   launchCron();
   maybeRunMissedBriefing().catch(() => { });
 
-  startPolling(telegramHandler);
+  // In TTY/interactive mode, start polling here. In non-TTY (daemon) mode the
+  // polling is started further below (guarded by telegramEnabled) to avoid a
+  // double getUpdates loop -> HTTP 409 conflict.
+  if (isTTY) {
+    startPolling(telegramHandler);
+  }
 
   console.log(`
 Commands:

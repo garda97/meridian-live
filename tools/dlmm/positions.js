@@ -146,6 +146,14 @@ async function handleExternalCloses(externallyClosed, walletAddress) {
           }
           if (attempt < 2) await new Promise((r) => setTimeout(r, 5000));
         }
+        // FIX (Hermes): if the Meteora PnL fetch failed, fall back to the last
+        // tracked in-state pnl_pct so recordPoolDeploy still sees a real PnL.
+        // Without this, external_close_sync_missing closes with pnl_pct=null ->
+        // isLossClose()=false -> loss cooldown never set -> bot re-deploys losers.
+        if (pnlPct == null) {
+          const tracked = getTrackedPosition(pos.position);
+          if (tracked && tracked.pnl_pct != null) pnlPct = Number(tracked.pnl_pct);
+        }
       }
     } catch (e) {
       log("external_close_warn", `Final PnL fetch failed for ${pos.position.slice(0, 8)}: ${e.message}`);

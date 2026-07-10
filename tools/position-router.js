@@ -176,72 +176,117 @@ export function buildRebalancePlan({ pool, position, tracked, signal, priceChang
 }
 
 /**
- * Operational gates on top of the plan. Pure.
- * Returns { action: "rebalance"|"close"|"hold", reason, plan }.
- * "close" here only ever DOWNGRADES a wanted rebalance (dead volume, max
- * count, deep PnL, risky re-plan) — it never invents a close for a healthy
- * hold, so existing exit rules stay the only close authority otherwise.
- */
+ * Age of the position in minutes for rebalance gates.
+  * Prefers live poller age_minutes; falls back to tracked.deployed_at.
+  * null = unknown (do not block — avoids stranding untracked edge cases).
+  */
+export function positionAgeMinutes(position, tracked, nowMs = Date.now()) {
+   const a = Number(position?.age_minutes);
+   if (Number.isFinite(a) && a >= 0) return a;
+   const t = tracked?.deployed_at || tracked?.opened_at || position?.deployed_at;
+   if (t) {
+     const ms = nowMs - new Date(t).getTime();
+     if (Number.isFinite(ms) && ms >= 0) return ms / 60000;
+   }
+   return null;
+ }
+
+ /**
+  * Post-open quiet window: block rebalance (esp. in-range supertrend reseed)
+  * until the position is old enough. Confirmed OOR (minutes_out_of_range >=
+  * rebalanceMinOorMinutes) may bypass — real range break, not thrash.
+  */
+export function isWithinRebalanceMinAge({ position, tracked, mgmtConfig, nowMs = Date.now() }) {
+   const mgmt = mgmtConfig || config.management;
+   const minAge = Number(mgmt.rebalanceMinAgeMinutes ?? 0);
+   if (!(minAge > 0)) return false;
+   const age = positionAgeMinutes(position, tracked, nowMs);
+   // Unknown age: treat as young. Brand-new positions often hit the 3s PnL
+   // poll before age_minutes / deployed_at are populated — allowing rebalance
+   // then caused supertrend reseed thrash ~16–30s after open (ok-SOL / pendu).
+   if (age != null && age >= minAge) return false;
+   const dir = classifyOorDirection(position);
+   const oorFor = Number(position?.minutes_out_of_range ?? 0);
+   const oorMin = Number(mgmt.rebalanceMinOorMinutes ?? 5);
+   if ((dir === "up" || dir === "down") && Number.isFinite(oorFor) && oorFor >= oorMin) {
+     return false; // confirmed OOR — allow
+   }
+   return true; // still in quiet window (or age unknown)
+ }
+
+ /**
+  * Returns { action: "rebalance"|"close"|"hold", reason, plan }.
+  * "close" here only ever DOWNGRADES a wanted rebalance (dead volume, max
+  * count, deep PnL, risky re-plan) — it never invents a close for a healthy
+  * hold, so existing exit rules stay the only close authority otherwise.
+  */
 export function shouldRebalance({ plan, position, tracked, mgmtConfig, nowMs = Date.now() }) {
-  const mgmt = mgmtConfig || config.management;
-  const hold = (reason) => ({ action: "hold", reason, plan });
+   const mgmt = mgmtConfig || config.management;
+   const hold = (reason) => ({ action: "hold", reason, plan });
 
-  if (!plan) return hold("no plan");
-  if (mgmt.autoRebalanceEnabled === false) return hold("autoRebalanceEnabled=false");
-  if (tracked?.closed) return hold("position already closed");
-  if (position?.pnl_pct_suspicious) return hold("PnL suspicious this tick — skip");
+   if (!plan) return hold("no plan");
+   if (mgmt.autoRebalanceEnabled === false) return hold("autoRebalanceEnabled=false");
+   if (tracked?.closed) return hold("position already closed");
+   if (position?.pnl_pct_suspicious) return hold("PnL suspicious this tick — skip");
 
-  if (plan.action === "close") return { action: "close", reason: plan.reason, plan };
-  if (plan.action !== "rebalance") return hold(plan.reason || "plan says hold");
+   if (plan.action === "close") return { action: "close", reason: plan.reason, plan };
+   if (plan.action !== "rebalance") return hold(plan.reason || "plan says hold");
 
-  const pnl = Number(position?.pnl_pct);
-  const minPnl = Number(mgmt.rebalanceMinPnlPct ?? -8);
-  if (Number.isFinite(pnl) && Number.isFinite(minPnl) && pnl <= minPnl) {
-    return {
-      action: "close",
-      reason: `PnL ${pnl}% <= rebalance floor ${minPnl}% — close, don't rebalance into the knife`,
-      plan,
-    };
-  }
+   const pnl = Number(position?.pnl_pct);
+   const minPnl = Number(mgmt.rebalanceMinPnlPct ?? -8);
+   if (Number.isFinite(pnl) && Number.isFinite(minPnl) && pnl <= minPnl) {
+     return {
+       action: "close",
+       reason: `PnL ${pnl}% <= rebalance floor ${minPnl}% — close, don't rebalance into the knife`,
+       plan,
+     };
+   }
 
-  const count = Number(tracked?.rebalance_count ?? 0);
-  const maxCount = Number(mgmt.rebalanceMaxPerPosition ?? 3);
-  if (count >= maxCount) {
-    return {
-      action: "close",
-      reason: `Rebalance budget spent (${count}/${maxCount}) — range keeps breaking, close`,
-      plan,
-    };
-  }
+   const count = Number(tracked?.rebalance_count ?? 0);
+   const maxCount = Number(mgmt.rebalanceMaxPerPosition ?? 3);
+   if (count >= maxCount) {
+     return {
+       action: "close",
+       reason: `Rebalance budget spent (${count}/${maxCount}) — range keeps breaking, close`,
+       plan,
+     };
+   }
 
-  // Opt-in volatility scaling; falls back to the flat config minutes when the
-  // flag is off or the plan carries no usable volatility.
-  const scaledTiming = mgmt.rebalanceVolatilityScalingEnabled === true
-    ? volatilityScaledRebalanceTiming(plan.volatility, {
-        baseOorMinutes: Number(mgmt.rebalanceMinOorMinutes ?? 5),
-        baseCooldownMinutes: Number(mgmt.rebalanceCooldownMinutes ?? 15),
-      })
-    : null;
+   // Post-open quiet window (in-range reseed/drift thrash). Confirmed OOR bypasses.
+   if (isWithinRebalanceMinAge({ position, tracked, mgmtConfig: mgmt, nowMs })) {
+     const age = positionAgeMinutes(position, tracked, nowMs);
+     const minAge = Number(mgmt.rebalanceMinAgeMinutes ?? 0);
+     return hold(`post-open quiet ${age?.toFixed?.(1) ?? age}/${minAge}m — no rebalance thrash`);
+   }
 
-  const lastAt = tracked?.last_rebalance_attempt_at || tracked?.last_rebalance_at;
-  const cooldownMin = scaledTiming ? scaledTiming.cooldownMinutes : Number(mgmt.rebalanceCooldownMinutes ?? 15);
-  if (lastAt && cooldownMin > 0) {
-    const elapsedMin = (nowMs - new Date(lastAt).getTime()) / 60000;
-    if (elapsedMin < cooldownMin) {
-      return hold(`rebalance cooldown ${elapsedMin.toFixed(1)}/${cooldownMin}m`);
-    }
-  }
+   // Opt-in volatility scaling; falls back to the flat config minutes when the
+   // flag is off or the plan carries no usable volatility.
+   const scaledTiming = mgmt.rebalanceVolatilityScalingEnabled === true
+     ? volatilityScaledRebalanceTiming(plan.volatility, {
+         baseOorMinutes: Number(mgmt.rebalanceMinOorMinutes ?? 5),
+         baseCooldownMinutes: Number(mgmt.rebalanceCooldownMinutes ?? 15),
+       })
+     : null;
 
-  // OOR rebalances wait a short confirmation window (price may snap back);
-  // in-range conversions (strategy drift) have no OOR clock to respect.
-  if (plan.oor_direction === "up" || plan.oor_direction === "down") {
-    const oorMin = scaledTiming ? scaledTiming.oorMinutes : Number(mgmt.rebalanceMinOorMinutes ?? 5);
-    const oorFor = Number(position?.minutes_out_of_range ?? 0);
-    if (oorFor < oorMin) return hold(`OOR ${oorFor}m < rebalanceMinOorMinutes ${oorMin}m — wait`);
-  }
+   const lastAt = tracked?.last_rebalance_attempt_at || tracked?.last_rebalance_at;
+   const cooldownMin = scaledTiming ? scaledTiming.cooldownMinutes : Number(mgmt.rebalanceCooldownMinutes ?? 15);
+   if (lastAt && cooldownMin > 0) {
+     const elapsedMin = (nowMs - new Date(lastAt).getTime()) / 60000;
+     if (elapsedMin < cooldownMin) {
+       return hold(`rebalance cooldown ${elapsedMin.toFixed(1)}/${cooldownMin}m`);
+     }
+   }
 
-  return { action: "rebalance", reason: plan.reason, plan };
-}
+   // OOR rebalances wait a short confirmation window (price may snap back);
+   // in-range conversions (strategy drift) have no OOR clock to respect.
+   if (plan.oor_direction === "up" || plan.oor_direction === "down") {
+     const oorMin = scaledTiming ? scaledTiming.oorMinutes : Number(mgmt.rebalanceMinOorMinutes ?? 5);
+     const oorFor = Number(position?.minutes_out_of_range ?? 0);
+     if (oorFor < oorMin) return hold(`OOR ${oorFor}m < rebalanceMinOorMinutes ${oorMin}m — wait`);
+   }
+
+   return { action: "rebalance", reason: plan.reason, plan };
+ }
 
 // ─── TVL dilution exit (Gap 3) ─────────────────────────────────
 
@@ -300,6 +345,10 @@ export function isRebalanceCandidate({ position, tracked, mgmtConfig, nowMs = Da
   if (mgmt.autoRebalanceEnabled === false) return false;
   if (!tracked || tracked.closed) return false;
   if (Number(tracked.rebalance_count ?? 0) >= Number(mgmt.rebalanceMaxPerPosition ?? 3)) return false;
+
+  // Cheap pre-gate: skip network resolve during post-open quiet window
+  // (except confirmed OOR — handled inside isWithinRebalanceMinAge).
+  if (isWithinRebalanceMinAge({ position, tracked, mgmtConfig: mgmt, nowMs })) return false;
 
   const lastAt = tracked.last_rebalance_attempt_at || tracked.last_rebalance_at;
   const cooldownMin = Number(mgmt.rebalanceCooldownMinutes ?? 15);

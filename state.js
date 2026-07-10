@@ -206,9 +206,17 @@ function buildClosedOutcome(pos, reason) {
   };
 }
 
-/** Append to the bounded closedOutcomes[] history. */
+/** Append to the bounded closedOutcomes[] history. Dedupes by position id so
+ *  recordClose + syncOpenPositions (or double close calls) can't double-count
+ *  the same position in learning stats.
+ */
 function pushClosedOutcome(state, pos, reason) {
   if (!state.closedOutcomes) state.closedOutcomes = [];
+  const posId = pos?.position;
+  if (posId && state.closedOutcomes.some((o) => o && o.position === posId)) {
+    log("state", `closedOutcomes dedupe: skip second outcome for ${String(posId).slice(0, 8)}… (${reason})`);
+    return;
+  }
   state.closedOutcomes.push(buildClosedOutcome(pos, reason));
   if (state.closedOutcomes.length > MAX_CLOSED_OUTCOMES) {
     state.closedOutcomes = state.closedOutcomes.slice(-MAX_CLOSED_OUTCOMES);
@@ -227,12 +235,16 @@ function pushEvent(state, event) {
 }
 
 /**
- * Mark a position as closed.
+ * Mark a position as closed. Idempotent — second call is a no-op (no double outcomes).
  */
 export function recordClose(position_address, reason) {
   const state = load();
   const pos = state.positions[position_address];
   if (!pos) return;
+  if (pos.closed) {
+    log("state", `Position ${position_address} already closed — skip duplicate recordClose (${reason})`);
+    return;
+  }
   pos.closed = true;
   pos.closed_at = new Date().toISOString();
   pos.notes.push(`Closed at ${pos.closed_at}: ${reason}`);

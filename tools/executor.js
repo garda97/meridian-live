@@ -155,6 +155,16 @@ async function validateDeployPoolThresholds(args) {
       reason: `Pool ${volatilityTimeframe} volatility ${volatility ?? "unknown"} is unusable. Refusing deploy.`,
     };
   }
+  // FIX (Hermes): entry-timing guard — reject extreme volatility spikes. A pool whose
+  // volatility is far above the historical norm (avg ~2.34 across closed outcomes) is
+  // usually in a pump/dump leg; deploying then -> immediate OOR. maxVolatility caps entry.
+  const maxVol = numberOrNull(config.screening?.maxVolatility ?? config.maxVolatility);
+  if (maxVol != null && volatility > maxVol) {
+    return {
+      pass: false,
+      reason: `Pool ${volatilityTimeframe} volatility ${volatility.toFixed(2)} exceeds maxVolatility ${maxVol} — refusing deploy (extreme move / entry-timing guard).`,
+    };
+  }
 
   const actualBinStep = poolDetailBinStep(detail);
   const binStepWindow = volatilityScaledBinStepWindow(volatility);
@@ -435,6 +445,7 @@ const toolMap = {
       rebalanceMinOorMinutes: ["management", "rebalanceMinOorMinutes"],
       rebalanceMaxPerPosition: ["management", "rebalanceMaxPerPosition"],
       rebalanceCooldownMinutes: ["management", "rebalanceCooldownMinutes"],
+      rebalanceMinAgeMinutes: ["management", "rebalanceMinAgeMinutes"],
       rebalanceMinPnlPct: ["management", "rebalanceMinPnlPct"],
       rebalanceOnStrategyDrift: ["management", "rebalanceOnStrategyDrift"],
       shareExitEnabled: ["management", "shareExitEnabled"],

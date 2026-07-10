@@ -43,12 +43,72 @@ function normalizeSymbol(symbol) {
   return String(symbol || "").trim().toUpperCase();
 }
 
+/**
+ * Rank candidates for LLM shortlist.
+ * fee/TVL is the strongest historical profit signal (Fase 2: >=1.0 avg +7.5% vs <0.2 +0.13%)
+ * so we tier-boost high fee printers instead of a flat linear weight only.
+ */
 export function scoreCandidate(pool) {
-  const feeTvl = Number(pool.fee_active_tvl_ratio || 0);
+  const feeActive = Number(pool.fee_active_tvl_ratio || 0);
+  const feeTvl24h = Number(pool.fee_tvl_ratio ?? pool.fee_per_tvl_24h ?? 0);
+  const feeSignal = Math.max(
+    Number.isFinite(feeActive) ? feeActive : 0,
+    Number.isFinite(feeTvl24h) ? feeTvl24h : 0,
+  );
+  let feeBoost = feeSignal * 1000;
+  if (feeSignal >= 1.0) feeBoost += 5000;
+  else if (feeSignal >= 0.5) feeBoost += 2000;
+  else if (feeSignal >= 0.2) feeBoost += 500;
   const organic = Number(pool.organic_score || 0);
   const volume = Number(pool.volume_window || 0);
   const holders = Number(pool.holders || 0);
-  return feeTvl * 1000 + organic * 10 + volume / 100 + holders / 100;
+  return feeBoost + organic * 10 + volume / 100 + holders / 100;
+}
+
+// Deploy path is single-sided SOL into tokenY (amount_y). Quote MUST be WSOL.
+// Token-2022 *base* is fine when quote=SOL (Jotchua-SOL live deploys succeeded;
+// @meteora-ag/dlmm 1.9.11 supports T22). The old blanket T22 skip was a misdiagnosis
+// of KINS-USDC 0x1 (amount_y treated as USDC → Tokenkeg insufficient funds).
+export const SOL_MINT = "So11111111111111111111111111111111111111112";
+
+/** True when pool quote (tokenY) is native SOL / WSOL. */
+export function isSolQuotePool(pool) {
+  const mint =
+    pool?.quote?.mint ||
+    pool?.quote_mint ||
+    pool?.token_y?.address ||
+    pool?.token_y?.mint ||
+    pool?.tokenY?.mint ||
+    null;
+  return mint === SOL_MINT;
+}
+
+/**
+ * Drop pools the local SOL-only deploy path cannot open:
+ * non-SOL quote (USDC etc). Token-2022 base is allowed.
+ */
+export function filterUnsupportedDeployPools(eligible, filteredOut) {
+  if (!eligible?.length) return;
+  const kept = [];
+  let removed = 0;
+  for (const p of eligible) {
+    if (!isSolQuotePool(p)) {
+      removed++;
+      const qSym = p.quote?.symbol || p.token_y?.symbol || "non-SOL";
+      pushFilteredReason(
+        filteredOut,
+        p,
+        `quote is not SOL (single-sided SOL deploy unsupported for ${qSym} pairs)`,
+      );
+      log("screening", `Filtered non-SOL quote ${p.name || p.pool?.slice?.(0, 8)} (${qSym})`);
+    } else {
+      kept.push(p);
+    }
+  }
+  if (removed > 0) {
+    eligible.splice(0, eligible.length, ...kept);
+    log("screening", `Non-SOL quote pre-filter removed ${removed} candidate(s)`);
+  }
 }
 
 /**
@@ -684,7 +744,7 @@ async function refreshDiscordOnlyPools(pools, timeframe) {
  * Returns condensed data optimized for LLM consumption (saves tokens).
  */
 export async function discoverPools({
-  page_size = 50,
+  page_size = config.screening?.discoveryPageSize ?? 100,
 } = {}) {
   const s = config.screening;
   const filters = [
@@ -863,7 +923,7 @@ function loadMetlexSignals() {
 
 export async function getTopCandidates({ limit = 10, timeframe = null } = {}) {
   const { config } = await import("../config.js");
-  const discovery = await discoverPools({ page_size: 50 });
+  const discovery = await discoverPools({ page_size: config.screening?.discoveryPageSize ?? 100 });
   const { pools } = discovery;
   const filteredOut = Array.isArray(discovery.filtered_examples) ? [...discovery.filtered_examples] : [];
 
@@ -992,6 +1052,12 @@ export async function getTopCandidates({ limit = 10, timeframe = null } = {}) {
     });
     eligible.splice(0, eligible.length, ...filtered);
     if (eligible.length < before) log("dev_blocklist", `Filtered ${before - eligible.length} pool(s) via dev blocklist`);
+  }
+
+  // SOL-quote hard filter BEFORE rugcheck/LLM — amount_y path only deposits into tokenY.
+  // Allows Token-2022 base when quote is SOL. Drops USDC/other quote pairs (KINS-USDC class).
+  if (eligible.length > 0) {
+    filterUnsupportedDeployPools(eligible, filteredOut);
   }
 
   // Rugcheck gate — on-chain safety screen on the trimmed candidate set only
