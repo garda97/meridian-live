@@ -5,7 +5,7 @@
 import cron from "node-cron";
 import { engineState } from "./engine-state.js";
 import { log } from "../../logger.js";
-import { config, computeDeployAmount, minTokenFeesSolForMcap, reloadUserConfigFromDisk } from "../../config.js";
+import { config, computeDeployAmount, deployAmountForStrategy, minTokenFeesSolForMcap, reloadUserConfigFromDisk } from "../../config.js";
 import { getActiveBin, getMyPositions } from "../../tools/dlmm.js";
 import { getWalletBalances } from "../../tools/wallet.js";
 import { checkScreeningDeployGate } from "../../utils/screening-gate.js";
@@ -360,7 +360,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const bundlerPct = gmgnStats?.bundlers_pct_in_top_100;
       const smartDegen = gmgnStats?.smart_degen_count;
       const holderRatios = computeHolderRatios(gmgnStats, ti?.holders ?? pool.base_token_holders);
-      const estSharePct = estimateSharePct({ deployAmountSol: deployAmount, solPriceUsd: currentBalance.sol_price, poolTvlUsd: pool.tvl ?? pool.active_tvl });
+      // Per-strategy deploy size: a fixed override for the resolved strategy
+      // (e.g. spot smaller than bid_ask) or the compounding global amount.
+      const candDeployAmount = deployAmountForStrategy(plan?.strategy ?? config.strategy.strategy, currentBalance.sol);
+      const estSharePct = estimateSharePct({ deployAmountSol: candDeployAmount, solPriceUsd: currentBalance.sol_price, poolTvlUsd: pool.tvl ?? pool.active_tvl });
       const feesSol = ti?.global_fees_sol ?? "?";
       const launchpad = ti?.launchpad ?? null;
       const priceChange = ti?.stats_1h?.price_change;
@@ -382,6 +385,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
         mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
         plan ? formatDeployPlanBlock(plan) : null,
+        `  deploy_amount_sol: ${candDeployAmount} SOL (for strategy ${plan?.strategy ?? config.strategy.strategy}) — USE THIS EXACT AMOUNT`,
       ].filter(Boolean).join("\n");
 
       // Stage signals — Darwinian weighting + holder-audit snapshot for the

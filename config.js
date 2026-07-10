@@ -258,6 +258,13 @@ export const config = {
     minAgeBeforeTakeProfit: u.minAgeBeforeTakeProfit ?? u.pnlWarmupMinutes ?? 10,
     minSolToOpen:          u.minSolToOpen          ?? 0.55,
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
+    // Per-strategy fixed deploy size (SOL). When a strategy key holds a positive
+    // number, that exact amount is used for deploys of that strategy instead of
+    // the compounding computeDeployAmount()/deployAmountSol floor — lets riskier
+    // strategies (spot) size smaller than bid_ask. Absent/null → global sizing.
+    strategyDeployAmountSol: (u.strategyDeployAmountSol && typeof u.strategyDeployAmountSol === "object")
+      ? u.strategyDeployAmountSol
+      : {},
     gasReserve:            u.gasReserve            ?? 0.2,
     sprayModeEnabled:      boolConfig(u.sprayModeEnabled, false),
     sprayAmountSol:        Number(u.sprayAmountSol ?? 0.05),
@@ -541,6 +548,28 @@ export function computeDeployAmount(walletSol) {
   const dynamic    = deployable * pct;
   const result     = Math.min(ceil, Math.max(floor, dynamic));
   return parseFloat(result.toFixed(2));
+}
+
+/**
+ * Fixed per-strategy deploy override (SOL), or null when none is configured.
+ * @param {string} strategy — "bid_ask" | "spot" | "curve"
+ * @returns {number|null}
+ */
+export function strategyDeployOverride(strategy) {
+  const map = config.management.strategyDeployAmountSol || {};
+  const v = Number(map?.[strategy]);
+  return Number.isFinite(v) && v > 0 ? parseFloat(v.toFixed(2)) : null;
+}
+
+/**
+ * Deploy amount for a strategy: the fixed per-strategy override if set,
+ * otherwise the compounding computeDeployAmount(walletSol).
+ * @param {string} strategy
+ * @param {number} walletSol
+ */
+export function deployAmountForStrategy(strategy, walletSol) {
+  const override = strategyDeployOverride(strategy);
+  return override != null ? override : computeDeployAmount(walletSol);
 }
 
 /**
