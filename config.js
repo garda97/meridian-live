@@ -126,6 +126,7 @@ export const config = {
     minTvl:            u.minTvl            ?? 10_000,
     maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 150_000,
     minVolume:         u.minVolume         ?? 500,
+    discoveryPageSize: Math.min(100, Math.max(20, Number(u.discoveryPageSize ?? 100))),
     minOrganic:        u.minOrganic        ?? 60,
     minQuoteOrganic:   u.minQuoteOrganic   ?? 60,
     minHolders:        u.minHolders        ?? 500,
@@ -205,6 +206,8 @@ export const config = {
     autoRecoveryBinsBelow: u.autoRecoveryBinsBelow ?? 100,  // how far below original lower bin to open recovery
     lossRedeployBlockEnabled: boolConfig(u.lossRedeployBlockEnabled, true),
     lossRedeployCooldownHours: u.lossRedeployCooldownHours ?? 24,
+    // Only stamp loss cooldown when |loss| is meaningful (tiny -0.05% noise should not 24h-ban a pool).
+    lossRedeployMinLossPct: Number(u.lossRedeployMinLossPct ?? 0.3),
     winOorRedeployCooldownHours: u.winOorRedeployCooldownHours ?? 3, // block redeploy after a win that still went OOR (volatile pool)
     winRedeployCooldownEnabled: boolConfig(u.winRedeployCooldownEnabled, true), // block redeploy after a clean in-range win (trailing TP / take profit)
     winRedeployCooldownHours: u.winRedeployCooldownHours ?? 3,
@@ -228,6 +231,9 @@ export const config = {
     rebalanceMinOorMinutes:    u.rebalanceMinOorMinutes    ?? 5,   // OOR confirmation window before repositioning
     rebalanceMaxPerPosition:   u.rebalanceMaxPerPosition   ?? 3,   // budget per position, then close
     rebalanceCooldownMinutes:  u.rebalanceCooldownMinutes  ?? 15,  // between attempts on the same position
+    // Quiet window after open/deploy before any rebalance (blocks in-range
+    // supertrend reseed thrash). Confirmed OOR (>= rebalanceMinOorMinutes) bypasses.
+    rebalanceMinAgeMinutes:    u.rebalanceMinAgeMinutes    ?? 8,
     rebalanceMinPnlPct:        u.rebalanceMinPnlPct        ?? -8,  // below this, close instead of rebalance
     rebalanceOnStrategyDrift:  boolConfig(u.rebalanceOnStrategyDrift, true), // in-range bid_ask→spot conversion
     rebalanceVolatilityScalingEnabled: boolConfig(u.rebalanceVolatilityScalingEnabled, false), // opt-in: scale OOR/cooldown minutes by pool volatility
@@ -605,6 +611,31 @@ function applyFlatUserKey(fresh, key) {
     case "autoStrategyEnabled":
       if (fresh.autoStrategyEnabled !== undefined) config.autoStrategy.enabled = !!fresh.autoStrategyEnabled;
       break;
+    case "autoStrategyMaxBins":
+      if (fresh.autoStrategyMaxBins != null) {
+        config.autoStrategy.maxBins = Math.max(69, Math.round(n(fresh.autoStrategyMaxBins)));
+      }
+      break;
+    case "rebalanceMinAgeMinutes":
+      if (fresh.rebalanceMinAgeMinutes != null) {
+        config.management.rebalanceMinAgeMinutes = Math.max(0, n(fresh.rebalanceMinAgeMinutes));
+      }
+      break;
+    case "rebalanceMinOorMinutes":
+      if (fresh.rebalanceMinOorMinutes != null) {
+        config.management.rebalanceMinOorMinutes = Math.max(0, n(fresh.rebalanceMinOorMinutes));
+      }
+      break;
+    case "rebalanceCooldownMinutes":
+      if (fresh.rebalanceCooldownMinutes != null) {
+        config.management.rebalanceCooldownMinutes = Math.max(0, n(fresh.rebalanceCooldownMinutes));
+      }
+      break;
+    case "minAgeBeforeYieldCheck":
+      if (fresh.minAgeBeforeYieldCheck != null) {
+        config.management.minAgeBeforeYieldCheck = Math.max(0, n(fresh.minAgeBeforeYieldCheck));
+      }
+      break;
     case "rugcheckTop10MaxPct":
       if (fresh.rugcheckTop10MaxPct != null) config.screening.rugcheckTop10MaxPct = n(fresh.rugcheckTop10MaxPct);
       break;
@@ -636,7 +667,9 @@ export function reloadUserConfigFromDisk() {
       "maxPositions", "maxDeployAmount", "deployAmountSol", "gasReserve", "minSolToOpen",
       "positionSizePct", "dailyLossLimitUsd", "noDeployAfterHour", "noDeployBeforeHour",
       "screeningIntervalMin", "managementIntervalMin", "opportunityPollEnabled",
-      "autoStrategyEnabled", "rugcheckTop10MaxPct",
+      "autoStrategyEnabled", "autoStrategyMaxBins", "rugcheckTop10MaxPct",
+      "rebalanceMinAgeMinutes", "rebalanceMinOorMinutes", "rebalanceCooldownMinutes",
+      "minAgeBeforeYieldCheck",
       "screeningModel", "managementModel", "generalModel",
     ]) {
       applyFlatUserKey(fresh, key);

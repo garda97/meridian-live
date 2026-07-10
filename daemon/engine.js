@@ -1000,6 +1000,7 @@ ${candidateBlocks.join("\n\n")}
 STEPS:
 1. Decide if any candidate is actually worth deploying. One surviving candidate is not automatically good enough.
 2. Pick the best candidate based on narrative quality, smart wallets, pool metrics, and auto_strategy fit. Skip candidates with entry_gate: BLOCK.
+   ENTRY GATE: dip zone is [${config.autoStrategy?.dropEntryMin ?? "n/a"}%, ${config.autoStrategy?.dropEntryMax ?? "n/a"}%] 1h (dropEntryGate=${config.autoStrategy?.dropEntryGate ? "ON" : "OFF"}). When reporting BLOCK, quote the candidate's entry_reason EXACTLY — never invent -55%/-20% or other bands.
 3. Call deploy_position (active_bin is pre-fetched above — no need to call get_active_bin).
 ${config.autoStrategy?.enabled ? `   Use the winner's deploy_plan EXACTLY: strategy, bins_below, bins_above from its candidate block.
    DO NOT recompute or guess bin counts from bin_step, volatility, or any other number — the deploy_plan block is authoritative. If the block says bins_below=100, deploy with bins_below=100 (it already satisfies the min 60 floor). Passing a different bin count than the block states is a critical error.
