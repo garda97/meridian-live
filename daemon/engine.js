@@ -141,11 +141,22 @@ export async function maybeRunMissedBriefing() {
   await runBriefing();
 }
 
+// Stuck-busy-flag watchdog state. A cycle sets its busy flag true then relies on a
+// finally{} to reset it — but if an await inside the cycle HANGS (e.g. an RPC that
+// never resolves and has no timeout), the finally never runs, the flag stays true,
+// and every later cycle early-returns. Management (or screening) then silently dies
+// until a manual restart. The watchdog below tracks each flag's rising edge and
+// force-resets it once it has been stuck past STALE_BUSY_MS.
+const STALE_BUSY_MS = 4 * 60 * 1000;
+let _mgmtBusySince = 0;
+let _screenBusySince = 0;
+
 export function stopCronJobs() {
   for (const task of engineState.cronTasks) task.stop();
   if (engineState.cronTasks._pnlPollInterval) clearInterval(engineState.cronTasks._pnlPollInterval);
   if (engineState.cronTasks._opportunityPollInterval) clearInterval(engineState.cronTasks._opportunityPollInterval);
   if (engineState.cronTasks._copyTradePollInterval) clearInterval(engineState.cronTasks._copyTradePollInterval);
+  if (engineState.cronTasks._busyWatchdog) clearInterval(engineState.cronTasks._busyWatchdog);
   engineState.cronTasks = [];
 }
 
@@ -370,6 +381,36 @@ Summarize the current portfolio health, total fees earned, and performance of al
   engineState.cronTasks._pnlPollInterval = pnlPollInterval;
   engineState.cronTasks._opportunityPollInterval = opportunityPollInterval;
   engineState.cronTasks._copyTradePollInterval = copyTradePollInterval;
+
+  // Stuck-busy-flag watchdog (see STALE_BUSY_MS note by stopCronJobs). Checks every
+  // 60s: if a busy flag has stayed true past the threshold, a cycle hung — force it
+  // false so subsequent cycles resume instead of dying silently until a restart.
+  const busyWatchdog = setInterval(() => {
+    const now = Date.now();
+    if (engineState.managementBusy) {
+      if (!_mgmtBusySince) _mgmtBusySince = now;
+      else if (now - _mgmtBusySince > STALE_BUSY_MS) {
+        log("cron_error", `managementBusy stuck ${Math.round((now - _mgmtBusySince) / 60000)}m — force-resetting (a cycle likely hung on an await with no timeout)`);
+        engineState.managementBusy = false;
+        _mgmtBusySince = 0;
+      }
+    } else {
+      _mgmtBusySince = 0;
+    }
+    if (engineState.screeningBusy) {
+      if (!_screenBusySince) _screenBusySince = now;
+      else if (now - _screenBusySince > STALE_BUSY_MS) {
+        log("cron_error", `screeningBusy stuck ${Math.round((now - _screenBusySince) / 60000)}m — force-resetting (a cycle likely hung)`);
+        engineState.screeningBusy = false;
+        _screenBusySince = 0;
+      }
+    } else {
+      _screenBusySince = 0;
+    }
+  }, 60 * 1000);
+  busyWatchdog.unref?.();
+  engineState.cronTasks._busyWatchdog = busyWatchdog;
+
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m${config.opportunity.enabled ? `, opportunity poll every ${config.opportunity.pollIntervalSec}s` : ""}${config.copyTrade.enabled ? `, copytrade poll every ${config.copyTrade.pollIntervalSec}s` : ""}`);
 }
 
