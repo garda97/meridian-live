@@ -100,25 +100,30 @@ export async function deployPosition({
   const { StrategyType, getBinIdFromPrice, getPriceOfBinByBinId } = await getDLMM();
   const pool = await getPool(pool_address);
   const baseMint = pool.lbPair.tokenXMint.toString();
-  // Guard: skip Token-2022 mints. Their ATA creation requires extra rent/extensions,
-  // which makes the deploy simulation fail with "insufficient funds" (custom err 0x1)
-  // even when the wallet has enough SOL. Meteora DLMM standard path doesn't budget for it.
+  const quoteMint = pool.lbPair.tokenYMint.toString();
+  // Single-sided SOL path (amount_x=0, amount_y/amount_sol>0) deposits into tokenY.
+  // tokenY MUST be WSOL. Misdiagnosed earlier as "Token-2022 ATA rent":
+  // KINS-USDC failed 0x1 on Tokenkeg because amount_y=0.5 was treated as USDC, not SOL.
+  // Token-2022 *base* + SOL quote works (Jotchua-SOL live deploys succeeded; SDK 1.9.11 supports T22).
+  const SOL_MINT = "So11111111111111111111111111111111111111112";
+  if (quoteMint !== SOL_MINT) {
+    log(
+      "deploy",
+      `Skipping ${pool_address.slice(0, 8)}: quote mint is not SOL (${quoteMint.slice(0, 8)}) — single-sided SOL deploy unsupported`,
+    );
+    return {
+      success: false,
+      error: `Quote mint is not SOL — single-sided SOL deploy only supports *-SOL pools (quote ${quoteMint.slice(0, 8)}…).`,
+    };
+  }
   try {
     const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
-    const conn = getConnection();
-    const [xInfo, yInfo] = await Promise.all([
-      conn.getAccountInfo(pool.lbPair.tokenXMint),
-      conn.getAccountInfo(pool.lbPair.tokenYMint),
-    ]);
-    const x2022 = xInfo?.owner?.toBase58() === TOKEN_2022_PROGRAM;
-    const y2022 = yInfo?.owner?.toBase58() === TOKEN_2022_PROGRAM;
-    if (x2022 || y2022) {
-      const which = x2022 && y2022 ? "both" : x2022 ? "tokenX" : "tokenY";
-      log("deploy", `Skipping ${pool_address.slice(0, 8)}: ${which} is Token-2022 (ATA rent unsupported by deploy path)`);
-      return { success: false, error: `Token-2022 mint (${which}) not supported by deploy path — skipped.` };
+    const xInfo = await getConnection().getAccountInfo(pool.lbPair.tokenXMint);
+    if (xInfo?.owner?.toBase58() === TOKEN_2022_PROGRAM) {
+      log("deploy", `Base mint ${baseMint.slice(0, 8)} is Token-2022 — allowed (quote=SOL, SDK T22 path)`);
     }
   } catch (tokenErr) {
-    log("deploy", `Token-2022 preflight check failed (${tokenErr.message}) — proceeding (fail-open)`);
+    log("deploy", `Token program preflight failed (${tokenErr.message}) — proceeding (fail-open)`);
   }
   if (isBaseMintOnCooldown(baseMint)) {
     const reason = getBaseMintCooldownReason(baseMint) || "token cooldown active";

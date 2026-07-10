@@ -128,7 +128,42 @@ function testShouldRebalance() {
   d = shouldRebalance({ plan: closePlan, position: posOorDown, tracked: {}, mgmtConfig: MGMT });
   assert(d.action === "close", "close plan must pass through");
 
-  console.log("  should-rebalance: happy/disabled/knife/budget/cooldown/wait/suspicious/close-passthrough OK");
+  // 17. Post-open quiet window blocks in-range thrash; confirmed OOR bypasses
+  const quiet = { ...MGMT, rebalanceMinAgeMinutes: 8 };
+  const inRangePlan = buildRebalancePlan({
+    pool: poolAlive,
+    position: posInRange,
+    tracked: { strategy: "bid_ask" },
+    signal: { supertrendBreakDown: true },
+    priceChange1h: -5,
+    mgmtConfig: quiet,
+  });
+  assert(inRangePlan.action === "rebalance", "precondition: in-range breakdown wants rebalance");
+  d = shouldRebalance({
+    plan: inRangePlan,
+    position: { ...posInRange, age_minutes: 2 },
+    tracked: { rebalance_count: 0 },
+    mgmtConfig: quiet,
+  });
+  assert(d.action === "hold" && d.reason.includes("post-open quiet"), `young in-range must quiet-hold, got ${d.action}: ${d.reason}`);
+
+  d = shouldRebalance({
+    plan,
+    position: { ...posOorDown, age_minutes: 2, minutes_out_of_range: 10 },
+    tracked: { rebalance_count: 0 },
+    mgmtConfig: quiet,
+  });
+  assert(d.action === "rebalance", `confirmed OOR must bypass quiet window, got ${d.action}: ${d.reason}`);
+
+  d = shouldRebalance({
+    plan: inRangePlan,
+    position: { ...posInRange, age_minutes: 10 },
+    tracked: { rebalance_count: 0 },
+    mgmtConfig: quiet,
+  });
+  assert(d.action === "rebalance", `age>=min must allow in-range rebalance, got ${d.action}: ${d.reason}`);
+
+  console.log("  should-rebalance: happy/disabled/knife/budget/cooldown/wait/suspicious/close/post-open-quiet OK");
 }
 
 // ── isRebalanceCandidate pre-gate (no network) ─────────────────
@@ -141,8 +176,52 @@ function testPreGate() {
   assert(isRebalanceCandidate({ position: posInRange, tracked, mgmtConfig: MGMT }), "in-range bid_ask must qualify for drift check");
   assert(!isRebalanceCandidate({ position: posInRange, tracked: { ...tracked, strategy: "spot" }, mgmtConfig: MGMT }), "in-range spot has no drift to check");
   assert(!isRebalanceCandidate({ position: posOorDown, tracked: null, mgmtConfig: MGMT }), "untracked position must not be a candidate");
+  assert(
+    !isRebalanceCandidate({
+      position: { ...posInRange, age_minutes: 1 },
+      tracked,
+      mgmtConfig: { ...MGMT, rebalanceMinAgeMinutes: 8 },
+    }),
+    "young in-range must fail pre-gate under min age",
+  );
+  assert(
+    isRebalanceCandidate({
+      position: { ...posOorDown, age_minutes: 1, minutes_out_of_range: 10 },
+      tracked,
+      mgmtConfig: { ...MGMT, rebalanceMinAgeMinutes: 8 },
+    }),
+    "confirmed OOR must pass pre-gate even if young",
+  );
+  // Unknown age (no age_minutes / deployed_at) must quiet-block — brand-new
+  // poll ticks used to thrash reseed before age was populated.
+  assert(
+    !isRebalanceCandidate({
+      position: { ...posInRange }, // no age_minutes
+      tracked,
+      mgmtConfig: { ...MGMT, rebalanceMinAgeMinutes: 8 },
+    }),
+    "unknown age in-range must fail pre-gate under min age",
+  );
+  {
+    const quiet = { ...MGMT, rebalanceMinAgeMinutes: 8 };
+    const inRangePlan = buildRebalancePlan({
+      pool: poolAlive,
+      position: posInRange,
+      tracked: { strategy: "bid_ask" },
+      signal: { supertrendBreakDown: true },
+      priceChange1h: -5,
+      mgmtConfig: quiet,
+    });
+    const d = shouldRebalance({
+      plan: inRangePlan,
+      position: { ...posInRange }, // age unknown
+      tracked: { rebalance_count: 0 },
+      mgmtConfig: quiet,
+    });
+    assert(d.action === "hold" && d.reason.includes("post-open quiet"), `unknown age must quiet-hold, got ${d.action}: ${d.reason}`);
+  }
 
-  console.log("  pre-gate: OOR window, budget, cooldown, drift-only-bid_ask, untracked OK");
+  console.log("  pre-gate: OOR window, budget, cooldown, drift-only-bid_ask, untracked, post-open-quiet OK");
 }
 
 // ── recordRebalance state round-trip ───────────────────────────

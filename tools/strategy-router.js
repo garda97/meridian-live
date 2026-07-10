@@ -501,9 +501,9 @@ export function applySpotDumpGate(plan, { priceChange1h } = {}) {
 
 /**
  * B — Drop-entry gate (Drop and bidask): only enter when price has pulled
- * back into the dip zone (default -50%..-30% 1h). Blocks while pumping
- * (FOMO guard) and after a >50% collapse (possible dump/dead).
- * Fail-closed: unknown price change → block.
+ * back into the dip zone (config.autoStrategy.dropEntryMin..dropEntryMax, 1h).
+ * Defaults if unset: -50%..-30%. Live Meridian often uses sideway-friendly
+ * -15%..+10%. Blocks FOMO pumps and too-deep dumps. Fail-closed on unknown chg.
  */
 export function applyDropEntryGate(plan, { priceChange1h } = {}) {
   if (!config.autoStrategy?.dropEntryGate || !plan.entry_allowed) return plan;
@@ -519,7 +519,7 @@ export function applyDropEntryGate(plan, { priceChange1h } = {}) {
   if (chg < minDrop) {
     return { ...plan, entry_allowed: false, entry_reason: `Drop-entry gate: already dropped ${chg.toFixed(1)}% (< ${minDrop}%, possible dump/dead)`, notes: [...(plan.notes || []), `Drop-entry: ${chg.toFixed(1)}% < ${minDrop}% — blocked (too deep)`] };
   }
-  return { ...plan, notes: [...(plan.notes || []), `Drop-entry: in dip zone ${chg.toFixed(1)}% — allowed`] };
+  return { ...plan, notes: [...(plan.notes || []), `Drop-entry: in dip zone ${chg.toFixed(1)}% [${minDrop}%, ${maxDrop}%] — allowed`] };
 }
 
 /**

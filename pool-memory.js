@@ -196,7 +196,7 @@ export function recordPoolDeploy(poolAddress, deployData) {
   }
 
   // Set cooldown for low yield closes — pool wasn't profitable enough, don't redeploy soon
-  if (deploy.close_reason === "low yield") {
+  if (typeof deploy.close_reason === "string" && deploy.close_reason.toLowerCase().includes("low yield")) {
     const cooldownHours = 4;
     const cooldownUntil = setPoolCooldown(entry, cooldownHours, "low yield");
     log("pool-memory", `Cooldown set for ${entry.name} until ${cooldownUntil} (low yield close)`);
@@ -220,15 +220,22 @@ export function recordPoolDeploy(poolAddress, deployData) {
   }
 
   if (config.management.lossRedeployBlockEnabled !== false && isLossClose(deploy)) {
-    const cooldownHours = Math.max(1, Number(config.management.lossRedeployCooldownHours ?? 24));
-    const pnlLabel = deploy.pnl_pct != null ? `${deploy.pnl_pct}%` : `${deploy.pnl_usd ?? "?"} USD`;
-    const reason = `loss close (PnL ${pnlLabel})`;
-    const poolCooldownUntil = setPoolCooldown(entry, cooldownHours, reason);
-    log("pool-memory", `Loss cooldown set for pool ${entry.name} until ${poolCooldownUntil} (${reason})`);
-    if (entry.base_mint) {
-      const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, cooldownHours, reason);
-      if (mintCooldownUntil) {
-        log("pool-memory", `Loss cooldown set for token ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
+    const minLossPct = Math.max(0, Number(config.management.lossRedeployMinLossPct ?? 0.3));
+    const pnlPct = Number(deploy.pnl_pct);
+    // Skip cooldown for dust losses (e.g. -0.05%) — not a real edge-destroying redeploy risk.
+    if (Number.isFinite(pnlPct) && Math.abs(pnlPct) < minLossPct) {
+      log("pool-memory", `Loss cooldown skipped for ${entry.name}: |${pnlPct}%| < minLossPct ${minLossPct}% (dust loss)`);
+    } else {
+      const cooldownHours = Math.max(1, Number(config.management.lossRedeployCooldownHours ?? 24));
+      const pnlLabel = deploy.pnl_pct != null ? `${deploy.pnl_pct}%` : `${deploy.pnl_usd ?? "?"} USD`;
+      const reason = `loss close (PnL ${pnlLabel})`;
+      const poolCooldownUntil = setPoolCooldown(entry, cooldownHours, reason);
+      log("pool-memory", `Loss cooldown set for pool ${entry.name} until ${poolCooldownUntil} (${reason})`);
+      if (entry.base_mint) {
+        const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, cooldownHours, reason);
+        if (mintCooldownUntil) {
+          log("pool-memory", `Loss cooldown set for token ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
+        }
       }
     }
   }

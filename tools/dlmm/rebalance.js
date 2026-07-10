@@ -8,9 +8,10 @@
  * a shifted range migrates to a new account and reclaims the old rent
  * ("migrate" path — the common case for shift_up / reseed_below).
  *
- * Fail-open: if the re-add fails after the 0x1774 ladder, the withdrawn funds
- * stay in the wallet, the empty account is reclaimed, and the position is
- * marked closed with reason "rebalance failed" — the screener redeploys later.
+ * Fail-open: if the re-add ladder fails after withdraw, try one emergency
+ * re-add (fit old account if possible, else modest migrate). Only if that
+ * also fails are funds left in wallet and the position marked closed with
+ * reason "rebalance failed" — the screener redeploys later.
  */
 import { Keypair, PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
@@ -290,13 +291,129 @@ export async function rebalancePosition({ position_address, plan, reason }) {
 
     invalidatePositionsCache();
 
+    // Emergency re-add: if the planned ladder failed AFTER withdraw, try one
+    // last conservative placement so we don't force-close and dump fee edge.
+    // Prefer fitting the still-empty old account (in_place); else migrate modest range.
     if (!added) {
-      // Fail-open: withdrawn funds are in the wallet; reclaim the empty
-      // account and hand the pool back to the screener.
+      try {
+        try { await pool.refetchStates(); } catch { /* best-effort */ }
+        const emergencyBin = await pool.getActiveBin();
+        const activeId = emergencyBin.binId;
+        const minBinsBelow = Math.max(20, Number(config.strategy?.minBinsBelow) || 40);
+        // Clamp emergency range into old account when possible to avoid migrate rent.
+        let eBelow = minBinsBelow;
+        let eAbove = Math.max(1, Math.ceil(eBelow / 4));
+        let eMin = activeId - eBelow;
+        let eMax = activeId + eAbove;
+        let fitsOld = Number.isFinite(oldLower) && Number.isFinite(oldUpper)
+          && eMin >= oldLower && eMax <= oldUpper;
+        if (!fitsOld && Number.isFinite(oldLower) && Number.isFinite(oldUpper) && activeId >= oldLower && activeId <= oldUpper) {
+          // Shrink to whatever span remains inside the old account around active.
+          eBelow = Math.max(5, activeId - oldLower);
+          eAbove = Math.max(1, oldUpper - activeId);
+          eMin = activeId - eBelow;
+          eMax = activeId + eAbove;
+          fitsOld = eMin >= oldLower && eMax <= oldUpper;
+        }
+        // Prefer bid_ask; fall back to spot only if config allows (don't invent unsupported strategy).
+        const allowSpot = config.autoStrategy?.allowSpot === true || config.autoStrategyAllowSpot === true;
+        const eStrategyName = allowSpot ? "spot" : (plan.strategy || "bid_ask");
+        const eStrategyType = await resolveStrategyType(eStrategyName);
+        const eIsWide = eMax - eMin + 1 > 69;
+
+        // Skip emergency if it still needs fresh bin-array rent.
+        await assertRangeDoesNotRequireBinArrayInitialization(pool, eMin, eMax);
+
+        const txHashes = [];
+        let newPositionAddress = position_address;
+        let path;
+
+        if (fitsOld) {
+          path = "in_place_emergency";
+          const params = {
+            positionPubKey: new PublicKey(position_address),
+            user: wallet.publicKey,
+            totalXAmount: budgetX,
+            totalYAmount: budgetY,
+            strategy: { minBinId: eMin, maxBinId: eMax, strategyType: eStrategyType },
+          };
+          const txs = eIsWide
+            ? await pool.addLiquidityByStrategyChunkable({ ...params, slippage: 10 })
+            : await pool.addLiquidityByStrategy({ ...params, slippage: 1000 });
+          for (const tx of Array.isArray(txs) ? txs : [txs]) {
+            txHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
+          }
+        } else {
+          path = "migrate_emergency";
+          const newPosition = Keypair.generate();
+          newPositionAddress = newPosition.publicKey.toString();
+          // Keep emergency migrate non-wide when possible (cheaper, fewer txs).
+          const safeBelow = Math.min(eBelow, 60);
+          const safeAbove = Math.min(eAbove, 10);
+          const sMin = activeId - safeBelow;
+          const sMax = activeId + safeAbove;
+          await assertRangeDoesNotRequireBinArrayInitialization(pool, sMin, sMax);
+          eMin = sMin;
+          eMax = sMax;
+          eBelow = safeBelow;
+          eAbove = safeAbove;
+          const tx = await pool.initializePositionAndAddLiquidityByStrategy({
+            positionPubKey: newPosition.publicKey,
+            user: wallet.publicKey,
+            totalXAmount: budgetX,
+            totalYAmount: budgetY,
+            strategy: { minBinId: eMin, maxBinId: eMax, strategyType: eStrategyType },
+            slippage: 1000,
+          });
+          txHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet, newPosition]));
+          const reclaimed = await reclaimEmptyPositionAccount(pool, wallet, position_address);
+          if (reclaimed.tx) txHashes.push(reclaimed.tx);
+        }
+
+        added = {
+          txHashes,
+          path,
+          newPositionAddress,
+          minBinId: eMin,
+          maxBinId: eMax,
+          activeBinId: activeId,
+          strategy: eStrategyName,
+          binsBelow: eBelow,
+          binsAbove: eAbove,
+          retries: 99, // marker: emergency path
+        };
+        log("rebalance", `EMERGENCY re-add succeeded (${path}): ${eStrategyName} ${eBelow}/${eAbove} @ ${activeId}`);
+        invalidatePositionsCache();
+      } catch (emergencyErr) {
+        log("rebalance_error", `Emergency re-add failed: ${emergencyErr.message}`);
+        lastError = emergencyErr;
+      }
+    }
+
+    if (!added) {
+      // True fail-open: withdrawn funds are in the wallet; reclaim empty account.
+      // This is last resort only — emergency re-add above already tried to salvage.
       const failMsg = lastError?.message ?? "re-add exhausted the retry ladder";
       log("rebalance_error", `Re-add failed after withdraw (${failMsg}) — closing empty account, funds stay in wallet`);
       await reclaimEmptyPositionAccount(pool, wallet, position_address, { label: "rebalance_error" });
-      recordClose(position_address, `rebalance failed after withdraw (${failMsg}) — funds returned to wallet`);
+      // FIX (Hermes): verify on-chain before marking closed. A failed re-add does NOT
+      // mean the original position is gone — its liquidity may still be live. Marking it
+      // closed here desyncs state from chain and lets the deploy guard open a DUPLICATE
+      // (same base mint) -> over-cap + double exposure. Only recordClose if the position is
+      // truly absent on-chain; otherwise retain it so the manager cycle retries later.
+      let stillOpen = false;
+      try {
+        const verify = await getMyPositions({ force: true, silent: true });
+        stillOpen = Array.isArray(verify?.positions) &&
+          verify.positions.some((p) => p.position === position_address);
+      } catch (verifyErr) {
+        log("rebalance_error", `On-chain verify failed (${verifyErr.message}) — retaining position to avoid false-close`);
+      }
+      if (stillOpen) {
+        log("rebalance_error", `Position ${position_address} still live on-chain after failed re-add — NOT marking closed (retained for manager retry)`);
+      } else {
+        recordClose(position_address, `rebalance failed after withdraw (${failMsg}) — funds returned to wallet`);
+      }
       appendDecision({
         type: "close",
         actor: "MANAGER",

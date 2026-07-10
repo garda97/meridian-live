@@ -127,6 +127,7 @@ DEPLOY RULES:
 ${config.autoStrategy?.enabled ? `- AUTO STRATEGY MODE: Each candidate has auto_strategy + deploy_plan pre-computed from chart + market view.
 - You MUST use the chosen candidate's deploy_plan exactly: strategy, bins_below, bins_above from the candidate block.
 - Do NOT deploy candidates with entry_gate: BLOCK.
+- ENTRY GATE TRUTH (do NOT invent other zones): drop-entry dip zone is [${config.autoStrategy?.dropEntryMin ?? "n/a"}%, ${config.autoStrategy?.dropEntryMax ?? "n/a"}%] on 1h change when dropEntryGate=${config.autoStrategy?.dropEntryGate ? "ON" : "OFF"}. If a candidate says entry_gate BLOCK, quote THAT candidate's entry_reason verbatim — never rewrite it as -55%/-20% or any other invented band.
 - amount_y only, amount_x=0. bid_ask = bins_above 0. spot/curve may use bins_above > 0.
 - Pass deploy_position.volatility from the candidate metrics.` : `- bins_below = round(config.strategy.minBinsBelow + (candidate volatility/5)*(config.strategy.maxBinsBelow-config.strategy.minBinsBelow)) clamped to [minBinsBelow,maxBinsBelow]. Volatility must be a positive number; 0/unknown means skip.
 - Use amount_y only, keep amount_x=0 and bins_above=0.`}
