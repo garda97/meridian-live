@@ -469,6 +469,23 @@ export async function runManagementCycle({ silent = false } = {}) {
     // ── Deterministic rule checks (no LLM) ──────────────────────────
     // action: CLOSE | CLAIM | STAY | INSTRUCTION (needs LLM)
     const actionMap = new Map();
+
+    // POWER MODE plan resolution is read-only (pool detail + chart indicators +
+    // token-info fetches, then a pure plan compute) and independent per position,
+    // so resolve every candidate's plan concurrently instead of one-await-per-
+    // position inside the loop below (was N × up to 3 sequential RPC round-trips).
+    // Positions already flagged for a hard exit skip rebalancing, so don't spend
+    // fetches on them. Fail-open per position (matching the sibling call site) —
+    // one position's resolution error must not abort the whole management cycle.
+    const rebalanceByPosition = new Map();
+    if (config.management.autoRebalanceEnabled !== false) {
+      const rebalanceCandidates = positionData.filter((p) => !exitMap.has(p.position));
+      const resolvedPlans = await Promise.all(
+        rebalanceCandidates.map((p) => maybeResolveRebalance(p).catch(() => null)),
+      );
+      rebalanceCandidates.forEach((p, i) => rebalanceByPosition.set(p.position, resolvedPlans[i]));
+    }
+
     for (const p of positionData) {
       // ── Self-learning: observe every open position each cycle (telemetry only) ──
       observeOpenPosition({
@@ -496,7 +513,7 @@ export async function runManagementCycle({ silent = false } = {}) {
       // POWER MODE: re-analyze + reposition BEFORE the OOR close rule gets a
       // chance to burn the position. Hold falls through to the rules below.
       if (config.management.autoRebalanceEnabled !== false) {
-        const reb = await maybeResolveRebalance(p);
+        const reb = rebalanceByPosition.get(p.position);
         if (reb) {
           actionMap.set(p.position, reb);
           continue;
