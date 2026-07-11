@@ -22,6 +22,31 @@ import { agentLoop } from "../../agent.js";
 import { getPoolDetail } from "../../tools/screening.js";
 import { checkPositionChartExit } from "../../tools/chart-indicators.js";
 import { recordPositionSnapshot, recallForPool } from "../../pool-memory.js";
+import { withTimeout } from "../../utils/fetch-timeout.js";
+
+/**
+ * Per-phase guard + instrumentation for runManagementCycle. Bounds each awaited
+ * step so a single hung await can never hold engineState.managementBusy past the
+ * phase budget (the finally that frees the flag only runs once the try-body
+ * settles). On a hang it logs a precise [MGMT_HANG] culprit line then rethrows,
+ * so the cycle aborts (freeing the flag) instead of wedging until the 4m
+ * watchdog. Slow-but-completing phases (>2s) log a light [MGMT_PHASE] timing
+ * line to help spot degradation.
+ */
+async function mgmtPhase(name, promise, timeoutMs) {
+  const started = Date.now();
+  try {
+    const result = await withTimeout(promise, timeoutMs, `mgmt:${name}`);
+    const ms = Date.now() - started;
+    if (ms > 2000) log("cron", `[MGMT_PHASE] ${name} ok ${ms}ms`);
+    return result;
+  } catch (e) {
+    if (e?.message?.includes(`mgmt:${name} timed out`)) {
+      log("cron_error", `[MGMT_HANG] phase "${name}" exceeded ${timeoutMs}ms — aborting cycle to free managementBusy (stuck culprit)`);
+    }
+    throw e;
+  }
+}
 
 /**
  * POWER MODE: cheap-gate, resolve, and decide a rebalance for one position.
@@ -133,9 +158,9 @@ export async function runManagementCycle({ silent = false } = {}) {
   try {
     reloadUserConfigFromDisk();
     if (!silent && telegramEnabled()) {
-      liveMessage = await createLiveMessage(TG_TITLES.management, TG_TITLES.managementEval);
+      liveMessage = await mgmtPhase("createLiveMessage", createLiveMessage(TG_TITLES.management, TG_TITLES.managementEval), 20000);
     }
-    const livePositions = await getMyPositions({ force: true }).catch(() => null);
+    const livePositions = await mgmtPhase("getMyPositions", getMyPositions({ force: true }).catch(() => null), 30000);
     positions = livePositions?.positions || [];
 
     if (positions.length === 0) {
@@ -155,7 +180,7 @@ export async function runManagementCycle({ silent = false } = {}) {
     // TVL growth since entry) rides along: one pool-detail fetch per position
     // per cycle, fail-soft to nulls — trend accumulates in pool-memory even
     // while the shareExit rule itself is off.
-    const positionData = await Promise.all(positions.map(async (p) => {
+    const positionData = await mgmtPhase("snapshot+dilution", Promise.all(positions.map(async (p) => {
       let dilution = { position_share_pct: null, tvl_growth_x: null };
       try {
         const detail = await getPoolDetail({ pool_address: p.pool, timeframe: config.screening?.timeframe || "5m" });
@@ -170,13 +195,13 @@ export async function runManagementCycle({ silent = false } = {}) {
       const enriched = { ...p, ...dilution };
       recordPositionSnapshot(p.pool, enriched);
       return { ...enriched, recall: recallForPool(p.pool) };
-    }));
+    })), 45000);
 
     // JS exit checks. Management is the slow cron backstop: raise peak immediately
     // (confirmTicks=1) and act on detected exits directly. Real-time 2-tick
     // confirmation lives in the fast 3s poller below.
     const exitMap = new Map();
-    await Promise.all(positionData.map(async (p) => {
+    await mgmtPhase("exit-checks", Promise.all(positionData.map(async (p) => {
       confirmPeak(p.position, p.pnl_pct, 1, config.management.pnlWarmupMinutes);
       let exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (!exit) {
@@ -193,7 +218,7 @@ export async function runManagementCycle({ silent = false } = {}) {
         exitMap.set(p.position, exit.reason);
         log("state", `Exit alert for ${p.pair}: ${exit.reason}`);
       }
-    }));
+    })), 30000);
 
     // ── Deterministic rule checks (no LLM) ──────────────────────────
     // action: CLOSE | CLAIM | STAY | INSTRUCTION (needs LLM)
@@ -209,9 +234,9 @@ export async function runManagementCycle({ silent = false } = {}) {
     const rebalanceByPosition = new Map();
     if (config.management.autoRebalanceEnabled !== false) {
       const rebalanceCandidates = positionData.filter((p) => !exitMap.has(p.position));
-      const resolvedPlans = await Promise.all(
+      const resolvedPlans = await mgmtPhase("rebalance-plans", Promise.all(
         rebalanceCandidates.map((p) => maybeResolveRebalance(p).catch(() => null)),
-      );
+      ), 45000);
       rebalanceCandidates.forEach((p, i) => rebalanceByPosition.set(p.position, resolvedPlans[i]));
     }
 
@@ -301,7 +326,7 @@ export async function runManagementCycle({ silent = false } = {}) {
     });
 
     if (actionPositions.length > 0) {
-      const execReport = await executeManagementActions(actionPositions, actionMap, { liveMessage, cur });
+      const execReport = await mgmtPhase("execute-actions", executeManagementActions(actionPositions, actionMap, { liveMessage, cur }), 60000);
       if (execReport) mgmtReport += `\n\n${execReport}`;
     } else {
       log("cron", "Management: all positions STAY — skipping");
@@ -313,7 +338,7 @@ export async function runManagementCycle({ silent = false } = {}) {
 
     // Trigger screening after management
     reloadUserConfigFromDisk();
-    const afterPositions = await getMyPositions({ force: true }).catch(() => null);
+    const afterPositions = await mgmtPhase("post-getMyPositions", getMyPositions({ force: true }).catch(() => null), 30000);
     const afterCount = afterPositions?.positions?.length ?? 0;
     const postTrigger = canTriggerScreening(config);
     if (
