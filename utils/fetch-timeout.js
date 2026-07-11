@@ -21,3 +21,21 @@ export async function fetchWithTimeout(url, options = {}, timeoutMs = 10_000) {
     clearTimeout(timer);
   }
 }
+
+/**
+ * Wrap any promise (e.g. an SDK RPC call that has no built-in timeout) so it
+ * rejects after `timeoutMs` instead of hanging forever. A hung on-chain RPC
+ * read (getProgramAccounts on a slow Helius endpoint) otherwise stalls the
+ * whole management cycle — the try/catch fallback only catches errors, not
+ * hangs, so without this the position poller can wedge until the watchdog
+ * force-resets it minutes later. On timeout the dangling promise is left to
+ * settle unheard (a raw promise can't be cancelled); the caller unblocks.
+ */
+export function withTimeout(promise, timeoutMs, label = "operation") {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}

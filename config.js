@@ -362,6 +362,11 @@ export const config = {
     // never burns the main RPC_URL or the LPAgent sponsor budget.
     rpcUrl: nonEmptyString(u.pnlRpcUrl, process.env.PNL_RPC_URL, "https://pump.helius-rpc.com"),
     source: nonEmptyString(u.pnlSource, "rpc"), // rpc | meteora (fallback-only)
+    // Hard timeout for the on-chain RPC PnL read (getAllLbPairPositionsByUser).
+    // Plain SDK RPC calls have no timeout — a hung Helius endpoint otherwise
+    // wedges the whole management cycle until the watchdog force-resets it.
+    // On timeout, getMyPositions falls back to the Meteora portfolio API.
+    rpcTimeoutMs: Number(u.pnlRpcTimeoutMs ?? 25000),
     pollIntervalSec: Number(u.pnlPollIntervalSec ?? 3),
     depositCacheTtlSec: Number(u.pnlDepositCacheTtlSec ?? 300),
     // Consecutive confirming polls required before a peak is raised or an exit fires.
