@@ -148,6 +148,7 @@ After evaluating, write a brief one-line result per position.
 export async function runManagementCycle({ silent = false } = {}) {
   if (engineState.managementBusy) return null;
   engineState.managementBusy = true;
+  engineState.managementBusyReason = "management-cycle";
   timers.managementLastRun = Date.now();
   log("cron", "Starting management cycle");
   let mgmtReport = null;

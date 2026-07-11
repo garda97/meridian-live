@@ -174,6 +174,7 @@ export function startCronJobs() {
   const healthTask = cron.schedule(`0 * * * *`, async () => {
     if (engineState.managementBusy) return;
     engineState.managementBusy = true;
+    engineState.managementBusyReason = "health-check";
     log("cron", "Starting health check");
     try {
       await agentLoop(`
@@ -237,6 +238,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
             if (partial) {
               log("state", `[PnL poll] PARTIAL_TP: ${p.pair} — ${partial.reason}`);
               engineState.managementBusy = true;
+              engineState.managementBusyReason = `poller-partial-close:${p.pair}`;
               try {
                 const res = await partialClosePosition({ position_address: p.position, close_pct: partial.close_pct, reason: partial.reason });
                 if (res?.success && config.management.autoSwapAfterClose && res.base_mint && res.base_mint !== config.tokens.SOL) {
@@ -261,6 +263,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
             if (reb?.action === "REBALANCE") {
               log("state", `[PnL poll] REBALANCE: ${p.pair} — ${reb.reason}`);
               engineState.managementBusy = true;
+              engineState.managementBusyReason = `poller-rebalance:${p.pair}`;
               try {
                 const res = await rebalancePosition({ position_address: p.position, plan: reb.plan, reason: reb.reason });
                 log("state", `[PnL poll] ${p.pair}: rebalance ${res?.success
@@ -280,6 +283,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
         log("state", `[PnL poll] ${signal} confirmed (${confirmTicks} ticks): ${p.pair} — ${reason} — closing directly`);
         // Hold the management lock so the cron cycle can't double-act on this position.
         engineState.managementBusy = true;
+        engineState.managementBusyReason = `poller-close:${p.pair}`;
         try {
           const actMap = new Map([[p.position, { action: "CLOSE", rule, reason }]]);
           const rpt = await executeManagementActions([p], actMap, {});
@@ -390,7 +394,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
     if (engineState.managementBusy) {
       if (!_mgmtBusySince) _mgmtBusySince = now;
       else if (now - _mgmtBusySince > STALE_BUSY_MS) {
-        log("cron_error", `managementBusy stuck ${Math.round((now - _mgmtBusySince) / 60000)}m — force-resetting (a cycle likely hung on an await with no timeout)`);
+        log("cron_error", `managementBusy stuck ${Math.round((now - _mgmtBusySince) / 60000)}m [culprit: ${engineState.managementBusyReason || "unknown"}] — force-resetting (a cycle hung on an await with no timeout)`);
         engineState.managementBusy = false;
         _mgmtBusySince = 0;
       }
