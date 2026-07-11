@@ -35,6 +35,11 @@ import { withTimeout } from "../../utils/fetch-timeout.js";
  */
 async function mgmtPhase(name, promise, timeoutMs) {
   const started = Date.now();
+  // Stamp the current phase onto the shared busy-reason so the watchdog's
+  // [culprit: …] names the EXACT phase in flight even if the per-phase timeout
+  // below doesn't fire and even if this log line is dropped by the logger.
+  engineState.managementBusyReason = `management-cycle:${name}`;
+  log("cron", `[MGMT_PHASE] → ${name}`);
   try {
     const result = await withTimeout(promise, timeoutMs, `mgmt:${name}`);
     const ms = Date.now() - started;
