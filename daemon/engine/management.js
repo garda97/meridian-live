@@ -10,14 +10,18 @@ import { runScreeningCycle } from "./screening-cycle.js";
 import { stripThink } from "../runtime.js";
 import { log } from "../../logger.js";
 import { config, reloadUserConfigFromDisk } from "../../config.js";
-import { getTrackedPosition } from "../../state.js";
-import { isRebalanceCandidate, resolveRebalancePlanForPosition, shouldRebalance } from "../../tools/position-router.js";
+import { getTrackedPosition, confirmPeak, updatePnlAndCheckExits } from "../../state.js";
+import { isRebalanceCandidate, resolveRebalancePlanForPosition, shouldRebalance, computeTvlDilution, checkTvlDilutionExit } from "../../tools/position-router.js";
 import { executeTool } from "../../tools/executor.js";
 import { observeOpenPosition } from "../../lessons.js";
-import { getMyPositions } from "../../tools/dlmm.js";
+import { getMyPositions, rebalancePosition } from "../../tools/dlmm.js";
 import { canTriggerScreening } from "../../utils/screening-gate.js";
-import { isEnabled as telegramEnabled, notifyOutOfRange, sendMessage } from "../../telegram.js";
-import { TG, localizeTelegramReport } from "../../utils/telegram-id.js";
+import { isEnabled as telegramEnabled, notifyOutOfRange, sendMessage, createLiveMessage } from "../../telegram.js";
+import { TG, TG_TITLES, localizeTelegramReport } from "../../utils/telegram-id.js";
+import { agentLoop } from "../../agent.js";
+import { getPoolDetail } from "../../tools/screening.js";
+import { checkPositionChartExit } from "../../tools/chart-indicators.js";
+import { recordPositionSnapshot, recallForPool } from "../../pool-memory.js";
 
 /**
  * POWER MODE: cheap-gate, resolve, and decide a rebalance for one position.
