@@ -34,6 +34,7 @@ import { recordPoolDeploy } from "../../pool-memory.js";
 import { appendDecision } from "../../decision-log.js";
 import { normalizeMint } from "../wallet.js";
 import { computePositions, fetchDlmmPnlForPool } from "../pnl.js";
+import { fetchWithTimeout, withTimeout } from "../../utils/fetch-timeout.js";
 
 // ─── Get Active Bin ────────────────────────────────────────────
 export async function getActiveBin({ pool_address }) {
@@ -227,7 +228,14 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
     if (config.pnl.source === "rpc") {
       try {
         if (!silent) log("positions", `Computing PnL from RPC (${config.pnl.rpcUrl})...`);
-        const rpcResult = await computePositions(walletAddress);
+        // Hard timeout: a hung Helius RPC read would otherwise wedge the whole
+        // management cycle. On timeout this throws → the catch below falls back
+        // to the Meteora portfolio API instead of hanging.
+        const rpcResult = await withTimeout(
+          computePositions(walletAddress),
+          config.pnl.rpcTimeoutMs,
+          "RPC PnL read"
+        );
         if (useLocalWallet) {
           const externallyClosed = syncOpenPositions(rpcResult.positions.map((p) => p.position));
           if (externallyClosed?.length) {
@@ -244,7 +252,7 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
     // ── Fallback path: Meteora portfolio + /pnl APIs (no LPAgent) ──
     if (!silent) log("positions", "Fetching portfolio via Meteora portfolio API...");
     const portfolioUrl = `https://dlmm.datapi.meteora.ag/portfolio/open?user=${walletAddress}`;
-    const res = await fetch(portfolioUrl);
+    const res = await fetchWithTimeout(portfolioUrl, {}, config.pnl.rpcTimeoutMs);
     if (!res.ok) throw new Error(`Portfolio API ${res.status}: ${await res.text().catch(() => "")}`);
     const portfolio = await res.json();
 
