@@ -61,6 +61,7 @@ import { appendDecision, enrichDecisionEntry, getRecentDecisions } from "../deci
 import { checkDailyLossGate } from "../utils/daily-loss.js";
 import { runCopyTradePoll } from "../copytrade.js";
 import { timers, stripThink, sanitizeUntrustedPromptText } from "./runtime.js";
+import { withTimeout } from "../utils/fetch-timeout.js";
 import { maybeAutoRecovery } from "./engine/recovery.js";
 // Recovery Strat lives in ./engine/recovery.js; re-export its pure, unit-tested
 // helpers so index.js (and test/test-recovery-strat.js through it) keep importing
@@ -166,7 +167,22 @@ export function startCronJobs() {
   const mgmtTask = cron.schedule(`*/${Math.max(1, config.schedule.managementIntervalMin)} * * * *`, async () => {
     if (engineState.managementBusy) return;
     timers.managementLastRun = Date.now();
-    await runManagementCycle();
+    // Hard cron-level guard: even if an await inside runManagementCycle wedges in
+    // a way the internal per-phase mgmtPhase timeouts don't catch (observed under
+    // live concurrency with the 3s poller — the cycle sets managementBusy=true then
+    // never settles), bound the whole call and force-release the flag so the poller
+    // (gated on managementBusy) can't be starved past ~2min. The dangling cycle, if
+    // it ever settles, just re-clears an already-false flag (harmless).
+    try {
+      await withTimeout(runManagementCycle(), 120000, "runManagementCycle");
+    } catch (e) {
+      log("cron_error", `management cron aborted: ${e.message}`);
+    } finally {
+      if (engineState.managementBusy) {
+        engineState.managementBusy = false;
+        engineState.managementBusyReason = null;
+      }
+    }
   });
 
   const screenTask = cron.schedule(`*/${Math.max(1, config.schedule.screeningIntervalMin)} * * * *`, runScreeningCycle);
