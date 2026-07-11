@@ -326,6 +326,12 @@ export async function closePosition({ position_address, reason }) {
           pnl_usd: pnlUsd,
           pnl_pct: pnlPct,
           base_mint: closeBaseMint,
+          strategy: tracked.strategy,
+          fees_usd: feesUsd,
+          deployed_usd: initialUsd,
+          deployed_sol: tracked.amount_sol,
+          minutes_held: minutesHeld,
+          close_reason: reason || "agent decision",
           auto_swapped: autoSwapResult?.success || false,
           auto_swap_tx: autoSwapResult?.tx || null,
         };
@@ -634,6 +640,12 @@ export async function closePosition({ position_address, reason }) {
         pnl_usd: pnlUsd,
         pnl_pct: pnlPct,
         base_mint: closeBaseMint,
+        strategy: tracked.strategy,
+        fees_usd: feesUsd,
+        deployed_usd: initialUsd,
+        deployed_sol: tracked.amount_sol,
+        minutes_held: minutesHeld,
+        close_reason: reason || "agent decision",
       };
     }
 
