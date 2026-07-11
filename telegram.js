@@ -592,15 +592,15 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
   await sendHTML(TG.deployed(pair, amountSol, priceStr, coverageStr, poolStr, position, tx));
 }
 
-export async function notifyClose({ pair, pnlUsd, pnlPct }) {
+export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd = null, deployedUsd = null, amountSol = null, holdMinutes = null, strategy = null, reason = null }) {
   let config = {};
   try {
     const cfg = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
     config = cfg.telegramNotifications || {};
   } catch {}
-  
+
   if (!config.closeNotify || hasActiveLiveMessage()) return;
-  await sendHTML(TG.closed(pair, pnlUsd, pnlPct));
+  await sendHTML(TG.closed({ pair, pnlUsd, pnlPct, feesUsd, deployedUsd, amountSol, holdMinutes, strategy, reason }));
 }
 
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {

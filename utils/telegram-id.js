@@ -131,15 +131,35 @@ export const TG = {
   poolMeta: (binStep, baseFee) =>
     `Bin step: ${binStep ?? "?"}  |  Base fee: ${baseFee != null ? baseFee + "%" : "?"}\n`,
 
-  closed: (pair, pnlUsd, pnlPct, feesUsd) => {
-    const sign = pnlUsd >= 0 ? "+" : "";
+  closed: ({ pair, pnlUsd = 0, pnlPct = 0, feesUsd = null, deployedUsd = null, amountSol = null, holdMinutes = null, strategy = null, reason = null } = {}) => {
     const color = pnlUsd >= 0 ? "🟢" : "🔴";
-    const feeLine = feesUsd != null ? `\nFee: ${fmtUsd(feesUsd)}` : "";
-    return (
-      `🔒 <b>TUTUP POSISI</b> ${pair}\n` +
-      `──────────────\n` +
-      `PnL: ${color} ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)${feeLine}`
-    );
+    const sgn = (n) => (Number(n) >= 0 ? "+" : "-");
+    // Derive SOL price from the deploy (deployedUsd / amountSol) so PnL/fees can
+    // be shown in ◎ too — no price fetch needed. Falls back to USD-only.
+    const solPrice = (Number(deployedUsd) > 0 && Number(amountSol) > 0) ? deployedUsd / amountSol : null;
+    const solStr = (usd, signed = true) => {
+      if (solPrice == null || usd == null || !Number.isFinite(Number(usd))) return null;
+      const v = Number(usd) / solPrice;
+      return `${signed ? sgn(v) : ""}◎${Math.abs(v).toFixed(4)}`;
+    };
+    const pnlSol = solStr(pnlUsd);
+    const lines = [
+      `${color} <b>Position Closed</b> — ${pair}`,
+      `💰 PnL: ${sgn(pnlUsd)}$${Math.abs(Number(pnlUsd) || 0).toFixed(2)}${pnlSol ? ` (${pnlSol})` : ""} (${sgn(pnlPct)}${Math.abs(Number(pnlPct) || 0).toFixed(2)}%)`,
+    ];
+    if (deployedUsd != null || amountSol != null) {
+      const dep = deployedUsd != null ? `$${Number(deployedUsd).toFixed(2)}` : "?";
+      const depSol = amountSol != null ? ` (◎${Number(amountSol).toFixed(4)})` : "";
+      lines.push(`💎 Deployed: ${dep}${depSol}`);
+    }
+    if (holdMinutes != null) lines.push(`⏱️ Hold time: ${fmtHold(holdMinutes)}`);
+    if (strategy) lines.push(`📐 Strategy: ${strategy}`);
+    if (reason) lines.push(`📝 Reason: ${reason}`);
+    if (feesUsd != null) {
+      const feeSol = solStr(feesUsd, false);
+      lines.push(`💸 Fees: $${Number(feesUsd).toFixed(2)}${feeSol ? ` (${feeSol})` : ""}`);
+    }
+    return lines.join("\n");
   },
 
   swapped: (inSym, outSym, amountIn, amountOut, tx) =>
@@ -364,6 +384,14 @@ export function formatPositionsListId(positions, total, solMode) {
 function fmtPct(value) {
   const n = Number(value);
   return Number.isFinite(n) ? `${n.toFixed(2)}%` : "?";
+}
+
+// minutes → "1h 38m" / "38m"
+function fmtHold(mins) {
+  const m = Math.max(0, Math.round(Number(mins) || 0));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return h > 0 ? `${h}h ${r}m` : `${r}m`;
 }
 
 // Helper formatting
