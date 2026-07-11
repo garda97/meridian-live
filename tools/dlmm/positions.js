@@ -35,6 +35,7 @@ import { appendDecision } from "../../decision-log.js";
 import { normalizeMint } from "../wallet.js";
 import { computePositions, fetchDlmmPnlForPool } from "../pnl.js";
 import { fetchWithTimeout, withTimeout } from "../../utils/fetch-timeout.js";
+import { notifyClose } from "../../telegram.js";
 
 // ─── Get Active Bin ────────────────────────────────────────────
 export async function getActiveBin({ pool_address }) {
@@ -192,6 +193,22 @@ async function handleExternalCloses(externallyClosed, walletAddress) {
         },
       });
       log("external_close", `Recorded external close for ${pos.pool_name || pos.position.slice(0, 8)}: PnL ${pnlPct != null ? pnlPct.toFixed(2) + "%" : "unknown"}`);
+      // The rich close card only fires from the close_position tool path (executor.js).
+      // External/manual closes are detected here via sync and would otherwise send NO
+      // Telegram close report at all, so fire it explicitly. Fire-and-forget; the
+      // notifyClose closeNotify gate still applies. deployedUsd is unknown on this path
+      // (no fresh deploy quote) so we pass amountSol only and let TG.closed fall back.
+      notifyClose({
+        pair: pos.pool_name || pos.position.slice(0, 8),
+        pnlUsd,
+        pnlPct,
+        feesUsd,
+        deployedUsd: null,
+        amountSol: pos.amount_sol ?? null,
+        holdMinutes: minutesHeld,
+        strategy: pos.strategy ?? null,
+        reason: "closed externally (manual / off-daemon)",
+      }).catch(() => {});
     } catch (e) {
       log("external_close_warn", `Recording external close failed for ${pos.position.slice(0, 8)}: ${e.message}`);
     }

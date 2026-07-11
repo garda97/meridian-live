@@ -599,7 +599,13 @@ export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd = null, deploy
     config = cfg.telegramNotifications || {};
   } catch {}
 
-  if (!config.closeNotify || hasActiveLiveMessage()) return;
+  // NOTE: unlike deploy/swap/OOR, the close card is NOT suppressed while a live
+  // message is active. The daemon's management cycle ALWAYS holds a live message
+  // (management.js opens one per cycle), so gating on hasActiveLiveMessage() meant
+  // rule/chart/LLM closes never produced the persistent close card — only the
+  // transient live-message tool line. The card is the record the operator wants,
+  // so a minor overlap with the live-message line is acceptable here.
+  if (!config.closeNotify) return;
   await sendHTML(TG.closed({ pair, pnlUsd, pnlPct, feesUsd, deployedUsd, amountSol, holdMinutes, strategy, reason }));
 }
 
