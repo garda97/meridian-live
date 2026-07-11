@@ -7,6 +7,7 @@ export const engineState = {
   cronTasks: [],            // active cron tasks + interval refs (stopCronJobs clears these)
   cronStarted: false,       // guards against a double startCronJobs()
   managementBusy: false,    // prevents overlapping management cycles
+  managementBusyReason: null, // label of whatever last set managementBusy=true (watchdog reports it on a stuck force-reset)
   screeningBusy: false,     // prevents overlapping screening cycles
   screeningLastTriggered: 0, // epoch ms — prevents management from spamming screening
 };
