@@ -28,6 +28,7 @@ import {
   filterRecoveryCandidates,
   computeRecoveryBinsBelow,
 } from "./daemon/engine.js";
+import { startHealthServer } from "./daemon/health.js";
 import { telegramHandler } from "./daemon/telegram-ui.js";
 import {
   timers,
@@ -467,6 +468,7 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
   // cron under systemd because the flag stayed false in non-TTY mode.
   log("startup", "Non-TTY mode — starting cron cycles immediately.");
   ensureCronStarted();
+  startHealthServer();
   maybeRunMissedBriefing().catch(() => { });
   // Telegram inbound polling MUST run in daemon (non-TTY) mode too — otherwise
   // incoming photos/commands are never received (only outbound sendMessage worked).

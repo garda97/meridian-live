@@ -247,6 +247,10 @@ export const config = {
     rebalanceTxFeeBufferSol:   u.rebalanceTxFeeBufferSol   ?? 0.02, // headroom for claim/remove/add/close txs
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
+    // Rule 0 emergency backstop (2026-07-12, opt-in) — see close-rules.js's
+    // comment on rule 0 for why this exists even though it shouldn't
+    // normally fire differently than stopLossPct. null = off (default).
+    maxLossPct:            u.maxLossPct            ?? null,
     // IL-gap close rule (opt-in): close when |IL| outruns earned fees by more
     // than the threshold (fee_vs_il_gap_pct < -ilGapCloseThresholdPct).
     ilGapCloseEnabled:      boolConfig(u.ilGapCloseEnabled, false),
