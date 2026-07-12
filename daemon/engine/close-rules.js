@@ -23,6 +23,25 @@ export function getDeterministicCloseRule(position, managementConfig) {
     return false;
   })();
 
+  // Rule 0 (2026-07-12, ported concept from an external Meteora DLMM bot's
+  // maxLossPct — see notes/fees-maxi-comparison.md): an absolute emergency
+  // backstop, independent of and checked before the normal stop loss.
+  // Under today's code this threshold should never actually differ in
+  // practice from rule 1 (stop loss already fires first at a much tighter
+  // level) — its value is defense-in-depth against a single point of
+  // failure in rule 1 specifically (a future edit, a config mistake setting
+  // stopLossPct too loose, or a divergent SL check elsewhere disagreeing
+  // with this one), not a distinct trading threshold. Still respects
+  // pnlSuspect — a garbage PnL reading should never trigger ANY close,
+  // emergency or not. Opt-in via config (null = off, no behavior change).
+  if (
+    !pnlSuspect &&
+    position.pnl_pct != null &&
+    managementConfig.maxLossPct != null &&
+    position.pnl_pct <= managementConfig.maxLossPct
+  ) {
+    return { action: "CLOSE", rule: 0, reason: "max loss (emergency backstop)" };
+  }
   if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct <= managementConfig.stopLossPct) {
     return { action: "CLOSE", rule: 1, reason: "stop loss" };
   }
