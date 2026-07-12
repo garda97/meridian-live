@@ -171,7 +171,12 @@ export async function closePosition({ position_address, reason }) {
         };
       }
 
-      recordClose(position_address, reason || "agent decision");
+      // recordClose() for the untracked case fires here immediately (no PnL to
+      // compute without a tracked entry). The tracked case defers the call
+      // until pnlPct is fully settled below — see the note there.
+      if (!tracked) {
+        recordClose(position_address, reason || "agent decision");
+      }
 
       if (tracked) {
         const deployedAt = new Date(tracked.deployed_at).getTime();
@@ -223,6 +228,10 @@ export async function closePosition({ position_address, reason }) {
         } catch (e) {
           log("close_warn", `Relay closed PnL fetch failed: ${e.message}`);
         }
+
+        // recordClose() deliberately deferred until here (2026-07-12 fix) —
+        // see the matching comment on the local-SDK close path below for why.
+        recordClose(position_address, reason || "agent decision", { pnl_pct: pnlPct });
 
         const closeBaseMint = livePosition?.base_mint || pool.lbPair.tokenXMint.toString();
         const signalSnapshot = resolvePerformanceSignalSnapshot({
@@ -475,7 +484,12 @@ export async function closePosition({ position_address, reason }) {
       };
     }
 
-    recordClose(position_address, reason || "agent decision");
+    // recordClose() for the untracked case fires here immediately (no PnL to
+    // compute without a tracked entry). The tracked case defers the call
+    // until pnlPct is fully settled below — see the note there.
+    if (!tracked) {
+      recordClose(position_address, reason || "agent decision");
+    }
 
     // Record performance for learning
     if (tracked) {
@@ -491,9 +505,13 @@ export async function closePosition({ position_address, reason }) {
         if (!Number.isFinite(pct)) return false;
         const reasonText = String(closeReasonText || "").toLowerCase();
         const stopLossTriggered = reasonText.includes("stop loss");
-        // Meteora sometimes briefly reports absurd closed pnl while the record is settling.
-        // Trust legitimate stop-loss disasters, but reject obviously unsettled outliers otherwise.
-        return !stopLossTriggered && pct <= -90;
+        // Meteora sometimes briefly reports absurd closed pnl while the record is
+        // settling (2026-07-12 incident: a position held 16s briefly showed
+        // +973.74%). Trust legitimate stop-loss disasters on the downside;
+        // reject obviously-unsettled outliers in EITHER direction otherwise —
+        // no real concentrated-LP position swings this hard this fast.
+        if (stopLossTriggered) return false;
+        return pct <= -90 || pct >= 200;
       };
 
       // Fetch closed PnL from API — authoritative source after withdrawal settles
@@ -559,6 +577,17 @@ export async function closePosition({ position_address, reason }) {
           log("close_warn", `Using cached pnl fallback because closed API has not settled yet`);
         }
       }
+
+      // recordClose() deliberately deferred until here (2026-07-12 fix): pnlPct
+      // is now fully settled (API, or the cache fallback, or the 0-default worst
+      // case) — passing it as an override means closedOutcomes[] always agrees
+      // with what lessons.json/recordPerformance below record, instead of
+      // potentially using a stale/phantom pos.pnl_pct live-tick value. The
+      // in-flight close guard (markPositionClosing/_closingInFlight, set by
+      // executor.js around the whole close_position tool call) already prevents
+      // any external-close race during this window regardless of exactly when
+      // within this function recordClose fires.
+      recordClose(position_address, reason || "agent decision", { pnl_pct: pnlPct });
 
       const closeBaseMint = pool.lbPair.tokenXMint.toString();
       const signalSnapshot = resolvePerformanceSignalSnapshot({
