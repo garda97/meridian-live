@@ -181,13 +181,19 @@ export function recordClaim(position_address, fees_usd) {
  * falling back to peak_pnl_pct) since no call site threads a definitive
  * close-time PnL through recordClose/syncOpenPositions today.
  */
-function buildClosedOutcome(pos, reason) {
+function buildClosedOutcome(pos, reason, overrides = {}) {
   return {
     position: pos.position,
     pool: pos.pool,
     pool_name: pos.pool_name || null,
     strategy: pos.strategy || null,
-    pnl_pct: pos.pnl_pct ?? pos.peak_pnl_pct ?? null,
+    // Prefer the caller's authoritative, fully-settled PnL (close.js computes
+    // this from the Meteora closed-positions API / wallet-delta fallback,
+    // AFTER the tx confirms) over pos.pnl_pct — the last live-tick value,
+    // which can be a phantom RPC spike shortly after deploy (see pnlWarmupMinutes)
+    // and previously leaked into closedOutcomes[] uncorrected (2026-07-12 incident:
+    // a 16s-held position recorded pnl_pct=973.74% from exactly this).
+    pnl_pct: overrides.pnl_pct ?? pos.pnl_pct ?? pos.peak_pnl_pct ?? null,
     il_pct: pos.il_pct ?? null,
     fee_vs_il_gap_pct: pos.fee_vs_il_gap_pct ?? null,
     entry_mcap: pos.entry_mcap ?? null,
@@ -210,14 +216,14 @@ function buildClosedOutcome(pos, reason) {
  *  recordClose + syncOpenPositions (or double close calls) can't double-count
  *  the same position in learning stats.
  */
-function pushClosedOutcome(state, pos, reason) {
+function pushClosedOutcome(state, pos, reason, overrides = {}) {
   if (!state.closedOutcomes) state.closedOutcomes = [];
   const posId = pos?.position;
   if (posId && state.closedOutcomes.some((o) => o && o.position === posId)) {
     log("state", `closedOutcomes dedupe: skip second outcome for ${String(posId).slice(0, 8)}… (${reason})`);
     return;
   }
-  state.closedOutcomes.push(buildClosedOutcome(pos, reason));
+  state.closedOutcomes.push(buildClosedOutcome(pos, reason, overrides));
   if (state.closedOutcomes.length > MAX_CLOSED_OUTCOMES) {
     state.closedOutcomes = state.closedOutcomes.slice(-MAX_CLOSED_OUTCOMES);
   }
@@ -236,8 +242,12 @@ function pushEvent(state, event) {
 
 /**
  * Mark a position as closed. Idempotent — second call is a no-op (no double outcomes).
+ * @param {object} [overrides] - optional authoritative final numbers (currently
+ *   just { pnl_pct }) computed by the caller AFTER on-chain settlement — pass
+ *   these when available so closedOutcomes[] never relies on a possibly-stale
+ *   live-tick pos.pnl_pct. Omit for the external-close / no-settled-data path.
  */
-export function recordClose(position_address, reason) {
+export function recordClose(position_address, reason, overrides = {}) {
   const state = load();
   const pos = state.positions[position_address];
   if (!pos) return;
@@ -249,7 +259,7 @@ export function recordClose(position_address, reason) {
   pos.closed_at = new Date().toISOString();
   pos.notes.push(`Closed at ${pos.closed_at}: ${reason}`);
   pushEvent(state, { action: "close", position: position_address, pool_name: pos.pool_name || pos.pool, reason });
-  pushClosedOutcome(state, pos, reason);
+  pushClosedOutcome(state, pos, reason, overrides);
   save(state);
   log("state", `Position ${position_address} marked closed: ${reason}`);
 }
@@ -561,7 +571,17 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   // Persist the last-known live PnL so recordClose/syncOpenPositions has a real
   // exit-time value for closedOutcomes[] instead of falling back to peak_pnl_pct
   // (which would misrepresent a stop-loss exit as a profit).
-  if (!pnl_pct_suspicious && Number.isFinite(currentPnlPct) && pos.pnl_pct !== currentPnlPct) {
+  // Phantom-spike guard (2026-07-12 incident): a garbage RPC tick shortly after
+  // deploy/rebalance can report an absurd POSITIVE pnl_pct (observed: 973.74%
+  // on a position held 16s) — pnlWarmupMinutes already protects peak-raising/
+  // trailing/take-profit from this, but this raw field wasn't guarded and the
+  // phantom value leaked into closedOutcomes[] via recordClose. Suppress only
+  // positive spikes during warmup; a real negative (stop-loss) must still pass
+  // through unconditionally — "stop loss stays live" during warmup is the
+  // existing, intentional design (missing a real instant rug is worse than a
+  // spurious 0% close).
+  const suppressPhantomGain = currentPnlPct > 0 && isInPnlWarmup(pos, mgmtConfig.pnlWarmupMinutes);
+  if (!pnl_pct_suspicious && !suppressPhantomGain && Number.isFinite(currentPnlPct) && pos.pnl_pct !== currentPnlPct) {
     pos.pnl_pct = currentPnlPct;
     changed = true;
   }
