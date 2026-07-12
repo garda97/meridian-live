@@ -14,7 +14,7 @@ import { resolveRebalancePlanForPosition, shouldRebalance } from "./position-rou
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
-import { setPositionInstruction, getTrackedPosition } from "../state.js";
+import { setPositionInstruction, getTrackedPosition, markPositionClosing, unmarkPositionClosing } from "../state.js";
 
 import { getPoolMemory, addPoolNote } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
@@ -818,6 +818,11 @@ export async function executeTool(name, args, context = {}) {
   }
 
   // ─── Execute ──────────────────────────────
+  // Guard a double close notification: while this close_position tx settles the
+  // position is already gone on-chain but not yet recordClose'd, so mark it so
+  // syncOpenPositions defers to this tool path instead of firing its own
+  // external-close card (see markPositionClosing in state.js).
+  if (name === "close_position" && args.position_address) markPositionClosing(args.position_address);
   try {
     const result = await fn(args);
     const duration = Date.now() - startTime;
@@ -875,6 +880,8 @@ export async function executeTool(name, args, context = {}) {
       error: error.message,
       tool: name,
     };
+  } finally {
+    if (name === "close_position" && args.position_address) unmarkPositionClosing(args.position_address);
   }
 }
 

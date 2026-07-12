@@ -786,6 +786,16 @@ export function setLastBriefingDate() {
  */
 const SYNC_GRACE_MS = 5 * 60_000; // don't auto-close positions deployed < 5 min ago
 
+// Positions with an in-flight close_position tx (our own tool). During the
+// ~5-10s an on-chain close takes, the position is already gone on-chain but
+// recordClose hasn't marked it closed yet — without this guard syncOpenPositions
+// would flag it as an EXTERNAL close and fire a SECOND notifyClose card on top of
+// the one executor.js sends when the tool returns (double Telegram notification).
+// executor.js marks/unmarks around the close_position fn call.
+const _closingInFlight = new Set();
+export function markPositionClosing(posId) { if (posId) _closingInFlight.add(posId); }
+export function unmarkPositionClosing(posId) { if (posId) _closingInFlight.delete(posId); }
+
 export function syncOpenPositions(active_addresses) {
   const state = load();
   const activeSet = new Set(active_addresses);
@@ -795,6 +805,12 @@ export function syncOpenPositions(active_addresses) {
   for (const posId in state.positions) {
     const pos = state.positions[posId];
     if (pos.closed || activeSet.has(posId)) continue;
+    // Our own close_position tx is settling — let the tool path record + notify it,
+    // don't double-fire an external-close notification for the same position.
+    if (_closingInFlight.has(posId)) {
+      log("state", `Position ${posId} missing on-chain but close in flight — deferring to tool close (no external-close)`);
+      continue;
+    }
 
     // Grace period: newly deployed positions may not be indexed yet
     const deployedAt = pos.deployed_at ? new Date(pos.deployed_at).getTime() : 0;
