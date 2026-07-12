@@ -7,7 +7,7 @@ import { engineState } from "./engine-state.js";
 import { getDeterministicCloseRule } from "./close-rules.js";
 import { maybeAutoRecovery } from "./recovery.js";
 import { runScreeningCycle } from "./screening-cycle.js";
-import { stripThink } from "../runtime.js";
+import { stripThink, timers } from "../runtime.js";
 import { log } from "../../logger.js";
 import { config, reloadUserConfigFromDisk } from "../../config.js";
 import { getTrackedPosition, confirmPeak, updatePnlAndCheckExits } from "../../state.js";
