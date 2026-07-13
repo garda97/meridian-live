@@ -862,3 +862,27 @@ export function syncOpenPositions(active_addresses) {
   if (changed) save(state);
   return externallyClosed;
 }
+
+/**
+ * The other half of reconciliation that syncOpenPositions doesn't cover:
+ * a position that exists ON-CHAIN but isn't in our tracked state at all.
+ * Real incident (meridian-rh, 2026-07-12): a restart raced an in-flight
+ * deploy tx — the position landed on-chain, but the daemon that would have
+ * called trackPosition() for it was mid-restart when the tx confirmed, so
+ * it never got tracked. It sat live, unmanaged (no stop-loss/take-profit
+ * applied — every close-rule check silently skips anything
+ * getTrackedPosition() can't find), until a human noticed and manually
+ * reconstructed its state from on-chain data.
+ *
+ * Deliberately does NOT auto-adopt with guessed entry data (deploy amount,
+ * strategy, deployed_at) — a wrong reconstructed PnL basis is its own class
+ * of bug (see this session's -148%-vs-+6% incident, caused by a DIFFERENT
+ * kind of bad state). Fail loud instead: return the list so the caller can
+ * alert the owner immediately, who adopts it properly (with real on-chain
+ * entry data, not a guess) via the existing manual tooling.
+ */
+export function findUntrackedOnChainPositions(active_addresses) {
+  const tracked = getTrackedPositions(false);
+  const trackedIds = new Set(tracked.map((p) => p.position));
+  return (active_addresses || []).filter((id) => !trackedIds.has(id));
+}
