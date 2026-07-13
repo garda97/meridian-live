@@ -35,7 +35,8 @@ import { appendDecision } from "../../decision-log.js";
 import { normalizeMint } from "../wallet.js";
 import { computePositions, fetchDlmmPnlForPool } from "../pnl.js";
 import { fetchWithTimeout, withTimeout } from "../../utils/fetch-timeout.js";
-import { notifyClose } from "../../telegram.js";
+import { notifyClose, sendMessage } from "../../telegram.js";
+import { findUntrackedOnChainPositions } from "../../state.js";
 
 // ─── Get Active Bin ────────────────────────────────────────────
 export async function getActiveBin({ pool_address }) {
@@ -215,6 +216,36 @@ async function handleExternalCloses(externallyClosed, walletAddress) {
   }
 }
 
+// Untracked-on-chain-position alert (2026-07-13, see state.js's
+// findUntrackedOnChainPositions doc comment for the real incident this
+// exists for). Fires at most once per hour per position address, so a
+// restart during grace-period indexing lag doesn't spam — but stays LOUD
+// (Telegram, not just a log line) since an unmanaged live position is a
+// real-money risk, not a routine event.
+const _untrackedAlertedAt = new Map();
+const UNTRACKED_ALERT_COOLDOWN_MS = 60 * 60_000;
+
+async function alertUntrackedPositions(activeAddresses, walletAddress) {
+  const untracked = findUntrackedOnChainPositions(activeAddresses);
+  if (!untracked.length) return;
+
+  const now = Date.now();
+  const toAlert = untracked.filter((id) => {
+    const last = _untrackedAlertedAt.get(id);
+    return !last || now - last > UNTRACKED_ALERT_COOLDOWN_MS;
+  });
+  if (!toAlert.length) return;
+  for (const id of toAlert) _untrackedAlertedAt.set(id, now);
+
+  log("state_error", `${toAlert.length} on-chain position(s) NOT in tracked state: ${toAlert.join(", ")} — unmanaged, no stop-loss/take-profit applied`);
+  const msg =
+    `⚠️ *Untracked live position${toAlert.length > 1 ? "s" : ""}*\n\n` +
+    `${toAlert.length} position${toAlert.length > 1 ? "s" : ""} found on-chain for wallet \`${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}\` that the bot isn't tracking — likely a restart raced an in-flight deploy.\n\n` +
+    `*No stop-loss/take-profit is being applied to ${toAlert.length > 1 ? "these" : "this"} right now.* Check on-chain and adopt manually (or close manually if unwanted):\n` +
+    toAlert.map((id) => `\`${id}\``).join("\n");
+  sendMessage(msg).catch((e) => log("telegram_error", `Untracked-position alert failed: ${e.message}`));
+}
+
 // ─── Get My Positions ──────────────────────────────────────────
 export async function getMyPositions({ force = false, silent = false, wallet_address = null } = {}) {
   let walletOverride = null;
@@ -254,10 +285,12 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
           "RPC PnL read"
         );
         if (useLocalWallet) {
-          const externallyClosed = syncOpenPositions(rpcResult.positions.map((p) => p.position));
+          const activeIds = rpcResult.positions.map((p) => p.position);
+          const externallyClosed = syncOpenPositions(activeIds);
           if (externallyClosed?.length) {
             handleExternalCloses(externallyClosed, walletAddress).catch((e) => log("external_close_warn", e.message));
           }
+          alertUntrackedPositions(activeIds, walletAddress).catch((e) => log("state_error", `Untracked-position check failed: ${e.message}`));
           setPositionsCache(rpcResult);
         }
         return rpcResult;
@@ -427,10 +460,12 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
       source: "meteora",
     };
     if (useLocalWallet) {
-      const externallyClosed = syncOpenPositions(positions.map(p => p.position));
+      const activeIds = positions.map(p => p.position);
+      const externallyClosed = syncOpenPositions(activeIds);
       if (externallyClosed?.length) {
         handleExternalCloses(externallyClosed, walletAddress).catch((e) => log("external_close_warn", e.message));
       }
+      alertUntrackedPositions(activeIds, walletAddress).catch((e) => log("state_error", `Untracked-position check failed: ${e.message}`));
       setPositionsCache(result);
     }
     return result;
