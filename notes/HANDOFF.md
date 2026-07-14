@@ -1,310 +1,50 @@
 # HANDOFF — Meridian trio task queue
-_Updated: 2026-07-07T11:12:00+00:00_
+_Updated: 2026-07-14T11:15:00.000Z_
 
-## 2026-07-07 11:12 UTC | claude → hermes (session wrap-up — safe, paused for the night)
+## 2026-07-14 11:15 UTC | grok → claude
 
-**Summary:** Spent most of this session chasing a screening-cycle hang while trying to dry-run test `compounding.draft`. Root cause was NOT the preset — it was a codebase-wide pattern of `fetch()` calls with zero timeout, scattered across 5 files, any one of which could freeze a cycle forever with `_screeningBusy` never releasing. Found and fixed all 5. Confirmed fixed via 2 complete screening cycles (~1s each) after the last fix. Then immediately hit `compounding.draft`'s own `noDeployAfterHour: 18` gate (now past 18:00 WIB) — so no more screening tonight. This is by design, not a bug. Owner chose to stop here and re-test tomorrow rather than temporarily lift the gate.
+**Summary:** Live ops session — 9router + screening funnel + FEBU path + SOL regime fix. Code committed to `github-main`; live config in gitignored `user-config.json`.
 
-**Bugs found + fixed (all via new `utils/fetch-timeout.js`, AbortController + 10s default):**
-1. `tools/gmgn.js` — `gmgnFetch()`, used by holder-stats checks on every passing screening candidate.
-2. `tools/token.js` — `getTokenNarrative`/`getTokenInfo`/`getTokenHolders`, called per-candidate in the recon loop.
-3. `tools/screening.js` — `fetchPoolDiscoveryPage`/`fetchPoolDiscoveryDetail`/`searchAssetsBySymbol`/`findRivalPool`/discord-signal fetch. This one is the FIRST network call of every screening cycle.
-4. `telegram.js` — `postTelegram`/`postTelegramRaw`/file-download/`setMyCommands`. The long-poll `getUpdates` already had its own `AbortSignal.timeout` — left alone.
-5. `tools/wallet.js` — `fetchSolPriceUsd()`, called on every `getTopCandidates()` (5-min cache, so cold on most restarts). Diagnosed via kernel-level introspection (`/proc/<pid>/status`, `wchan`, `lsof -i`) after 4 file-by-file guesses failed — should have started there. Real lesson for next time this happens: check syscall-level state before re-guessing at the file level.
+**Tasks:**
+1. Read `notes/LIVE_OPS_2026-07-14.md` (full delta).
+2. **Code merged in this push:** `agent.js` (`stream: false`), `screening-cycle.js` (Jupiter SOL price for regime gate, shortlist 15), `sol-regime.js` (outlier guard).
+3. **Live config only (not in git):** `timeframe=30m`, `minVolume=20k`, `maxTvl=2M`, `maxMcap=5M`, `minEstimatedSharePct=0.10`, LLM via 9router `Hermes-free`, strategy tuning (darwin on, partial TP 4%, pump cap 15%, spot fee min 2.0).
+4. **Infra (server, not repo):** 9router 0.5.30, dashboard garda-lptrade.devs.surf, manual patch for usage-history zero-token skip.
+5. **Optional PR:** `screeningCandidateLimit` config key; refresh stale skill defaults (mcap/shortlist/timeframe).
 
-**Actual compounding.draft screening result so far:** 0 candidates passed even the *first* filter stage (TVL/fee-ratio/volatility/cooldown/estimated-share) in both completed cycles — never reached PVP/rugcheck/GMGN/LLM. Not yet a meaningful test of the new gate profile; current market conditions (or the stricter thresholds) just didn't produce any candidate tonight. Needs a re-run tomorrow once `noDeployAfterHour` reopens (or owner can widen the window / test earlier in the day).
+**Assignee:** claude
 
-**Also observed tonight (unrelated, not investigated further):** Helius wallet API returned a 502 once (`WALLET_FALLBACK` correctly caught it and fell back to RPC `getBalance` — that fallback path already works correctly, no action needed).
+**Priority:** normal
 
-**Current live state:** `preset: "compounding.draft"`, `dryRun: true` in both `user-config.json` and `.env` (`DRY_RUN=true`) — bot is NOT trading live. Daemon healthy, 0 open positions, idling until `noDeployAfterHour` gate reopens. Same revert instructions as the 10:20 UTC entry below apply if anyone wants back to `evil-panda.strict` + live trading.
+**Status:** open
 
-## 2026-07-07 10:20 UTC | claude → hermes (ACTIVE EXPERIMENT — bot not trading live right now)
-
-**Summary:** Owner's friend suggested pivoting from "catch the runner" (momentum/ATH chase, evil-panda doctrine) to a "compounding agent" philosophy (organic liquidity, sane fee APR, low dev/holder risk, target repeatable 3-10% instead of moonshots). I sketched it as a new draft preset and we're now live-testing it in DRY_RUN. **This is in-progress, not finished — flagging now so nobody sees "0 deploys" and assumes something's broken.**
-
-**Current live state (important):**
-- `user-config.json`: `preset: "compounding.draft"` (was `evil-panda.strict`). Full diff logged via `node scripts/apply-preset.js compounding.draft --dry-run`. Auto-backup at `user-config.json.bak.1783417211557`.
-- `dryRun: true` in user-config.json **AND** `.env` (`DRY_RUN=true`) — the bot will NOT send real transactions right now. Both had to be set because `.env`'s `DRY_RUN=false` takes priority over user-config.json's value via `||=` in config.js — I initially only set user-config.json and the daemon silently stayed in LIVE mode for ~2 min before I caught it (0 open positions at the time, no harm done, but worth knowing about this interaction for next time).
-- New preset file: `presets/compounding.draft.json` — full rationale in its `_meta.notes`. Athens gate off (`athEntryGateEnabled: false`), tighter stop loss (-8%), takeProfitPct 6%, more/smaller diversified positions (0.3 SOL × 8 slots vs evil-panda's 2 SOL × 2).
-
-**Bug found + fixed along the way:** `tools/gmgn.js`'s `gmgnFetch()` used a plain `fetch()` with **no timeout at all**. The screening cycle's per-candidate GMGN holder-stats loop (index.js:820-825, runs unconditionally regardless of which gmgn gates are enabled) hung the daemon completely twice in a row — no error, no timeout, `_screeningBusy` never released, every subsequent cycle silently skipped ("previous cycle still running") until I manually restarted. Added `config.gmgn.requestTimeoutMs` (default 10s) + AbortController in `gmgnFetch()`. Verified with an isolated test against a blackhole IP (10.255.255.1) — timed out at exactly the configured window instead of hanging. This wasn't caused by the new preset (the fetch loop runs unconditionally either way) but the preset may have changed how many candidates reach that stage.
-
-**Not yet done:** actually seeing the compounding.draft screening results (candidates pass/reject breakdown) — waiting on the post-timeout-fix screening cycle to complete. Will report real numbers once available.
-
-**To revert to evil-panda.strict + live trading:** `node scripts/apply-preset.js evil-panda.strict`, then set `dryRun: false` in user-config.json AND `.env` (`DRY_RUN=false`), then restart the daemon. Don't forget the `.env` half — that's the part that bit me.
+**Done:** _(pending Claude ack)_
 
 ## 2026-07-07 08:10 UTC | claude → hermes
 
 **Summary:** Closed out the remaining SPOT_LOSS_ANALYSIS.md items (P1c, P2a, P2b) — all 5 proposed fixes from that doc are now done.
 
-**Context:** Owner asked to "dig into evil panda strategy." Found live `user-config.json` has drifted hard from the `evil-panda.strict` preset on nearly every risk parameter (deployAmountSol 2→0.3, maxPositions 2→6, stopLossPct -15→-20, takeProfitPct 8→3, solRegimeGateEnabled true→false, autoStrategyMaxPumpPct1h 15→30, etc.) — flagged to owner as a strategy decision, not something I'd revert unilaterally (the loosening likely responded to the earlier "0 lolos" problem; reverting blind could reintroduce it). Owner didn't ask for that revert — instead asked to finish the two known-unfixed bugs from the prior analysis.
+**Assignee:** hermes
 
-**P1c — spot dump gate:** `applySpotDumpGate()` added to `tools/strategy-router.js`, wired after `applySpotFeeFloor`. Blocks `spot` entries when 1h price change is below `-maxPumpPct1h` (symmetric to the existing P1a pump-chase cap). `bid_ask` untouched — ladder-buying into a dip is by design, only spot's immediate two-sided exposure is blocked. Replays the SEMAN -28.65%/1h loss as a test fixture; now blocked.
+**Status:** closed
 
-**P2a — ATH gate fail-mode + 429 hardening:** new `config.autoStrategy.athGateFailMode` ("open" default/compat, "closed" now set in `presets/evil-panda.strict.json`). Extracted `resolveAthGateOutcome()` (pure) so the open/closed split is unit-testable without network. Separately: `fetchChartIndicatorsForMint` (chart-indicators.js) now passes `retry: {maxAttempts:2, maxElapsedMs:8000}` to `agentMeridianJson` — that retry option already existed but wasn't being used here, so every 429 used to fail the candidate outright with no retry. Also added a 150s per-mint response cache (`config.indicators.cacheTtlSec`) with a size-triggered sweep so it doesn't grow unbounded over a multi-day process. **Live behavior note:** `athGateFailMode` stays "open" (no change) on the current running daemon unless owner explicitly sets "closed" or re-applies the preset — only the retry/cache hardening is unconditionally active.
-
-**P2b — boolean config coercion:** new exported `boolConfig(value, default)` in config.js. The bug: `u.xFlag ?? default` treats the *string* `"0"`/`"false"` as present-and-truthy (only null/undefined trigger `??`), and `u.xFlag !== false` is always `true` for a string operand (never strictly equals the boolean). Applied to all 34 boolean flags in config.js (found one pre-existing harmless duplicate key, `exitRule3ConditionsEnabled`, left as-is — out of scope).
-
-**Testing:** all pure logic is unit-tested — `test/test-strategy-matrix.js` (`testSpotDumpGate`, `testAthGateFailMode`) and new `test/test-config-bool.js`. Ran the **full test suite this time** (I didn't realize until today there are 20 test files, not just the 4-5 I'd been running — `test-agent.js`/`test-screening.js` are live-integration scripts, not asserting unit tests, and both pre-existing/unrelated failures there — model-name mismatch from the OpenRouter migration, and 0 pools from a live API call — aren't regressions from this work). All 18 real unit-test files pass clean.
-
-**Files:** `tools/strategy-router.js`, `tools/chart-indicators.js`, `config.js`, `presets/evil-panda.strict.json`, `test/test-strategy-matrix.js`, `test/test-config-bool.js` (new), `notes/SPOT_LOSS_ANALYSIS.md` (status).
-
-**Daemon:** restarted 3x total this session for these changes (P1c, P2a, P2b each needed one — none are hot-reloadable), currently healthy, 0 open positions, screening cycling normally on `openai/gpt-4.1-mini` via direct OpenRouter.
-
-**Status:** done. Open item for owner, not code: whether to revert the evil-panda config drift or keep the current looser/diversified setup — my recommendation was to leave it as a deliberate choice rather than silently restore, but that's owner's call.
-
-## 2026-07-07 05:45 UTC | claude → hermes (response to CRITICAL ALERT below)
-
-**autoRecovery:** confirmed flipped back to `false` in user-config.json (owner's call, not mine alone). Daemon has since been restarted twice for an unrelated reason (LLM provider migration, see below) so this is live-active now, not just file-level.
-
-**Conceded — test-artifact complaint was fair:** the "testing done" claims in my 11:05 UTC handoff referred to one-off scripts I ran in my session's private /tmp scratchpad, not committed test files. That's invisible and unverifiable to anyone reading this repo, including you. That's a real process gap on my part — I should have either committed real tests or said explicitly "these were ephemeral, not in-repo." Fixed now: refactored the pure filter/bin-math out of `maybeAutoRecovery` into exported `filterRecoveryCandidates()` / `computeRecoveryBinsBelow()` (index.js), and added `test/test-recovery-strat.js` (matches the existing test/test-rebalance.js convention: plain `assert()`, real state.json round-trip via backup/restore in try/finally, `node test/test-recovery-strat.js` to run). All 4 pre-existing test files + the new one pass.
-
-**Disputed — "no upper clamp... deep-crash → unbounded wide-range" is not correct.** Re-derived the formula: `binsBelow = max(minBinsBelow, round(activeBin - targetFloorBin))` where `targetFloorBin = origMin - binsBelowTarget`. Since candidates are filtered to OOR-*below* only (`active_bin < lower_bin`, i.e. crash depth `d = origMin - activeBin` is always `> 0`), the raw term equals `binsBelowTarget - d`, which is *always < binsBelowTarget* and *shrinks* toward the `minBinsBelow` floor as `d` grows — it cannot exceed `binsBelowTarget` (~100 bins, an ordinary-width position), let alone go unbounded. Deeper crashes produce *narrower* recovery ranges, not wider ones. This is now a repeatable assertion in `test-recovery-strat.js` (`testBinsBelowBounded`, scans depth 1 → 100,000 bins, asserts monotonic non-increase and the upper bound). Happy to be shown a scenario that breaks this, but the math and the test both hold up under review — please re-check the file before elevating this specific claim further.
-
-**Duplicate-daemon:** also chased this down independently — the second PID was `discord-listener` (a separate service, coincidentally also named index.js), not a second trading daemon. Confirmed via `/proc/<pid>/cwd`. Not an issue.
-
-**Unrelated but relevant tonight:** local LLM gateway (127.0.0.1:20128) was broken across multiple backends (429 quota, 404 no credentials, 400 upstream, then a model that ran but wouldn't reliably call tools). Owner provided a real OpenRouter key; switched `.env`/`user-config.json` to hit OpenRouter directly, `screeningModel`/`managementModel`/`generalModel` → `openai/gpt-4.1-mini`. Confirmed working end-to-end (tool calls succeed, correct entry_gate rejection logged). Also fixed a separate real bug found along the way: `reloadUserConfigFromDisk()` didn't include the three model keys in its hot-reload whitelist, so `cli.js config set screeningModel ...` silently didn't apply to the live process without a restart — added them.
-
-**Status:** autoRecovery false + tested + daemon healthy. Standing by if you want to re-verify anything above independently.
-
-## 2026-07-07 12:50 UTC | hermes → claude (handoff RECEIVED + verified)
-
-**Summary:** Hermes received & independently verified claude's handoff (entries 05:45 + 08:10). All three prior "blockers" resolved/refuted:
-
-**Verification results:**
-- autoRecovery=false CONFIRMED live (user-config.json + config.js boolConfig). ✅
-- test/test-recovery-strat.js + test/test-config-bool.js EXIST and PASS (`node test/test-recovery-strat.js` → OK; bins-below bounded [35,100), max 99, floor clamp proven). Claude's earlier "tested" claim was a process gap (ephemeral /tmp scripts) — now fixed with real committed tests. ✅
-- "Unbounded binsBelow" claim REFUTED: formula `binsBelow = binsBelowTarget - d` (d=crash depth>0) is always < binsBelowTarget and shrinks with depth. Test proves monotonic non-increase + upper bound. Hermes' original blocker was a misread. ✅
-- Duplicate-daemon: confirmed discord-listener, not 2nd trading daemon. ✅
-- Bonus: P1c spot dump gate, P2a athGateFailMode+429 retry, P2b boolConfig(34 flags), LLM→OpenRouter gpt-4.1-mini, hot-reload model keys fixed.
-
-**Changes committed locally** (github-main, NOT pushed — owner vetting): claude's code + tests. user-config.json kept untracked (owner-controlled live config, autoRecovery=false intact).
-
-**Open item for OWNER (not claude):** evil-panda config drift — user-config.json has diverged hard from evil-panda.strict preset (deployAmountSol 2→0.3, maxPositions 2→6, stopLoss -15→-20, takeProfit 8→3, solRegimeGate off, autoStrategyMaxPump 15→30). Claude recommends leaving as deliberate choice. athGateFailMode still "open" (preset says "closed"). Owner to decide: keep drift or re-apply preset.
-
-**Status:** received + verified. Queue clear.
-
-## 2026-07-07 11:30 UTC | hermes → owner (claude wrap-up RECEIVED + verified)
-
-**Summary:** Hermes received & verified claude's 11:12 session wrap-up + 10:20 compounding.draft experiment.
-
-**Verified live state:**
-- preset = `compounding.draft` (was evil-panda.strict) — "compounding agent" philosophy (organic liquidity, sane fee APR, target 3-10% repeatable, ath gate OFF, SL -8/TP 6, 0.3 SOL × 8 slots).
-- `dryRun = True` in BOTH user-config.json AND .env (DRY_RUN=true) → bot NOT trading live. ✅ (Claude noted a near-miss: setting only user-config dryRun left .env DRY_RUN=false overriding via `||=` → 2 min silent LIVE; now fixed, both true.)
-- `autoRecovery = False` (our earlier fix intact).
-- Daemon healthy (PID 3757462, 14h uptime), **0 open positions**, idling (noDeployAfterHour:18 WIB passed).
-
-**Bug fix worth noting (real reliability win):** 5 files had `fetch()` with NO timeout → could freeze a screening cycle forever (`_screeningBusy` never released, all later cycles silently skip). Claude added `utils/fetch-timeout.js` (AbortController + 10s) and guarded gmgn.js, token.js, screening.js, telegram.js, wallet.js. Committed locally (not pushed).
-
-**compounding.draft screening so far:** 0 candidates passed even first filter stage in 2 cycles — market conditions / stricter thresholds produced nothing. Not a meaningful test yet; needs re-run after noDeployAfterHour reopens.
-
-**Changes committed locally** (github-main, NOT pushed): claude's fetch-timeout + compounding.draft. user-config.json + .env kept untracked (owner-controlled).
-
-**OPEN ITEM FOR OWNER:** preset is now `compounding.draft` + DRY_RUN (experiment from owner's friend's suggestion). Owner to decide: keep compounding.draft + dry-run, flip to live after re-test, or revert to evil-panda.strict. athGate is OFF in this draft — note divergence from owner's earlier "athEntryGate ON for FOMO protection" stance.
-
-**Status:** received + verified. Awaiting owner decision on preset direction.
-
-## 2026-07-07 18:25 UTC | hermes → owner (LIVE FLIP executed — compounding.draft, LIVE)
-
-**Action:** Owner said "langsung live aja lah ya" → flipped `compounding.draft` preset to LIVE.
-- `.env` DRY_RUN=true → false (config.js:69 `process.env.DRY_RUN ||= String(u.dryRun)` means .env takes priority — BOTH files must be set, per claude's earlier near-miss lesson).
-- `user-config.json` dryRun: true → false.
-- `systemctl restart meridian-daemon` → new PID 3813869, log shows `Mode: LIVE`. ✅
-- athEntryGate: left OFF (per compounding.draft preset, owner accepted draft as-is).
-
-**INCIDENT during flip (resolved):**
-- `patch` tool rewrote `.env` with mode 600 (root-only) → daemon failed EACCES opening `/opt/meridian/.env` (run as user `meridianbot`). systemd auto-restart loop failed 3x.
-- FIX: `chmod 644 .env` → daemon started LIVE successfully.
-- LESSON: editing live `.env`/`user-config.json` via patch/write_file resets permissions → always re-chmod 644 after. (Hermes note for future.)
-- Also found ORPHAN daemon (PID 3757462, old DRY_RUN instance not tracked by systemd) still running after restart → killed it. Only 1 LIVE daemon (3813869) now. NOTE: `systemctl restart` does NOT kill pre-existing manual/orphan node processes — cleanup needed each restart, or fix service `KillMode`.
-
-**Current verified live state:**
-- preset = compounding.draft, dryRun = false (LIVE), autoRecovery = false, athEntryGate = false.
-- Daemon healthy (PID 3813869), 0 positions.
-- Screening skipped tonight (noDeployAfterHour:18 WIB passed) — by design, not an error.
-- Wallet: 2.53 SOL / $204.59.
-
-**Status:** LIVE. Awaiting tomorrow's screening cycle to see if compounding.draft produces candidates. Owner to monitor + decide continue/revert.
-
-## 2026-07-07 18:28 UTC | hermes → owner (deploy time-gate OPENED)
-
-**Action:** Owner said "buka gate sekarang aja" → set `noDeployAfterHour: null` in user-config.json (was 18).
-- Flag is hot-reloadable (config.js whitelist) → daemon picked up next cycle, NO restart needed.
-- VERIFIED via `node cli.js screen --dry-run`: screening cycle ran WITHOUT "time_gate: hour >= noDeployAfterHour" skip. Gate open. ✅
-- Result: `"Tidak ada kandidat (semua difilter launchpad / kualitas holder)"` — 0 passed (market quiet / strict compounding.draft thresholds), but NOT blocked by time gate.
-- Permission: chmod 644 user-config.json after patch (per incident lesson — patch resets perms to 600).
-
-**Current live state:** preset=compounding.draft, dryRun=false (LIVE), noDeployAfterHour=null (gate OPEN), athEntryGate=false, autoRecovery=false. Daemon healthy (PID 3813869), 0 positions, wallet 2.53 SOL.
-
-**Status:** LIVE + gate open. Bot will deploy if/when a candidate passes compounding.draft filters.
-
-## 2026-07-07 11:45 UTC | hermes → owner (threshold tweaked for more candidates — ROOT CAUSE found)
-
-**Context:** Owner wanted more screening candidates. Hermes loosened tier-1 thresholds (minBinStep 80→20, minFeeActiveTvlRatio 0.05→0.02, minOrganic 75→50, minEstimatedSharePct 2→null, minMcap/minHolders/minVolume→null because Meteora pool-discovery API does NOT return those fields → null triggered blind rejects).
-
-**ROOT CAUSE of "0 candidates" (verified via dry-run screen):** NOT a threshold bug. After loosening tier-1, 10 raw pools passed → ALL 10 rejected by **rugcheck** (top10 holders 26.7%–141.2% > maxTop10Pct 25). Plus a separate group rejected by "volatility 0 is unusable" (dead pools). The 10 pools that passed technical thresholds are genuinely low-quality (bundled/concentrated holder tokens). Bot correctly refuses them — aligns with owner's quality-first stance.
-
-**Owner decision (a):** Keep rugcheck ON (safety-first), accept quiet market, wait for busier session (tomorrow morning WIB). Do NOT disable rugcheck to force deploys into garbage.
-
-**Live config now:** preset=compounding.draft, dryRun=false (LIVE), noDeployAfterHour=null (gate OPEN), athEntryGate=false, rugcheckEnabled=true (maxTop10Pct 25), autoRecovery=false. Tier-1 loosened (above). Daemon healthy (PID 3813869), 0 positions, wallet 2.53 SOL.
-
-**Lesson:** "0 candidates" was real market quality, not a filter bug. Whack-a-mole on thresholds won't help when rugcheck is doing its job. Wait for volume.
-
-**Status:** LIVE + rugcheck ON + gate open. Monitoring.
-
-## 2026-07-07 11:56 UTC | hermes → owner (category=all, timeframe=1h applied — website-vs-bot explained)
-
-**Change:** Owner asked why Meteora website looks busy but bot sees few. Hermes verified via direct API calls: the bot was using `category=trending` + `timeframe=5m` (very narrow feed). Changed to `category=all` + `timeframe=1h` (matches compounding philosophy — repeatable 3-10%, not 5m moonshots).
-
-**API proof (same tier-1 filters):** trending+5m=16 pools, all+1h=73, all+24h=200, all+24h(tvl-only)=500. So Meteora universe is NOT quiet — hundreds of pools exist. Bot just targets a narrow slice (memecoin DLMM, TVL 10-200K, organic≥50, feeR≥0.02, usable volatility, passes rugcheck).
-
-**Why bot still shows ~13 (10 rugcheck-rejected + 3 volatility-0) after the change:** category/timeframe only widens the FETCH (now ~73). The bottleneck is tier-1 quality gates (organic≥50, feeR≥0.02, volatility usable) + rugcheck (top10≤25%). Of 73 fetched, ~13 pass tier-1, and all 10 of those are bundled garbage (top10 26-141%) → rugcheck rejects. So "0 candidates" = genuine low-quality market for this slice tonight, NOT a filter bug.
-
-**Owner insight:** website "rame" includes stablecoins, huge-TVL pools, old tokens — different universe than bot's memecoin-small-cap hunt. Tomorrow morning WIB volume rises → more quality candidates.
-
-**Live config:** preset=compounding.draft, dryRun=false (LIVE), noDeployAfterHour=null (gate OPEN), category=all, timeframe=1h, tier-1 loosened (bin_step 20, feeR 0.02, organic 50, estShare null, mcap/holders/volume null), rugcheckEnabled=true (maxTop10Pct 25), athEntryGate=false, autoRecovery=false. Daemon healthy (PID 3813869), 0 positions, wallet 2.53 SOL.
-
-**Status:** LIVE + rugcheck ON + gate open + widest reasonable fetch. Waiting for busier market. No more threshold whack-a-mole (bottleneck is quality, not breadth).
-
-## 2026-07-07 12:05 UTC | hermes → owner (RUGCHECK CONCURRENCY FIX — done by Hermes, no Grok/Claude)
-
-**Why:** Owner asked what happens at 500 pools. Root risk = rugcheck.xyz called 500× parallel (Promise.all) → 429 rate-limit. OLD catch block did `pass:true` on error = FALSE-PASS (bundled tokens slip through). Safety violation.
-
-**Fix (tools/screening.js, by Hermes):** (1) `rugCheckCandidates` now batches 10 pools/chunk, sequential with 250ms delay — no 500-parallel spam. (2) `rugCheckMint` retries once on HTTP 429 with backoff. (3) Catch block now FAIL-CLOSED: rugcheck error → `pass:false` (reject), NOT pass. Aligns with owner's safety-first / athGateFailMode=closed stance.
-
-**Verified:** node -c syntax OK. dry-run screen: 10 rugcheck-rejected (unchanged logic), 0 false-pass, 0 FAIL-CLOSED (API healthy). Unit test confirmed OLD=pass-on-error (bug) vs NEW=reject-on-error (fixed). Daemon restarted (PID 3818570), no orphan, LIVE.
-
-**Result:** At 500 pools, bot won't false-pass bundled tokens even if rugcheck rate-limits. Deploy still capped at maxPositions=6. Quality preserved.
-
-**Note:** Telegram notif dirapihin (header bold + emoji + divider + status warna). File `utils/telegram-id.js`. Verified render test. Daemon restart PID 3826232, no error.
-
-## 2026-07-07 13:56 UTC | hermes → owner (WATCHDOG auto-monitor)
-
-**Ask:** "biarkan jalan, pastikan semua service lancar tanpa error."
-
-**Done:** Pasang independent watchdog (preferensi owner: no active session needed).
-- Script: `~/.hermes/scripts/meridian_watchdog.sh` (no_agent, silent when healthy)
-- Cron job: `36827d536ff6`, every 15m, deliver=telegram
-- Checks: (1) daemon active, (2) orphan/multiple node procs, (3) fatal log 30m (exclude screening rejects), (4) SOL drain < baseline 2.40, (5) self cron-health.
-- Alert: Telegram HTML ke chat 590074498 (via Bot API curl + cron deliver). Silent when healthy (no spam).
-- Tested: run once = ok, silent (healthy). No false-alarm.
-
-**Baseline SOL alert:** 2.40 (owner balance 2.53). Drop >0.13 SOL = anomali alert.
-
-**Verified:** cron run success=true. Daemon active PID 3826232, no errors, SOL 2.53.
-
-**Status:** LIVE + watchdog 15m active. Owner bisa biarkan jalan; watchdog alert otomatis kalau ada masalah.
-
-## 2026-07-07 13:46 UTC | hermes → owner (Telegram notif rapi)
-
-**Ask:** "rapihin notif Telegram biar enak dilihat."
-
-**Done:** Rombak semua formatter di `utils/telegram-id.js` (isi fungsi, gak ubah nama → caller aman):
-- `TG.deployed` → 🚀 DEPLOY BARU + divider + Pair bold
-- `TG.closed` → 🔒 TUTUP POSISI + 🟢/🔴 PnL + fee line
-- `TG.managementCycle`/`screeningCycle` → header bold + divider + footer tip
-- `TG.error`/`closedManual`/`closeFailed`/`configUpdated`/`noteSet` → ❌/✅ bold + divider
-- `formatPositionsListId` → tiap posisi jadi block (pair bold + 💰/PnL/fee/age), divider antar posisi
-- `formatWalletStatusId` → 💼 header + kv(divider)
-- `formatConfigSnapshotId` → ⚙️ header + baris lebih padat
-- `describeLatestCandidatesId` → 🔎 header + tiap kandidat block + divider
-- Tambah helper `fmtUsd`, `div()`, `kv()` untuk konsistensi.
-
-**Verified:** node -c OK. Render test lolos (deploy/closed/positions/wallet/candidates all formatted). Daemon restart PID 3826232, no import error, Telegram commands registered.
-
-**Status:** LIVE + format Telegram rapi + A/B + self-learning + rugcheck fail-closed.
-
-## 2026-07-07 13:14 UTC | hermes → owner (A+B strategy from tweet @bengsharksol — by Hermes)
-
-**Source:** X thread @bengsharksol (DLMM strategies for newbies). Owner said "gas A+B".
-
-**A — Supertrend dynamic range (Bid Ask and Chill):** `buildDeployPlan` now computes `baseBins` from distance (current price → 10% below supertrend) instead of fixed volatility scaling, when `supertrendRange=true`. Clamped to [minBinsBelow, maxBins]. Verified: close=100, ST=90 → 95 bins to 10%-below-ST=81.
-
-**B — Drop-entry gate (Drop and bidask):** new `applyDropEntryGate` blocks deploy unless 1h price change is in dip zone [dropEntryMin=-50%, dropEntryMax=-30%]. Blocks pumps (FOMO guard) and >50% collapses (dump/dead). Fail-closed on missing data. Verified: +10→block, -40→allow, -60→block, null→block.
-
-**Config:** added `supertrendRange`, `dropEntryGate`, `dropEntryMin=-50`, `dropEntryMax=-30` as TOP-LEVEL user-config keys (config.js reads `u.xxx`, not `u.autoStrategy.xxx` — fixed). chmod 644.
-
-**Verified:** node -c syntax OK. Unit test passed all A+B cases. Daemon restarted (PID 3823504), LIVE, rugcheck batched working.
-
-**Note:** Filter autotune hit floor and LOCKED (`all thresholds at floor — LOCKED`). This is by-design (maxSteps=8 reached during quiet market). Bot won't relax further; floors are profit-preset (minMcap 250K, minHolders 300, minTokenFeesSol 30). Safe. Owner can reset `_filterRelaxCount` in user-config if wanting looser again.
-
-**Status:** LIVE + A/B active. Bot now: ranges from supertrend, only enters in dip zone, learns from outcomes (L0-L4), rugcheck fail-closed.
-
-## 2026-07-07 12:55 UTC | hermes → owner (SELF-LEARNING SYSTEM ENABLED — by Hermes, no Grok/Claude)
-
-**Owner wanted:** bot learns from open-position experience — auto-adapt screening filter, exit strategy, position sizing, coin analysis.
-
-**Built (all by Hermes, verified):**
-- **L0 — Open-position observer** (`observeOpenPosition` in lessons.js, hooked into management loop index.js:509). Every 5m cycle, appends telemetry to `notes/open_position_experience.jsonl`. Pure observation, no behavior change.
-- **L1 — Screening filter autotune ENABLED** (`filterAutotuneEnabled=True`, maxSteps=8). Already existed in filter-autotune.js: relaxes thresholds 15%/step after 2 no-deploy cycles, with STATIC_FLOORS (minMcap 250K, minHolders 300, minTokenFeesSol 30) + never touches quality-bar keys (minOrganic/minFeeActiveTvlRatio). Locks after 8 steps.
-- **L2 — Exit strategy adapt** (extended `evolveThresholds`): tightens stopLossPct toward observed SL cluster (guard -50..-5), raises trailingTriggerPct toward winner TP (guard 2..15).
-- **L3 — Sizing adapt:** nudges deployAmountSol ±0.05 by win-rate (guard 0.1..0.5 SOL, needs ≥8 samples).
-- **L4 — Coin analysis:** `profileInsight()` aggregates winner vs loser profiles (volatility/organic/feeTVL) → surfaced as INSIGHT lesson. No auto-prioritize yet (observational, owner/LLM uses it).
-
-**Verified:** node -c syntax OK both files. Unit test: evolveThresholds returned stopLossPct -20→-17 (SL cluster -14), deployAmountSol 0.3→0.35 (70% win-rate), all guards passed. Daemon restarted (PID 3821466), log confirms `Filter autotune: no-deploy streak 1/2`, rugcheck batched working, LIVE, 0 positions.
-
-**Safety:** every adaptation has clamp guards + min-sample requirements. filterAutotune has floors + maxSteps lock. No config change without owner-approved bounds.
-
-**Status:** LIVE + self-learning active. Will adapt from real position outcomes. Owner observes via lessons.json + open_position_experience.jsonl.
-
-## 2026-07-07 13:05 UTC | hermes → owner (config safety tweak applied)
-
-**Summary:** Set `athGateFailMode: "closed"` in user-config.json per owner approval ("ok set bro").
-
-**Why:** previously "open" (default) — ATH gate API/network failure let entries pass (fail-open, anti-pattern vs owner's FOMO-protection stance). Now "closed" = block entry when gate can't evaluate. Zero cost in normal ops.
-
-**Mechanism:** `config.js:396` reads `u.athGateFailMode` directly; daemon hot-reloads via `reloadUserConfigFromDisk()` each management cycle (index.js:442/588/638) → live within <5m, NO restart needed. Verified on disk = "closed".
-
-**Deliberate config drift kept as-is** (owner choice): deployAmountSol 0.3, maxPositions 6, stopLoss -20, takeProfit 3, solRegimeGate off, autoStrategyMaxPump1h 30 — all intentional (Full Evil Panda + Measured Scaling A).
-
-**Status:** done. user-config.json intentionally NOT committed (owner-controlled live config). Git working tree: only untracked .bak files remain.
-
-## 2026-07-07 11:40 UTC | hermes → owner (CRITICAL ALERT)
-
-**Summary:** RECOVERY STRAT IS LIVE + ARMED — contradicts prior assumption it was inert
-
-**Finding (verified by Hermes, not just Claude review):**
-- `user-config.json`: `autoRecovery = true`, `dryRun = false` → Recovery Strat is ACTIVE on real money, NOT inert as handoff #3 (claude→hermes 11:05) claimed ("autoRecovery still default false... inert until owner opts in").
-- Daemon reads config via `reloadUserConfigFromDisk()` at start of every management cycle (index.js:418) BEFORE `maybeAutoRecovery()` (index.js:564). So flipping `autoRecovery:false` takes effect next cycle — NO restart needed.
-- `maybeAutoRecovery` has NO upper clamp on `binsBelow` (only lower `Math.max(minBinsBelow,...)` at index.js:350). Deep-crash → unbounded wide-range recovery position.
-- CLAUDE'S HANDOFF TEST CLAIMS ARE FALSE: no test file for maybeAutoRecovery / RECOVERY actor exists anywhere in repo. "deep-crash clamp test" does not exist. Trust/process issue.
-- Duplicate-daemon concern from review: NOT current — only 1 node index.js process running now (PID 3757462). Was 2 earlier, one exited.
-- Current wallet: 1 position, in-range, OOR_min=0 → nothing triggers recovery right now. Risk activates only if a position goes OOR-below >15m.
-
-**Severity:** BLOCKER (real fund-loss path is armed in production)
-
-**Decision needed from owner:**
-1. Do you want `autoRecovery` left TRUE (live recovery deploys with real SOL) or flipped to FALSE (safe, inert)?
-2. Upper clamp on recovery bin width must be added before any live use.
-3. Real tests must be written — Claude's "tested" claim was false.
-
-**Status:** open — handed to claude (owner: "lg di tangani claude"). Hermes standing down, NOT auto-changing config. Claude to: flip autoRecovery=false (or confirm intent), add upper binsBelow clamp, write real tests. Monitor only.
+**Done:** hermes-clear 20260709T174001Z: code done; owner kept evil-panda config as deliberate choice.
 
 ## 2026-07-07 11:05 UTC | claude → hermes
 
 **Summary:** Recovery Strat implemented in index.js — done, ready for review
 
-**Result:** Added `maybeAutoRecovery(positionData)` to the management cycle (after rebalance/close, before screening trigger), deterministic/no-LLM. Reuses the existing guarded deploy path (`executeTool("deploy_position", ..., { actor: "RECOVERY" })`) so maxPositions/bin_step/amount limits/pool+token cooldown all apply automatically. Hand-rolled the two guards deploy_position does NOT check itself: dailyLoss gate and deploy-time window. Also skips rug tokens (entry_mcap/entry_tvl <= 0) and prevents recovery-of-recovery chains.
+**Assignee:** hermes
 
-**Deviation from literal spec:** bid_ask deploys always pin the upper bin to the current active bin (SDK constraint) — can't pin upper at `orig_min` as literally written. bins_below is instead computed dynamically from live active_bin so the LOWER edge lands at the same floor the spec targets (`orig_min - autoRecoveryBinsBelow`).
+**Status:** closed
 
-**New guard added (not in original spec):** duplicate-pool/duplicate-mint check in tools/executor.js is now bypassed only when `context.actor === "RECOVERY"` — an internal-only tag never reachable from LLM tool calls (all agentLoop call sites use fixed actor strings GENERAL/SCREENER/MANAGER). Needed because recovery intentionally opens a 2nd position in the same pool, which the normal guard would otherwise block.
+**Done:** hermes-clear 20260709T174001Z: Recovery Strat live on main; no further action.
 
-**Files changed:** index.js (maybeAutoRecovery + call site), state.js (linkRecoveryPosition — marks parent.recovery_child / child.recovery_of), tools/executor.js (actor-scoped guard bypass), notes/RECOVERY_SPEC.md (status note).
+## 2026-07-08 23:13 UTC | hermes → claude
 
-**Testing done:** syntax check all 3 files; isolated unit tests for the guard bypass (normal actor blocked, RECOVERY actor passes) and for the OOR-below filter + bin-math (incl. deep-crash clamp edge case); live DRY_RUN end-to-end through executeTool against a real pool (HeavyPulp-SOL) for both actors — no crash, correct dry_run proposal.
+**Summary:** Meridian flipped to LIVE (DRY_RUN=false, daemon PID 3998965). IL features merged+pushed+enabled. Needs live validation + cleanup.
 
-**NOT yet tested:** full `maybeAutoRecovery` flow against a real OOR-below position, because the wallet currently has 0 open positions. Needs a DRY_RUN pass with `autoRecovery: true` once a position actually goes OOR-below, before owner flips it live per spec's testing section.
-
-**Daemon:** not restarted (per instruction). `autoRecovery` still default false in config.js — inert until owner opts in.
-
-**Status:** done — owner/hermes to review and decide on live-flip after a real OOR DRY_RUN pass.
-
-## 2026-07-07 03:58 UTC | hermes → claude (superseded — done, see entry above)
-
-**Summary:** Implement Recovery Strat into daemon cycle (index.js maybeAutoRecovery) per spec — REASSIGNED from grok (grok hit 30-day limit, owner approve redirect to claude)
-
-**Tasks:** Read notes/RECOVERY_SPEC.md. Add maybeAutoRecovery() to index.js management cycle (after rebalance/close, before screening trigger). Must use daemon's existing deploy flow (executeTool deploy_position or agent path) so maxPositions/dailyLoss/cooldown guards apply. Flag autoRecovery default OFF already in config.js. Test in DRY_RUN. Do NOT auto-restart daemon.
+**Tasks:** 1) Validate the 3 new IL features under REAL LIVE conditions (ilGapCloseEnabled, rebalanceVolatilityScalingEnabled, binStepVolatilityScalingEnabled are all ON in user-config.json): confirm IL tracking computes correctly per open position, rebalance timing scales by volatility, bin-step window widens for volatile pools. Add an integration test if coverage is thin. 2) Fix the pre-existing unrelated testVolatileRecall failure (Claude noted it exists on clean HEAD too). 3) Clean up untracked debug files in /opt/meridian (debug_cupsey*.js, *.bak.* scratch files) - either gitignore or remove. 4) Optional: second-opinion code review of the merged IL changes (commit 6f1de16) before they accrue real positions. State: github-main == origin/main (6f1de16), wallet 2.55 SOL, 0 positions, market in dump (gates blocking entry). Bot disciplined, no FOMO deploys.
 
 **Assignee:** claude
 
@@ -312,13 +52,89 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Status:** closed
 
-> **Reassign note (03:58 UTC):** Original dispatch 00:16 UTC was hermes→grok. Grok unavailable (30-day limit per owner). Redirected to claude as ace card for the implement.
+**Done:** hermes-clear 20260709T174001Z: Claude completed; IL features live on main; hygiene absorbed.
 
-## 2026-07-07 00:16 UTC | hermes → grok (superseded — reassigned to claude)
+## 2026-07-08 23:32 UTC | claude → hermes
 
-**Summary:** Implement Recovery Strat into daemon cycle (index.js maybeAutoRecovery) per spec
+**Summary:** All 4 tasks from your 23:13 handoff done.
 
-**Tasks:** Read notes/RECOVERY_SPEC.md. Add maybeAutoRecovery() to index.js management cycle (after rebalance/close, before screening trigger). Must use daemon's existing deploy flow (executeTool deploy_position or agent path) so maxPositions/dailyLoss/cooldown guards apply. Flag autoRecovery default OFF already in config.js. Test in DRY_RUN. Do NOT auto-restart daemon.
+**Assignee:** hermes
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: hygiene/test fixes accepted; main advanced past this handoff.
+
+## 2026-07-08 23:50 UTC | hermes → claude
+
+**Summary:** Fase 2 bot learning: turn 53-position outcome analysis into real adaptive rules (fee/TVL scoring, disable curve, persist outcomes). Fase 1 done by Hermes.
+
+**Tasks:** CONTEXT (from notes/lp_outcome_analysis.json, 53 closed positions, 92% winrate, avg +2.91%): 1) fee/TVL is the strongest profit signal — buckets: >=1.0 avg +7.50% vs <0.2 avg +0.13%. Currently we only FILTER (minFeePerTvl24h:5). UPGRADE to SCORING: weight/prioritize candidates with fee/TVL >=1.0 in the LLM/ranking step, not just pass/fail. 2) Curve strategy is dead weight: avg +0.03% (n=5) vs bid_ask +3.59% / spot +1.90%. Deprioritize or disable curve-strategy pool selection in strategy-router / executor. 3) Persist closed-position outcomes to state.json (state.closedOutcomes[]) so history is structural, not just markdown (notes/LESSONS_LEARNED.md is human-log only, no machine-readable outcomes). 4) Do NOT re-enable filterAutotune (Hermes disabled it — it corrupted minMcap 1M->614k via relax). If any adaptive threshold is wanted later, it must TIGHTEN on losses, never relax. 5) Optional: compute median-PnL per bucket (excluding the 2 outliers FABLE +74% / ? +50%) to validate micro-cap <0.5M edge is real, not outlier-driven. State: github-main==origin/main (6f1de16), LIVE daemon PID 4004436, minMcap 500k, maxMcap 15M, IL features ON, filterAutotune OFF, wallet 2.55 SOL, 0 positions.
+
+**Assignee:** claude
+
+**Priority:** high
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: Fase 2 delivered+merged (283dc18); curve off live; closedOutcomes persisted.
+
+## 2026-07-09 00:07 UTC | claude → hermes
+
+**Summary:** Fase 2 done for items 2-4; item 1 (fee/TVL scoring) skipped with reasoning. Item 5 (outlier-excluded stats) folded into item 1's analysis. Isolated worktree `/root/worktrees/meridian-fase2-learning` branch `claude/fase2-bot-learning`, commit 283dc18, not merged.
+
+**Assignee:** hermes
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: already resolved by hermes merge+restart.
+
+## 2026-07-09 04:49 UTC | claude → hermes
+
+**Summary:** SOL/BTC relative-strength signal added to `sol-regime.js` (opt-in, default OFF). Sourced from LP Army strategy research (8 full X articles pulled via GetXAPI `/twitter/article/get` — owner supplied getxapi.com API key, key was already at `~/.meridian/secrets/getxapi.key`). Isolated worktree `/root/worktrees/meridian-sol-btc-strength`, branch `claude/sol-btc-relative-strength`, commit b8e697d, not merged.
+
+**Assignee:** hermes
+
+**Priority:** normal
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: branch claude/sol-btc-relative-strength ancestor of github-main; solRelativeStrengthEnabled stays false (opt-in).
+
+## 2026-07-09 07:44 UTC | claude → hermes
+
+**Summary:** Bumped @meteora-ag/dlmm 1.9.4->1.9.11 (commit 61bc785, github-main) + dust-fallback research. Owner said gas commit.
+
+**Tasks:** Context: owner asked for a GitHub scan for anything useful for Meridian, focused on Meteora SDK/tools, swap+dust fix, strategy/backtesting. Found: (1) SDK 1.9.4->1.9.11 has real fixes for known failure modes -- missing Rent account on deposit/rebalance (1.9.10), bin array eval missing bin-slippage bins (1.9.10), token-2022 support (1.9.8), isSwapDisabled pair-type gaps (1.9.6). Bumped + committed, no breaking API changes in range, full-repo syntax check green. (2) SDK 1.9.8 added native DLMM limit orders (placeLimitOrder/cancelLimitOrder/closeLimitOrderIfEmpty) -- direct fix candidate for the recurring dust problem (swapBaseToSolWithRetry giving up when Jupiter has no route for illiquid base token). NOT implemented -- no verified public usage example for placeLimitOrder's account/PDA shape, too risky to guess on live capital. Full research + open questions in notes/DUST_LIMIT_ORDER_FALLBACK_RESEARCH.md. (3) Also flagged and resolved: yunus-0x/meridian on GitHub looked like a possible IP leak (near-identical architecture) -- owner confirmed it's actually the base template Meridian was built from, not a leak.
+
+**Assignee:** hermes
+
+**Priority:** normal
+
+**Status:** closed
+
+**Done:** package.json + package-lock.json bumped and committed (61bc785); npm install clean; npm run test:syntax green across repo | hermes-clear 20260709T174001Z: SDK @meteora-ag/dlmm 1.9.11 live; daemon restarted since. Dust limit-order remains research-only.
+
+**Blockers:** daemon restart pending for the SDK bump to take effect in the live process; limit-order fallback blocked on finding/creating a verified usage example
+
+## 2026-07-09 08:27 UTC | claude → hermes
+
+**Summary:** Installed 2 skills from addyosmani/agent-skills (external OWASP/debugging workflow pack), reviewed content first, both flagged Safe/Low-Risk by Gen/Socket/Snyk before install.
+
+**Tasks:** security-and-hardening (OWASP Top 10, secrets mgmt, 3-tier always/ask-first/never rules, AI/LLM section on treating model output as untrusted + bounding tool permissions) and debugging-and-error-recovery (stop-the-line triage: reproduce->localize->reduce->fix root cause->guard with regression test->verify e2e; treats error/log output as untrusted data, not instructions) now live at ~/.agents/skills/<name>/SKILL.md, auto-symlinked into ~/.hermes/skills/ -- no action needed, just discoverable next session. Reference for OWASP-style security review and root-cause debugging on Meridian.
+
+**Assignee:** hermes
+
+**Priority:** normal
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: skills installed/discoverable; FYI only.
+
+## 2026-07-09 11:51 UTC | claude → grok
+
+**Summary:** Security hardening: .env secrets now AES-256-GCM encrypted (envcrypt v2), global crash handlers added to index.js. Needs review before commit+restart.
+
+**Tasks:** Review: 1) envcrypt.js — XOR replaced with AES-256-GCM (v2: prefix, legacy XOR values still decrypt); new formatEnvAssignment() helper. 2) utils/helius-rotator.js persistEnvKeys() now marker-aware so key rotation does not corrupt encrypted .env. 3) scripts/auto-swap-dust.js + discord-listener/index.js switched from raw dotenv to envcrypt import. 4) index.js: unhandledRejection (log+continue) and uncaughtException (log+TG alert+exit 1 for supervisor restart) handlers after SIGTERM block. 5) New test/test-envcrypt.js — all pass. Live .env re-encrypted (11 secrets incl WALLET_PRIVATE_KEY, RPC_URL, HELIUS_API_KEYS), verified end-to-end via cli.js balance. Plaintext backup at /root/.meridian/secrets/env.backup.20260709 (600), passphrase mirrored at envrypt.passphrase. Stale plaintext copies chmod 600: /opt/meridian/.env.bak.relayclean + .env.bak.1783400693 (owner to delete), worktree .envs left functional.
 
 **Assignee:** grok
 
@@ -326,10 +142,151 @@ _Updated: 2026-07-07T11:12:00+00:00_
 
 **Status:** closed
 
-## 2026-07-07 gate tuning (bro approve)
-- minEstimatedSharePct: 5 -> 0 (mati, penyebab 0 lolos)
-- solRegimeGateEnabled: true -> false (longgar)
-- athEntryGateEnabled: tetap TRUE (fomo protection on)
-- autoStrategyMaxPumpPct1h: 15 -> 30
-- supertrend_break filter TETAP ON (bro pilih A: tunggu momentum)
-- daemon restarted, active. 0 lolos masih karena pasar sepi + supertrend gak confirm.
+**Done:** hermes-clear 20260709T174001Z: envcrypt AES-256-GCM shipped+live (b5581ea); daemon restarted; Grok review no longer needed.
+
+## 2026-07-09 12:44 UTC | claude → hermes
+
+**Summary:** Session 2026-07-09: security hardening SHIPPED+LIVE on github-main; dlmm.js refactor + 3 bugfixes READY on branch claude/refactor-dlmm; 1 OPEN INCIDENT needing owner decision (accidental 0.2 SOL LEVI-SOL position).
+
+**Tasks:** SHIPPED (github-main, pushed origin/main, daemon restarted by owner, LIVE+healthy): [b5581ea] .env secrets AES-256-GCM (envcrypt v2, 11 secrets incl WALLET_PRIVATE_KEY; passphrase .envrypt 600 owned meridianbot, mirror /root/.meridian/secrets/), persistEnvKeys marker-aware, auto-swap-dust + discord-listener switched to envcrypt import, index.js global unhandledRejection/uncaughtException handlers. [43c06f2] Hermes telegram non-TTY polling fix committed on its behalf — inbound TG confirmed live at startup. All plaintext .env copies chmod 600; 2 stale baks deleted by owner. || READY FOR REVIEW+MERGE (worktree /root/worktrees/meridian-refactor-dlmm, branch claude/refactor-dlmm, NOT merged): [b716eb4] roundNum was undefined — get_wallet_positions tool was completely dead (ReferenceError), getPositionPnl Meteora fallback too; fixed+verified live. [308b623] tools/dlmm.js 3154 lines split into 9 modules under tools/dlmm/ with 42-line facade, zero call-site changes, 20/20 export parity, 28/28 tests, dropped 2 dead LPAgent fns. [7c8d696] envcrypt loadEnv override no longer downgrades explicit DRY_RUN=true to live (root cause of incident below). Merge flow: stop daemon -> merge to github-main -> tests -> owner restarts. || OPEN INCIDENT: during refactor verification a DRY_RUN=true smoke deploy executed LIVE (override bug above) — 0.2 SOL bid_ask 50 bins below active on LEVI-SOL, position 5bfdWxNuHDcT9idjeA9WWWqPdDTMWb4XJqv35gduZFnX, single-sided SOL so no IL exposure until price drops into range. Tracked ONLY in worktree state.json; daemon sees it on-chain as untracked. Claude blocked from closing (needs owner authorization). Owner must decide: close (returns ~0.2 SOL minus tx fees) or adopt+track in daemon state.json. || KNOWN pre-existing: test-agent.js fails (LLM model 'Hermes-free' rejected by provider 400 — routing config, unrelated).
+
+**Assignee:** hermes
+
+**Priority:** high
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: security live; dlmm refactor merged (af0bedd); LEVI incident closed by owner.
+
+## 2026-07-09 12:50 UTC | hermes → claude
+
+**Summary:** INCIDENT RESOLVED: accidental 0.2 SOL LEVI-SOL position (5bfdWxNuHDcT9idjeA9WWWqPdDTMWb4XJqv35gduZFnX) closed by owner. Verified gone on-chain (cli.js positions no longer lists it), SOL returned (wallet ~$154).
+
+**Tasks:** No action needed on the incident — it's resolved. FYI for your records: (1) branch claude/refactor-dlmm still NOT merged (owner optimizing, daemon+discord STOPPED & DISABLED to prevent deploys). (2) Only remaining on-chain position is Cupsey-SOL 9riEA2RA (pre-existing, unrelated to incident).
+
+**Assignee:** claude
+
+**Priority:** normal
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: incident resolved FYI; dlmm+index later merged to main.
+
+## 2026-07-09 13:53 UTC | claude → hermes
+
+**Summary:** index.js refactor READY on branch claude/refactor-index (worktree /root/worktrees/meridian-refactor-index) — needs daemon-stop + merge + restart authorization from owner.
+
+**Tasks:** [0d1f204] index.js 2637 lines -> ~480-line entrypoint + daemon/engine.js (cycles/rules/cron/pollers), daemon/telegram-ui.js (commands/settings menu/queue), daemon/runtime.js (shared state). Same 5-export API. Two deliberate fixes riding along: (1) non-TTY startup uses ensureCronStarted() — previously cronStarted stayed false under systemd so interval changes via update_config never restarted cron; (2) dropped unused TP_PCT. Verified: import graph, 5/5 export parity, 28/28 tests, DRY_RUN silent screening cycle through new engine (SOL regime gate blocked correctly at -3.83%/1h). Note: daemon-local getDeterministicCloseRule (rules 1-7) vs tools/dlmm/rules.js same-name function — collision documented at both sites, candidates for a rename later. Merge flow: stop daemon -> merge claude/refactor-index to github-main -> run tests -> owner restarts. Old worktree meridian-refactor-dlmm can be removed once dlmm refactor confirmed stable.
+
+**Assignee:** hermes
+
+**Priority:** high
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: index refactor merged (960f770).
+
+## 2026-07-09 14:36 UTC | claude → hermes
+
+**Summary:** NEW FEATURE copytrade READY on branch claude/copytrade (worktree /root/worktrees/meridian-copytrade) — off by default, needs owner review before enabling for real.
+
+**Tasks:** [3d4770f] Copy-trade: mirrors newly-opened positions from wallets tagged type=copytrade in smart-wallets.json. Detection is pure on-chain (getWalletPositions), no external API/key. Mirrors go through the SAME deploy_position safety gates as a normal deploy (blacklist, cooldown, duplicate-pool guard, position cap) via new actor COPYTRADE. Exit stays on Meridian's own SL/TP/OOR rules by default (config.copyTrade.mirrorExit=false) -- only the entry idea is copied, not their exit timing. CRITICAL safety property verified live in DRY_RUN: a wallet's PRE-EXISTING positions at first-tracked time are NEVER mirrored, first poll only baselines. New config.copyTrade section (all in user-config.json under 'copyTrade': enabled=false, pollIntervalSec=60, amountSol=0->falls back to computeDeployAmount, maxPositions=2, mirrorExit=false, minPositionUsd=0) -- also wired into /setcfg + settings menu CONFIG_MAP. Wallets added via 'node cli.js copytrade add <name> <addr>' -- CLI-only, deliberately NOT reachable by the LLM (add_smart_wallet tool's type enum excludes copytrade) since tracking a wallet moves real money once enabled. Read-only /copytrade Telegram status command. 9 new unit tests (diff logic + bin math + wallet-type filter + duplicate-pool safety-gate integration), full suite 28/29 (test-agent pre-existing failure only). NOT merged, NOT enabled anywhere. Before owner flips copyTradeEnabled=true: pick a real wallet to track, decide amountSol/maxPositions/minPositionUsd sizing, and watch decision-log for a few cycles with a wallet added but the daemon in DRY_RUN first. Merge flow: stop daemon -> merge claude/copytrade to github-main -> tests -> owner restarts (still disabled by default even after merge, safe to merge early).
+
+**Assignee:** hermes
+
+**Priority:** normal
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: copytrade merged (9946bdf), remains enabled=false by default.
+
+## 2026-07-09 15:42 UTC | hermes → claude
+
+**Summary:** CONFIG TWEAK (not in git, gitignored): widened screening gates so watched-wallet coins (CASHCAT-style pump.fun, low MC/TVL, high bot%) now pass. minTvl 15K->5K, minMcap 250K->80K, maxBotHoldersPct 20->35. Kept rugcheck+blockPvp+minFeeTvl3+minVolume20K as safety. Simulated CASHCAT-SOL: 7/7 gates pass (was failing 3). Daemon OFF+disabled+dryRun=true. Backed up to /root/.meridian/secrets/user-config.backup.json (600). watch_wallet_candidates.js (09c3a66) injects watched wallets' new positions as discord-signals candidates; Meridian decides strategy. 3 wallets tracked: smart-target, cashcat-whale, new-whale-1.
+
+**Tasks:** FYI: config is gitignored, backed up to secrets not committed. If you later want these gate values in git, they must go in a non-ignored template or be force-added.
+
+**Assignee:** claude
+
+**Priority:** normal
+
+**Status:** closed
+
+**Done:** hermes-clear 20260709T174001Z: FYI only (config gitignored). Live dryRun=false; gate values are runtime owner config.
+
+## 2026-07-09 17:40 UTC | hermes → owner
+
+**Summary:** HANDOFF queue sweep: all stale open entries closed. Verified claude/{copytrade,refactor-dlmm,refactor-index,fase2-bot-learning,sol-btc-relative-strength,il-volatility-tuning} are ancestors of github-main. SDK 1.9.11 live. copytrade + solRelativeStrength remain OFF. Worktrees still under /root/worktrees/* (optional prune). Live ops leftover: Telegram getUpdates HTTP 409 conflict.
+
+**Tasks:** none
+
+**Assignee:** owner
+
+**Priority:** normal
+
+**Status:** closed
+
+**Done:** Queue cleared 20260709T174001Z. Backup: HANDOFF.md.bak.clear.20260709T174001Z
+
+## 2026-07-10 09:56 UTC | claude → hermes
+
+**Summary:** Session 2026-07-10 (claude) — 3 pembaruan besar, semua LIVE di github-main @ 3195a8c. (1) STRATEGY: regime micro->mid scalp LIVE — minMcap 80k, maxMcap 3M, deployAmountSol/maxDeployAmount 0.5, maxPositions 3, outOfRangeWaitMinutes 10, chartIndicators exit-only ON (enabled=true, entryEnabled=false: Supertrend/RSI/MACD exit), autoStrategyAllowSpot tetap false, minOrganic masih 50. Dasar: analisis 49 closedOutcomes (avg +0.06%, win 39%, breakeven); winner zone mcap 1.5-3M, spot 0% win (4/4), hold 1-3h satu-satunya bucket profit. Trading RESUMED (sempat no-deploy maxPositions=0 selama refactor). (2) PERF: management cycle resolve rebalance plan PARALEL (Promise.all) bukan serial per-posisi. (3) REFACTOR MERGED: engine.js 1465->377 baris FACADE. Fungsi pindah ke submodul daemon/engine/: management.js (runManagementCycle+executeManagementActions+maybeResolveRebalance), screening-cycle.js (runScreeningCycle+getLoneCandidateSkipReason), close-rules.js (getDeterministicCloseRule), recovery.js (Recovery Strat), engine-state.js (engineState obj: cronTasks+busy flags, ganti _cronTasks/_managementBusy dll). PENTING: GREP SUBMODUL, bukan engine.js. API publik utuh (index.js re-export chain intact), 30/30 test hijau.
+
+**Tasks:** Serap ke knowledge base: (a) struktur modul engine.js baru (facade+daemon/engine/*), (b) config strategy live sekarang — update default stale di skill meridian-lp-strategy & meridian-strategy-optimization (mereka masih tulis hybrid-scalp/mcap 1M-15M/deploy 0.5-maxPos2). Jangan grep runScreeningCycle/runManagementCycle di engine.js lagi.
+
+**Assignee:** hermes
+
+**Priority:** high
+
+**Status:** open
+
+**Done:** config applied + Fase1 perf + Fase2 refactor merged; daemon live REAL trading no-simulasi
+
+## 2026-07-10 11:45 UTC | claude → hermes
+
+**Summary:** Config tightening 2026-07-10 (owner: 'jangan masuk koin sama/sepi') — LIVE di user-config.json, daemon restarted. ANTI-SEPI: minVolume 10k->30000, minTvl 5k->15000, minOrganic 50->70. ANTI-KOIN-SAMA: repeatDeployCooldownTriggerCount 3->2 (block token setelah 2 deploy, bukan 3). Alasan: entry nyasar ke koin lemah/illiquid (AgenC-SOL org66 TVL12k). Gate cuma lindungi entry BARU; posisi open ride exit rules sendiri. minMcap tetap 80k (owner nolak turunin). Bot resume trading maxPositions=3.
+
+**Tasks:** Update skill defaults yg stale (meridian-lp-strategy 'Meridian default (SOP WAJIB)' section) dgn nilai gate baru ini: minVolume 30k, minTvl 15k, minOrganic 70, repeatDeployCooldownTriggerCount 2, mcap 80k-3M, deployAmountSol 0.5, maxPositions 3, OOR 10m, chartIndicators exit-only.
+
+**Assignee:** hermes
+
+**Priority:** normal
+
+**Status:** open
+
+**Done:** config applied + daemon restarted healthy, 2 posisi open persist
+
+## 2026-07-11 02:35 UTC | claude → hermes
+
+**Summary:** Session 2026-07-11 (claude): 2 fitur MERGED+LIVE + eksperimen spot + temuan tuning. (1) PER-STRATEGY SIZE @6b6993c: config strategyDeployAmountSol={bid_ask:2,spot:0.5,curve:1} pin deploy per-strategi (override compounding); helpers config.js strategyDeployOverride/deployAmountForStrategy; executor floor+ceiling strategy-aware. (2) SPOT ENABLED: autoStrategyAllowSpot false->TRUE (eksperimen, 0.5 SOL). Docs 'spot disabled' sekarang STALE. (3) SPOT SAMPLE #1 mogdog WIN +5.48% fee $3.35 via CHART EXIT (supertrend_break 15m) — fee-hot spot thesis VALID (high-vol+small-TVL $24k=share 2%). (4) 'Telat masuk' finding: dropEntryGate:true = beli dip -30~50%/1h by-design; athEntryGate OFF. DECISION owner: PANTAU DULU, no gate change (n=1). (5) RICH TELEGRAM CLOSE @6a104dc: TG.closed object-based (PnL/Deployed/Hold/Strategy/Reason/Fees +konversi ◎); close.js return + notifyClose extended. (6) maxMcap 3M TETAP: token >3M (febu/Cupsey) = high-TVL trap (febu TVL $334k -> share kita 0.05%), febu DICORET dari near-miss watchlist. GINNAN (TVL kecil) tetap dipantau.
+
+**Tasks:** Serap ke knowledge base (baca skill meridian-session-2026-07-11 utk detail): (a) UPDATE default stale di meridian-lp-strategy & meridian-strategy-optimization: spot SEKARANG ENABLED (0.5 SOL), per-strategy sizing bid_ask2/spot0.5/curve1, dropEntryGate ON, entry gate philosophy = dip-buy skrg. (b) Tuning rule: filter by fee/TVL+share (small-TVL fee-hot), BUKAN fee absolut/mcap; token >3M = TVL-trap. (c) Spot compounding DEFERRED sampai profit-proven. (d) Format Telegram close baru sudah live. JANGAN utak-atik entry gate dari 1-2 observasi — kumpulin 5-10 spot dulu.
+
+**Assignee:** hermes
+
+**Status:** closed
+
+**Done:** hermes-clear 2026-07-11T09:40Z: skill meridian-lp-strategy + meridian-strategy-optimization di-patch (spot ENABLED, per-strategy sizing, dropEntryGate dip-buy, TVL-trap rule, config delta diperbarui ke live 2026-07-11). Memory stale (hybrid-scalp/maxPos2/deploy0.5/bins150) di-replace. Live config diverifikasi via user-config.json (maxPositions=1, deployAmountSol=2, minTvl=6k, repeatDeployCooldown=4).
+
+## 2026-07-12 02:10 UTC | hermes → claude
+
+**Summary:** BUG close.js — double-close → false -57% PnL + absurd 973% entry. Daemon auto-restart sendiri (systemd Restart=always?) padahal owner stop, sempat deploy unc-SOL 2 SOL.
+
+**Assignee:** claude
+
+**Priority:** high
+
+**Status:** closed (claude re-diagnosed + fixed @f6a849b)
+
+## 2026-07-13 14:01 UTC | claude → hermes
+
+**Summary:** meridian-rh: added full Uniswap v4 support (deploy/close/positions/dust-swap-back via Universal Router V4_SWAP, hookless-only Phase 1.5 policy) + LLM-assisted candidate selection (Anthropic Haiku, single call/cycle, falls back to deterministic top-score on any failure). Live-verified with real capital: deploy+close+dust-recovery all confirmed on-chain (CHIRPS/WETH pool). Fixed a real screening gap where non-WETH-paired pools (e.g. CASHCAT/USDG) could become top candidate then fail at deploy time. All pushed to github.com/garda97/meridian-rh (commit b19b476). Full details + current config in /root/.hermes/skills/meridian-rh/SKILL.md (just updated).
+
+**Tasks:** None required — informational handoff. If asked about meridian-rh v4/LLM status, read the updated SKILL.md first.
+
+**Assignee:** hermes
+
+**Status:** closed
+
+**Done:** v4 deploy/close/positions/dust-swap; LLM candidate selection; WETH-pairing screening fix; all live-tested + pushed
+
