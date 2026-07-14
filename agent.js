@@ -100,6 +100,22 @@ const client = new OpenAI({
 });
 
 const DEFAULT_MODEL = process.env.LLM_MODEL || "openrouter/healer-alpha";
+// 9router-local models only — stepfun/openrouter-direct without router creds will 404.
+const FALLBACK_MODEL_DEFAULT = process.env.LLM_FALLBACK_MODEL || "openrouter/openrouter/free";
+const FALLBACK_MODEL_ALT = "openrouter/tencent/hy3:free";
+
+function resolveFallbackModel(primary) {
+  const fb = FALLBACK_MODEL_DEFAULT;
+  if (primary && primary !== fb) return fb;
+  return FALLBACK_MODEL_ALT;
+}
+
+function isMissingProviderError(error) {
+  const msg = String(error?.message || error || "").toLowerCase();
+  const status = error?.status ?? error?.response?.status;
+  return status === 404
+    || /no active credentials|not a valid model|model not found|provider.*unavailable/.test(msg);
+}
 
 const MUTATING_TOOL_INTENTS = /\b(deploy|open position|add liquidity|lp into|invest in|close|exit|withdraw|remove liquidity|claim|harvest|collect|swap|convert|sell|exchange|block|unblock|blacklist|add smart wallet|remove smart wallet|add wallet|remove wallet|pin|unpin|clear lesson|add lesson|set active strategy|remove strategy|add strategy|set |change |update |self.?update|pull latest|git pull|update yourself)\b/i;
 const LIVE_DATA_TOOL_INTENTS = /\b(balance|wallet|position|portfolio|pnl|yield|range|show positions|open positions|screen|candidate|find pool|search|research|analyze|check pool|token holders|narrative|study top|top lpers?|lp behavior|who.?s lping|performance|history|stats|report|list smart wallets|list blacklist|list blocked deployers|list lessons)\b/i;
@@ -188,19 +204,20 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
   let omitToolChoice = false;
 
   const MAX_EMPTY_RETRIES = 3;
-  const FALLBACK_MODEL = "stepfun/step-3.5-flash:free";
   let emptyStreak = 0;
   // After repeated empty responses, swap to the fallback model for the rest of the run
   let emptyFallbackActive = false;
+  let fallbackModel = null;
   for (let step = 0; step < maxSteps; step++) {
     log("agent", `Step ${step + 1}/${maxSteps}`);
 
     try {
       const activeModel = model || DEFAULT_MODEL;
+      if (!fallbackModel) fallbackModel = resolveFallbackModel(activeModel);
 
       // Retry up to 3 times on transient provider errors (502, 503, 529)
       let response;
-      let usedModel = emptyFallbackActive ? FALLBACK_MODEL : activeModel;
+      let usedModel = emptyFallbackActive ? fallbackModel : activeModel;
       // Force a tool call on step 0 for action intents — prevents the model from inventing deploy/close outcomes
       const ACTION_INTENTS = /\b(deploy|open|add liquidity|close|exit|withdraw|claim|swap|block|unblock)\b/i;
       let toolChoice = (step === 0 && (ACTION_INTENTS.test(goal) || mustUseRealTool)) ? "required" : "auto";
@@ -237,15 +254,23 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             attempt -= 1;
             continue;
           }
+          if (isMissingProviderError(error) && usedModel !== fallbackModel) {
+            usedModel = fallbackModel;
+            emptyFallbackActive = true;
+            log("agent", `Provider unavailable for ${activeModel} — switching to fallback ${fallbackModel}`);
+            attempt -= 1;
+            continue;
+          }
           throw error;
         }
         if (response.choices?.length) break;
         const errCode = response.error?.code;
         if (errCode === 502 || errCode === 503 || errCode === 529) {
           const wait = (attempt + 1) * 5000;
-          if (attempt === 1 && usedModel !== FALLBACK_MODEL) {
-            usedModel = FALLBACK_MODEL;
-            log("agent", `Switching to fallback model ${FALLBACK_MODEL}`);
+          if (attempt === 1 && usedModel !== fallbackModel) {
+            usedModel = fallbackModel;
+            emptyFallbackActive = true;
+            log("agent", `Switching to fallback model ${fallbackModel}`);
           } else {
             log("agent", `Provider error ${errCode}, retrying in ${wait / 1000}s (attempt ${attempt + 1}/3)`);
             await new Promise((r) => setTimeout(r, wait));
@@ -298,9 +323,9 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           }
           // Second consecutive empty: the primary model is likely degraded — switch
           // to the fallback for the rest of the run instead of hammering it.
-          if (emptyStreak >= 2 && !emptyFallbackActive && (model || DEFAULT_MODEL) !== FALLBACK_MODEL) {
+          if (emptyStreak >= 2 && !emptyFallbackActive && (model || DEFAULT_MODEL) !== fallbackModel) {
             emptyFallbackActive = true;
-            log("agent", `Repeated empty responses — switching to fallback model ${FALLBACK_MODEL}`);
+            log("agent", `Repeated empty responses — switching to fallback model ${fallbackModel}`);
           }
           const wait = emptyStreak * 2000;
           log("agent", `Empty response, retrying in ${wait / 1000}s (${emptyStreak}/${MAX_EMPTY_RETRIES})...`);
