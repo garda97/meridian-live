@@ -7,7 +7,7 @@ import { engineState } from "./engine-state.js";
 import { log } from "../../logger.js";
 import { config, computeDeployAmount, deployAmountForStrategy, minTokenFeesSolForMcap, reloadUserConfigFromDisk } from "../../config.js";
 import { getActiveBin, getMyPositions } from "../../tools/dlmm.js";
-import { getWalletBalances } from "../../tools/wallet.js";
+import { getWalletBalances, getSolPriceUsd } from "../../tools/wallet.js";
 import { checkScreeningDeployGate } from "../../utils/screening-gate.js";
 import { appendDecision, enrichDecisionEntry, getRecentDecisions } from "../../decision-log.js";
 import { checkDailyLossGate } from "../../utils/daily-loss.js";
@@ -135,7 +135,9 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const { getBtcPriceUsd } = await import("../tools/btc-price.js");
       btcPriceUsd = await getBtcPriceUsd();
     }
-    const regime = checkSolRegimeGate(preBalance?.sol_price, { btcPriceUsd });
+    // Jupiter price for regime gate — Helius wallet pricePerToken can glitch (e.g. $120 vs ~$75).
+    const solPriceForRegime = (await getSolPriceUsd()) ?? preBalance?.sol_price;
+    const regime = checkSolRegimeGate(solPriceForRegime, { btcPriceUsd });
     if (regime.blocked) {
       const reason = `SOL regime gate: 1h change ${regime.changePct}% <= ${regime.thresholdPct}%`;
       log("cron", `Screening skipped — ${reason}`);
@@ -177,8 +179,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
         + (activeStrategy ? `\nSTRATEGY CONTEXT: ${activeStrategy.name} — entry: ${activeStrategy.entry?.condition || "n/a"} | exit: ${activeStrategy.exit?.notes || "n/a"} | best for: ${activeStrategy.best_for}` : "");
 
     // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
-    const topCandidates = await getTopCandidates({ limit: 10 }).catch(() => null);
-    const candidates = (topCandidates?.candidates || topCandidates?.pools || []).slice(0, 10);
+    const topCandidates = await getTopCandidates({ limit: 15 }).catch(() => null);
+    const candidates = (topCandidates?.candidates || topCandidates?.pools || []).slice(0, 15);
     const earlyFilteredExamples = topCandidates?.filtered_examples || [];
 
     const allCandidates = [];

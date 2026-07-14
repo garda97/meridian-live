@@ -8,6 +8,46 @@ const SNAPSHOT_FILE = repoPath("sol-regime-snapshots.json");
 const BTC_SNAPSHOT_FILE = repoPath("btc-regime-snapshots.json");
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const MAX_AGE_MS = 3 * ONE_HOUR_MS;
+// Reject single-tick price spikes (bad Helius/Jupiter reads) from poisoning 1h lookback.
+const OUTLIER_MAX_JUMP_PCT = 12;
+const OUTLIER_LOOKBACK_MS = 20 * 60 * 1000;
+
+function medianPrice(snapshots) {
+  const prices = snapshots.map((s) => s.price).filter((p) => p > 0).sort((a, b) => a - b);
+  if (!prices.length) return null;
+  const mid = Math.floor(prices.length / 2);
+  return prices.length % 2 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
+}
+
+function pruneOutlierSnapshots(snapshots) {
+  const med = medianPrice(snapshots);
+  if (!(med > 0)) return snapshots;
+  const kept = snapshots.filter((s) => {
+    const dev = (Math.abs(s.price - med) / med) * 100;
+    if (dev > OUTLIER_MAX_JUMP_PCT * 2) {
+      log("screening", `SOL regime: pruned outlier snapshot $${s.price} (${dev.toFixed(1)}% off median $${med})`);
+      return false;
+    }
+    return true;
+  });
+  return kept.length ? kept : snapshots;
+}
+
+function shouldRecordSnapshot(snapshots, price, nowMs) {
+  const recent = snapshots
+    .filter((s) => s.price > 0 && nowMs - s.ts <= OUTLIER_LOOKBACK_MS)
+    .sort((a, b) => b.ts - a.ts)[0];
+  if (!recent) return true;
+  const jumpPct = (Math.abs(price - recent.price) / recent.price) * 100;
+  if (jumpPct > OUTLIER_MAX_JUMP_PCT) {
+    log(
+      "screening",
+      `SOL regime: ignored outlier tick $${price} (${jumpPct.toFixed(1)}% jump from $${recent.price} ${Math.round((nowMs - recent.ts) / 1000)}s ago)`,
+    );
+    return false;
+  }
+  return true;
+}
 
 function loadSnapshotsFrom(file) {
   if (!fs.existsSync(file)) return [];
@@ -114,11 +154,12 @@ export function checkSolRegimeGate(solPriceUsd, opts = {}) {
   const nowMs = opts.nowMs ?? Date.now();
   const price = Number(solPriceUsd);
 
-  const snapshots = loadSnapshots();
-  if (price > 0) {
+  let snapshots = pruneOutlierSnapshots(loadSnapshots());
+  if (price > 0 && shouldRecordSnapshot(snapshots, price, nowMs)) {
     snapshots.push({ ts: nowMs, price });
-    const pruned = snapshots.filter((s) => nowMs - s.ts <= MAX_AGE_MS);
+    const pruned = pruneOutlierSnapshots(snapshots.filter((s) => nowMs - s.ts <= MAX_AGE_MS));
     saveSnapshots(pruned);
+    snapshots = pruned;
   }
 
   const rsEnabled = opts.relativeStrengthEnabled ?? config.screening?.solRelativeStrengthEnabled ?? false;
