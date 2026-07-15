@@ -168,6 +168,13 @@ function testShouldRebalance() {
 
 // ── isRebalanceCandidate pre-gate (no network) ─────────────────
 function testPreGate() {
+  // Pin flip/reshape off: live config enables them, which legitimately makes
+  // in-range spot/curve reshape candidates — this test covers the base gate.
+  const savedFlip = config.flip?.enabled;
+  const savedReshape = config.reshape?.enabled;
+  if (config.flip) config.flip.enabled = false;
+  if (config.reshape) config.reshape.enabled = false;
+  try {
   const tracked = { strategy: "bid_ask", rebalance_count: 0 };
   assert(isRebalanceCandidate({ position: posOorDown, tracked, mgmtConfig: MGMT }), "OOR 10m must be a candidate");
   assert(!isRebalanceCandidate({ position: { ...posOorDown, minutes_out_of_range: 1 }, tracked, mgmtConfig: MGMT }), "OOR 1m must not be a candidate");
@@ -222,6 +229,10 @@ function testPreGate() {
   }
 
   console.log("  pre-gate: OOR window, budget, cooldown, drift-only-bid_ask, untracked, post-open-quiet OK");
+  } finally {
+    if (config.flip) config.flip.enabled = savedFlip;
+    if (config.reshape) config.reshape.enabled = savedReshape;
+  }
 }
 
 // ── recordRebalance state round-trip ───────────────────────────
