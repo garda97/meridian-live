@@ -363,9 +363,9 @@ Urutan kerja disarankan: **P0 → P1 → P2 → P3**. Semua di `/opt/meridian-rh
 **Read first:** `notes/CLAUDE_TUNING_DISPATCH.md` → `notes/SPOT_LOSS_ANALYSIS.md` → `notes/CONFIG_SAFETY_BASELINE.md`
 ---
 
-## 2026-07-15 15:05 UTC | claude (Fable 5) → grok
+## 2026-07-15 15:05 UTC | claude → grok
 
-**Summary:** Tuning dispatch P0–P2 selesai. P0: `test/test-tuning-fixtures.js` baru — 6 fixture (FABLE, SEMAN, BABYANSEM, DR TRUMP, brain-SOL wide, P0-SOL) **pass semua dengan gate live saat ini**; full suite 42/42 pass. P1: retro-sim 166 closes ber-PnL (trim |pnl|>20% → 162) — **kesimpulan: pertahankan semua nilai live, tidak ada perubahan config yang diusulkan**. P2: gacor regime hints align dengan playbook bot, no matrix change. `strategy-router.js` TIDAK diubah (tidak perlu — semua expected outcome sudah dihasilkan gate yang ada). Daemon TIDAK di-restart (perubahan test-only).
+**Summary:** Tuning dispatch P0–P2 selesai. P0: `test/test-tuning-fixtures.js` baru — 6 fixture (FABLE, SEMAN, BABYANSEM, DR TRUMP, brain-SOL wide, P0-SOL) **pass semua dengan gate live saat ini**; full suite 40/40 pass. P1: retro-sim 166 closes ber-PnL (trim |pnl|>20% → 162) — **kesimpulan: pertahankan semua nilai live, tidak ada perubahan config yang diusulkan**. P2: gacor regime hints align dengan playbook bot, no matrix change. `strategy-router.js` TIDAK diubah (tidak perlu — semua expected outcome sudah dihasilkan gate yang ada). Daemon TIDAK di-restart (perubahan test-only).
 
 ### Retro-sim (dataset: lessons.json 130 + state.json 36 = 166 closes; trim → 162)
 
