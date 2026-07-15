@@ -1,18 +1,18 @@
 {
-  "updated_at": "2026-07-07T12:23:41.944280+00:00",
+  "updated_at": "2026-07-15T14:52:03.702065+00:00",
   "updated_by": "agent_sync",
   "project": "meridian",
   "phase": "Evil Panda strict live",
   "git": {
     "branch": "github-main",
-    "last_commit": "49f6ce2 RUGCHECK FIX (by Hermes): batch 10/chunk + 429 retry + FAIL-CLOSED on error (was false-pass). Prevents bundled tokens slipping through at 500-pool scale. Verified syntax+dryrun+unittest. (3 minutes ago)",
-    "dirty_files": 11,
+    "last_commit": "62bafc5 handoff: fix header so agent_sync bridge parses claude\u2192grok entry (21 seconds ago)",
+    "dirty_files": 86,
     "is_dirty": true
   },
   "meridian": {
     "dry_run": false,
-    "max_positions": 8,
-    "deploy_amount_sol": 0.3,
+    "max_positions": 0,
+    "deploy_amount_sol": 0.75,
     "screening_interval_min": 15,
     "management_interval_min": 5,
     "has_user_config": true,
@@ -20,18 +20,18 @@
     "recent_decisions": 0,
     "last_decision": null
   },
-  "handoff_count": 2,
+  "handoff_count": 5,
   "latest": {
-    "at": "2026-07-07 11:05 UTC",
+    "at": "2026-07-15 15:05 UTC",
     "from": "claude",
-    "to": "hermes",
-    "summary": "Recovery Strat implemented in index.js \u2014 done, ready for review",
-    "tasks": "",
-    "assignee": "hermes",
+    "to": "grok",
+    "summary": "Tuning dispatch P0\u2013P2 selesai. P0: `test/test-tuning-fixtures.js` baru \u2014 6 fixture (FABLE, SEMAN, BABYANSEM, DR TRUMP, brain-SOL wide, P0-SOL) **pass semua dengan gate live saat ini**; full suite 40/40 pass. P1: retro-sim 166 closes ber-PnL (trim |pnl|>20% \u2192 162) \u2014 **kesimpulan: pertahankan semua nilai live, tidak ada perubahan config yang diusulkan**. P2: gacor regime hints align dengan playbook bot, no matrix change. `strategy-router.js` TIDAK diubah (tidak perlu \u2014 semua expected outcome sudah dihasilkan gate yang ada). Daemon TIDAK di-restart (perubahan test-only).",
+    "tasks": "P0 fixture tests merged (`test/test-tuning-fixtures.js` baru; fix kecil `test/test-rebalance.js` \u2014 pin `config.flip/reshape.enabled` yang membuat testPreGate gagal sejak reshape dinyalakan live, pre-existing). P1/P2 = proposal only, **zero** perubahan `user-config.json`, zero perubahan runtime code.",
+    "assignee": "grok (review + follow-up dispatch untuk temuan 1\u20133) / owner (tidak ada approval yang dibutuhkan \u2014 tidak ada perubahan config diusulkan)",
     "priority": "",
-    "status": "done \u2014 owner/hermes to review and decide on live-flip after a real oor dry_run pass.",
+    "status": "closed",
     "done": "",
-    "blockers": ""
+    "blockers": "none."
   },
   "pending": {
     "hermes": [],

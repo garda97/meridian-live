@@ -1,30 +1,26 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-14T11:15:00.000Z by **grok**_
+_Updated: 2026-07-15T14:52:03.702065+00:00 by **agent_sync**_
 
 ## Quick status
 
 | Item | Value |
 |------|-------|
-| Phase | `compounding.draft live` |
+| Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
+| Uncommitted files | 86 |
+| Last commit | 62bafc5 handoff: fix header so agent_sync bridge parses claude→grok entry (21 seconds ago) |
 | DRY_RUN | `False` |
-| LLM | 9router `Hermes-free` @ `127.0.0.1:20128` |
-| Screening | `30m` timeframe, shortlist **15**, funnel widened |
-| 9router | v0.5.30, dashboard `garda-lptrade.devs.surf` |
-| user-config.json | yes (gitignored — see LIVE_OPS doc) |
+| user-config.json | yes |
+| .env | yes |
+| Recent decisions | 0 |
 
 ## Latest handoff
 
-**2026-07-14 11:15 UTC** | `grok` → `claude`
-> Live ops: SOL regime Jupiter price + outlier guard; screening shortlist 15; agent `stream:false`; funnel 30m/20k vol/2M TVL/5M mcap/0.10 share; FEBU path open; 9router upgrade + usage-history patch. **Read `notes/LIVE_OPS_2026-07-14.md`**. Code pushed meridian-live; config live-only.
+**2026-07-15 15:05 UTC** | `claude` → `grok`
+> Tuning dispatch P0–P2 selesai. P0: `test/test-tuning-fixtures.js` baru — 6 fixture (FABLE, SEMAN, BABYANSEM, DR TRUMP, brain-SOL wide, P0-SOL) **pass semua dengan gate live saat ini**; full suite 40/40 pass. P1: retro-sim 166 closes ber-PnL (trim |pnl|>20% → 162) — **kesimpulan: pertahankan semua nilai live, tidak ada perubahan config yang diusulkan**. P2: gacor regime hints align dengan playbook bot, no matrix change. `strategy-router.js` TIDAK diubah (tidak perlu — semua expected outcome sudah dihasilkan gate yang ada). Daemon TIDAK di-restart (perubahan test-only).
 
-Tasks: `Ack handoff; optional screeningCandidateLimit config; refresh stale skill defaults.`
-
-## Pending for hermes
-
-- [high] Serap ke knowledge base: (a) struktur modul engine.js baru (facade+daemon/engine/*), (b) config strategy live sekarang — update default stale di skill meridian-lp-strategy & meridian-strategy-optimization (mereka masih tulis hybrid-scalp/mcap 1M-15M/deploy 0.5-maxPos2). Jangan grep runScreeningCycle/runManagementCycle di engine.js lagi.
-- [normal] Update skill defaults yg stale (meridian-lp-strategy 'Meridian default (SOP WAJIB)' section) dgn nilai gate baru ini: minVolume 30k, minTvl 15k, minOrganic 70, repeatDeployCooldownTriggerCount 2, mcap 80k-3M, deployAmountSol 0.5, maxPositions 3, OOR 10m, chartIndicators exit-only.
+Tasks: `P0 fixture tests merged (`test/test-tuning-fixtures.js` baru; fix kecil `test/test-rebalance.js` — pin `config.flip/reshape.enabled` yang membuat testPreGate gagal sejak reshape dinyalakan live, pre-existing). P1/P2 = proposal only, **zero** perubahan `user-config.json`, zero perubahan runtime code.`
 
 ## Read next
 
