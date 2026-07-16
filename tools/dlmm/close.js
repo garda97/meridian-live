@@ -11,7 +11,14 @@ import { config } from "../../config.js";
 import { log } from "../../logger.js";
 import { getConnection, getWallet, getPool, getPoolMetadata, evictPool, sendAndConfirmTransaction } from "./sdk.js";
 import { signAndSimulateRelayTransactions, normalizeExecutionSignatures } from "./tx-safety.js";
-import { safeNum, getClosedPnlValue, getClosedPnlPct, classifyExitSignal } from "./rules.js";
+import {
+  safeNum,
+  getClosedPnlValue,
+  getClosedPnlPct,
+  classifyExitSignal,
+  isClosedWithdrawalSettled,
+  applySettledWithdrawalPnlOverride,
+} from "./rules.js";
 import { invalidatePositionsCache, getCachedPositions } from "./positions-cache.js";
 import { getMyPositions, lookupPoolForPosition } from "./positions.js";
 import { getTrackedPosition, recordClose } from "../../state.js";
@@ -175,7 +182,7 @@ export async function closePosition({ position_address, reason }) {
       // compute without a tracked entry). The tracked case defers the call
       // until pnlPct is fully settled below — see the note there.
       if (!tracked) {
-        recordClose(position_address, reason || "agent decision");
+        recordClose(position_address, reason || "agent decision", { via_tool: true });
       }
 
       if (tracked) {
@@ -209,21 +216,26 @@ export async function closePosition({ position_address, reason }) {
                 // Retry until Meteora API settles the withdrawal aggregation — otherwise
                 // it reports a near-zero withdrawal right after close, producing a bogus
                 // -80%+ PnL for positions that actually broke even (race condition).
-                if (finalValueUsd > 0 && finalValueUsd >= initialUsd * 0.5) break;
+                if (isClosedWithdrawalSettled(initialUsd, finalValueUsd)) break;
               }
             }
             if (attempt < 11) await new Promise((resolve) => setTimeout(resolve, 5000));
           }
-          // Sanity gate: if API still reports an extreme loss but on-chain IL was ~0
-          // (price barely moved) and the withdrawal did settle, trust the settled delta
-          // instead of the possibly-stale pnlUsd field.
           const ilPct = tracked?.il_pct ?? 0;
-          if (pnlPct < -50 && Math.abs(ilPct) < 5 && finalValueUsd > 0) {
-            const settledPnlUsd = finalValueUsd - initialUsd + feesUsd;
-            const settledPct = initialUsd > 0 ? (settledPnlUsd / initialUsd) * 100 : 0;
-            log("close_warn", `PnL sanity override for ${position_address.slice(0,8)}: API pnlPct=${pnlPct.toFixed(2)} but IL≈0 (${ilPct}) + withdrawal settled (${finalValueUsd} vs ${initialUsd}) → using settled ${settledPct.toFixed(2)}%`);
-            pnlUsd = config.management.solMode ? settledPnlUsd / (tracked?.sol_price || 0) : settledPnlUsd;
-            pnlPct = settledPct;
+          const override = applySettledWithdrawalPnlOverride({
+            pnlPct,
+            pnlUsd,
+            ilPct,
+            finalValueUsd,
+            initialUsd,
+            feesUsd,
+            solMode: config.management.solMode,
+            solPrice: tracked?.sol_price,
+          });
+          if (override.overridden) {
+            log("close_warn", `PnL sanity override for ${position_address.slice(0, 8)}: API pnlPct=${pnlPct.toFixed(2)} but IL≈0 (${ilPct}) + withdrawal settled (${finalValueUsd} vs ${initialUsd}) → using settled ${override.pnlPct.toFixed(2)}%`);
+            pnlUsd = override.pnlUsd;
+            pnlPct = override.pnlPct;
           }
         } catch (e) {
           log("close_warn", `Relay closed PnL fetch failed: ${e.message}`);
@@ -231,7 +243,7 @@ export async function closePosition({ position_address, reason }) {
 
         // recordClose() deliberately deferred until here (2026-07-12 fix) —
         // see the matching comment on the local-SDK close path below for why.
-        recordClose(position_address, reason || "agent decision", { pnl_pct: pnlPct });
+        recordClose(position_address, reason || "agent decision", { pnl_pct: pnlPct, via_tool: true });
 
         const closeBaseMint = livePosition?.base_mint || pool.lbPair.tokenXMint.toString();
         const signalSnapshot = resolvePerformanceSignalSnapshot({
@@ -267,6 +279,10 @@ export async function closePosition({ position_address, reason }) {
           fee_tvl_ratio: tracked.fee_tvl_ratio || null,
           organic_score: tracked.organic_score || null,
           amount_sol: tracked.amount_sol,
+          // Settled PnL — same value recordClose just wrote to closedOutcomes[].
+          // lessons.js prefers this over recomputing from final_value_usd, which
+          // can be a partial-withdrawal artifact (BULLCAT 2026-07-16 -60.68% phantom).
+          pnl_pct: pnlPct,
           fees_earned_usd: feesUsd,
           final_value_usd: finalValueUsd,
           initial_value_usd: initialUsd,
@@ -488,7 +504,7 @@ export async function closePosition({ position_address, reason }) {
     // compute without a tracked entry). The tracked case defers the call
     // until pnlPct is fully settled below — see the note there.
     if (!tracked) {
-      recordClose(position_address, reason || "agent decision");
+      recordClose(position_address, reason || "agent decision", { via_tool: true });
     }
 
     // Record performance for learning
@@ -521,9 +537,10 @@ export async function closePosition({ position_address, reason }) {
       let finalValueUsd = 0;
       let initialUsd = 0;
       let feesUsd = tracked.total_fees_claimed_usd || 0;
+      const closedAttempts = 12;
       try {
         const closedUrl = `https://dlmm.datapi.meteora.ag/positions/${poolAddress}/pnl?user=${wallet.publicKey.toString()}&status=closed&pageSize=50&page=1`;
-        for (let attempt = 0; attempt < 6; attempt++) {
+        for (let attempt = 0; attempt < closedAttempts; attempt++) {
           const res = await fetch(closedUrl);
           if (res.ok) {
             const data = await res.json();
@@ -537,8 +554,8 @@ export async function closePosition({ position_address, reason }) {
               const nextFeesUsd = parseFloat(posEntry.allTimeFees?.total?.usd || 0) || feesUsd;
 
               if (shouldRejectClosedPnl(nextPnlPct, reason || tracked?.close_reason)) {
-                log("close_warn", `Rejected unsettled closed PnL for ${position_address.slice(0, 8)} on attempt ${attempt + 1}/6: ${nextPnlPct.toFixed(2)}%`);
-              } else {
+                log("close_warn", `Rejected unsettled closed PnL for ${position_address.slice(0, 8)} on attempt ${attempt + 1}/${closedAttempts}: ${nextPnlPct.toFixed(2)}%`);
+              } else if (isClosedWithdrawalSettled(nextInitialUsd, nextFinalValueUsd)) {
                 pnlTrueUsd    = nextPnlUsd;
                 pnlUsd        = nextPnlValue;
                 pnlPct        = nextPnlPct;
@@ -547,18 +564,37 @@ export async function closePosition({ position_address, reason }) {
                 feesUsd       = nextFeesUsd;
                 log("close", `Closed PnL from API: pnl=${pnlUsd.toFixed(2)} ${config.management.solMode ? "SOL" : "USD"} (${pnlPct.toFixed(2)}%), withdrawn=${finalValueUsd.toFixed(2)} USD, deposited=${initialUsd.toFixed(2)} USD`);
                 break;
+              } else {
+                log("close_warn", `Unsettled withdrawal for ${position_address.slice(0, 8)} on attempt ${attempt + 1}/${closedAttempts}: withdrawn=${nextFinalValueUsd.toFixed(2)} vs deposited=${nextInitialUsd.toFixed(2)} — waiting`);
               }
             } else {
-              log("close_warn", `Position not found in status=closed response (attempt ${attempt + 1}/6) — may still be settling`);
+              log("close_warn", `Position not found in status=closed response (attempt ${attempt + 1}/${closedAttempts}) — may still be settling`);
             }
           }
-          if (attempt < 5) await new Promise((r) => setTimeout(r, 5000));
+          if (attempt < closedAttempts - 1) await new Promise((r) => setTimeout(r, 5000));
         }
       } catch (e) {
         log("close_warn", `Closed PnL fetch failed: ${e.message}`);
       }
-      // Fallback to pre-close cache snapshot if closed API had no data
-      if (finalValueUsd === 0) {
+      const ilPct = tracked?.il_pct ?? 0;
+      const override = applySettledWithdrawalPnlOverride({
+        pnlPct,
+        pnlUsd,
+        ilPct,
+        finalValueUsd,
+        initialUsd,
+        feesUsd,
+        solMode: config.management.solMode,
+        solPrice: tracked?.sol_price,
+      });
+      if (override.overridden) {
+        log("close_warn", `PnL sanity override for ${position_address.slice(0, 8)}: API pnlPct=${pnlPct.toFixed(2)} but IL≈0 (${ilPct}) + withdrawal settled (${finalValueUsd} vs ${initialUsd}) → using settled ${override.pnlPct.toFixed(2)}%`);
+        pnlTrueUsd = override.pnlUsd;
+        pnlUsd = override.pnlUsd;
+        pnlPct = override.pnlPct;
+      }
+      // Fallback to pre-close cache snapshot if closed API had no settled data
+      if (!isClosedWithdrawalSettled(initialUsd, finalValueUsd)) {
         const cachedPos = getCachedPositions()?.positions?.find(p => p.position === position_address);
         if (cachedPos) {
           pnlTrueUsd    = cachedPos.pnl_true_usd ?? (config.management.solMode ? 0 : cachedPos.pnl_usd) ?? 0;
@@ -587,7 +623,7 @@ export async function closePosition({ position_address, reason }) {
       // executor.js around the whole close_position tool call) already prevents
       // any external-close race during this window regardless of exactly when
       // within this function recordClose fires.
-      recordClose(position_address, reason || "agent decision", { pnl_pct: pnlPct });
+      recordClose(position_address, reason || "agent decision", { pnl_pct: pnlPct, via_tool: true });
 
       const closeBaseMint = pool.lbPair.tokenXMint.toString();
       const signalSnapshot = resolvePerformanceSignalSnapshot({
@@ -622,6 +658,9 @@ export async function closePosition({ position_address, reason }) {
         fee_tvl_ratio: tracked.fee_tvl_ratio || null,
         organic_score: tracked.organic_score || null,
         amount_sol: tracked.amount_sol,
+        // Settled PnL — same value recordClose just wrote to closedOutcomes[]
+        // (see the relay-path comment above; keeps lessons/pool-memory in sync).
+        pnl_pct: pnlPct,
         fees_earned_usd: feesUsd,
         final_value_usd: finalValueUsd,
         initial_value_usd: initialUsd,

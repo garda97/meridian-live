@@ -223,6 +223,8 @@ function buildPosition(f, prices, solUsd, meteora, solMode) {
     unclaimed_fees_true_usd: round(claimableUsd),
     total_value_usd:    round(solMode ? balancesSol : balancesUsd),
     total_value_true_usd: round(balancesUsd),
+    token_x_value_usd: round(xHuman * priceX),
+    token_y_value_usd: round(yHuman * (solUsd ?? 0)),
     collected_fees_usd: round(solMode ? claimedSol : claimedUsd),
     collected_fees_true_usd: round(claimedUsd),
     pnl_usd:            round(solMode ? pnlSol : pnlUsd),

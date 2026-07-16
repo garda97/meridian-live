@@ -10,12 +10,16 @@
  */
 
 import { config } from "../config.js";
+import { computeTokenValueShare } from "./dlmm/rules.js";
 import { log } from "../logger.js";
 import {
   classifyMarketView,
   buildDeployPlan,
   computeOorRisk,
+  applySpotFeeFloor,
+  applySpotDumpGate,
 } from "./strategy-router.js";
+import { hasRecentVolatileOorClose } from "../pool-memory.js";
 import { buildSignalSummary, fetchChartIndicatorsForMint } from "./chart-indicators.js";
 import { getPoolDetail } from "./screening.js";
 import { getTokenInfo } from "./token.js";
@@ -37,6 +41,70 @@ export function volatilityScaledRebalanceTiming(volatility, { baseOorMinutes, ba
   const factor = Math.max(0.3, Math.min(2, 2 - (vol / 5) * 1.7));
   const scale = (base) => (Number.isFinite(base) ? Math.round(base * factor * 10) / 10 : base);
   return { oorMinutes: scale(oorBase), cooldownMinutes: scale(cooldownBase) };
+}
+
+const SPOT_REBALANCE_TYPES = new Set(["convert_to_spot", "widen_spot"]);
+
+/**
+ * Entry-side spot gates also apply when a rebalance switches shape to spot
+ * (FABLE/maxxing lesson): convert_to_spot and widen_spot reused buildDeployPlan
+ * bins but skipped applySpotFeeFloor / applySpotDumpGate — low-fee spot mid-hold
+ * ate -83% IL. Pump-chase is intentionally omitted here: widen_spot is the
+ * in-flight fix for an already-OOR pump leg, not a fresh chase entry.
+ */
+export function applySpotRebalanceGates(plan, { pool, priceChange1h } = {}) {
+  if (plan?.action !== "rebalance" || !SPOT_REBALANCE_TYPES.has(plan.rebalance_type)) {
+    return plan;
+  }
+
+  const volatileRecall = pool?.pool ? hasRecentVolatileOorClose(pool.pool) : false;
+  let gatePlan = {
+    strategy: "spot",
+    market_view: plan.market_view,
+    entry_allowed: true,
+    entry_reason: plan.reason || "spot rebalance",
+    bins_below: plan.bins_below,
+    bins_above: plan.bins_above,
+    deposit_side: plan.deposit_side,
+    notes: [],
+    tge: false,
+  };
+
+  gatePlan = applySpotFeeFloor(gatePlan, { pool, volatileRecall });
+  gatePlan = applySpotDumpGate(gatePlan, { priceChange1h });
+
+  const mergedNotes = [...(plan.notes || []), ...(gatePlan.notes || [])];
+
+  if (!gatePlan.entry_allowed) {
+    return {
+      ...plan,
+      action: "hold",
+      rebalance_type: null,
+      reason: `Spot rebalance blocked: ${gatePlan.entry_reason}`,
+      notes: mergedNotes,
+    };
+  }
+
+  if (gatePlan.strategy !== "spot") {
+    const feeNote = gatePlan.notes?.find((n) => n.includes("Spot fee floor")) || "fee floor — keep current shape";
+    return {
+      ...plan,
+      action: "hold",
+      rebalance_type: null,
+      reason: `Spot rebalance blocked: ${feeNote}`,
+      notes: mergedNotes,
+    };
+  }
+
+  return {
+    ...plan,
+    strategy: gatePlan.strategy,
+    deposit_side: gatePlan.deposit_side,
+    bins_below: gatePlan.bins_below,
+    bins_above: gatePlan.bins_above,
+    wide_range: (gatePlan.bins_below || 0) + (gatePlan.bins_above || 0) > 69,
+    notes: mergedNotes,
+  };
 }
 
 /** Which side of its range a position sits on. */
@@ -120,7 +188,26 @@ export function buildRebalancePlan({ pool, position, tracked, signal, priceChang
       });
     }
   } else if (oorDirection === "in") {
-    if (view === "breakdown" && classification.confidence === "high" && volumeAlive) {
+    const flipCheck = shouldFlipToCurve({ position, tracked, cfg: config });
+    if (flipCheck.flip) {
+      plan = mk({
+        action: "rebalance",
+        rebalance_type: "flip_to_curve",
+        strategy: "curve",
+        reason: flipCheck.reason,
+        token_value_share: flipCheck.token_value_share,
+      });
+    } else {
+      const reshapeCheck = shouldReshape({ position, tracked, activeBin: position?.active_bin, cfg: config });
+      if (reshapeCheck.reshape) {
+        plan = mk({
+          action: "rebalance",
+          rebalance_type: "reshape",
+          strategy: tracked?.strategy || "curve",
+          reason: reshapeCheck.reason,
+          active_bin: reshapeCheck.active_bin,
+        });
+      } else if (view === "breakdown" && classification.confidence === "high" && volumeAlive) {
       plan = mk({
         action: "rebalance",
         rebalance_type: "reseed_below",
@@ -140,6 +227,7 @@ export function buildRebalancePlan({ pool, position, tracked, signal, priceChang
     } else {
       plan = mk({ action: "hold", reason: `In range, ${view} view — hold` });
     }
+    }
   } else {
     plan = mk({ action: "hold", reason: "Position bin data unavailable — hold" });
   }
@@ -150,11 +238,15 @@ export function buildRebalancePlan({ pool, position, tracked, signal, priceChang
     plan = { ...plan, action: "hold", rebalance_type: null, reason: `Re-entry blocked: ${base.entry_reason}` };
   }
 
+  plan = applySpotRebalanceGates(plan, { pool, priceChange1h });
+
   // Same OOR-risk gate as entry: if the NEW range would likely break before
   // fees cover the cycle, close instead of churning rebalances.
   if (plan.action === "rebalance") {
+    const skipOorRisk = plan.rebalance_type === "reshape" || plan.rebalance_type === "flip_to_curve";
     const totalBins = (plan.bins_below || 0) + (plan.bins_above || 0);
     plan.upside_cover_pct = totalBins > 0 ? Math.round(((plan.bins_above || 0) / totalBins) * 1000) / 10 : 0;
+    if (!skipOorRisk) {
     plan.oor_risk = computeOorRisk({
       volatility: pool?.volatility,
       priceChange1h,
@@ -169,6 +261,7 @@ export function buildRebalancePlan({ pool, position, tracked, signal, priceChang
         rebalance_type: null,
         reason: `Re-plan OOR risk ${plan.oor_risk} > ${maxOorRisk} — new range would likely break too; close`,
       };
+    }
     }
   }
 
@@ -286,9 +379,75 @@ export function shouldRebalance({ plan, position, tracked, mgmtConfig, nowMs = D
    }
 
    return { action: "rebalance", reason: plan.reason, plan };
- }
+   }
 
-// ─── TVL dilution exit (Gap 3) ─────────────────────────────────
+   /**
+   * In-range re-center for curve/spot (ported from fees-maxi reshape).
+   */
+   export function shouldReshape({ position, tracked, activeBin, cfg = config }) {
+   const reshapeCfg = cfg.reshape || {};
+   if (!reshapeCfg.enabled) return { reshape: false, reason: "reshape_disabled" };
+
+   const strategy = String(tracked?.strategy || "").toLowerCase();
+   if (strategy !== "curve" && strategy !== "spot") {
+     return { reshape: false, reason: "reshape_not_curve_or_spot" };
+   }
+   if (!position?.in_range) return { reshape: false, reason: "out_of_range" };
+
+   const active = Number(activeBin ?? position?.active_bin);
+   const lastBin = Number(tracked?.last_reshape_bin);
+   if (!Number.isFinite(active)) return { reshape: false, reason: "active_bin_unknown" };
+
+   const trigger = Math.max(1, Number(reshapeCfg.binTrigger) || 3);
+   const drift = Number.isFinite(lastBin) ? Math.abs(active - lastBin) : trigger;
+   if (drift < trigger) {
+     return { reshape: false, reason: `bin_drift_${drift}_lt_${trigger}` };
+   }
+
+   const minMs = Math.max(0, Number(reshapeCfg.minIntervalMs) || 10_000);
+   if (tracked?.last_reshape_at) {
+     const elapsed = Date.now() - new Date(tracked.last_reshape_at).getTime();
+     if (elapsed < minMs) {
+       return { reshape: false, reason: `reshape_cooldown_${Math.round(elapsed / 1000)}s` };
+     }
+   }
+
+   return {
+     reshape: true,
+     reason: `bin_drift_${drift}_gte_${trigger}_active_${active}`,
+     active_bin: active,
+   };
+   }
+
+   /**
+   * bid_ask → curve when token value share settles ~50:50 (no swap).
+   */
+   export function shouldFlipToCurve({ position, tracked, cfg = config }) {
+   const flipCfg = cfg.flip || {};
+   if (!flipCfg.enabled) return { flip: false, reason: "flip_disabled" };
+
+   const strategy = String(tracked?.strategy || "").toLowerCase();
+   if (strategy !== "bid_ask") return { flip: false, reason: "not_bid_ask" };
+   if (!position?.in_range) return { flip: false, reason: "out_of_range" };
+
+   const solMode = !!cfg.management?.solMode;
+   const share = computeTokenValueShare(position, solMode);
+   if (share == null) return { flip: false, reason: "token_share_unknown" };
+
+   const low = Number(flipCfg.ratioLow) || 0.4;
+   const high = Number(flipCfg.ratioHigh) || 0.6;
+   if (share < low || share > high) {
+     return { flip: false, reason: `token_share_${share.toFixed(3)}_outside_${low}_${high}` };
+   }
+
+   return {
+     flip: true,
+     reason: `token_share_${share.toFixed(3)}_in_band`,
+     token_value_share: share,
+   };
+   }
+
+   // ─── TVL dilution exit (Gap 3) ─────────────────────────────────
 
 /**
  * Share + growth math for the dilution check. Pure; nulls when inputs missing.
@@ -357,6 +516,11 @@ export function isRebalanceCandidate({ position, tracked, mgmtConfig, nowMs = Da
   const dir = classifyOorDirection(position);
   if (dir === "up" || dir === "down") {
     return Number(position?.minutes_out_of_range ?? 0) >= Number(mgmt.rebalanceMinOorMinutes ?? 5);
+  }
+  const strat = String(tracked.strategy || "").toLowerCase();
+  if (dir === "in") {
+    if (config.flip?.enabled && strat === "bid_ask") return true;
+    if (config.reshape?.enabled && (strat === "curve" || strat === "spot")) return true;
   }
   // In-range: only worth a look for strategy drift, on the slow cycle.
   return mgmt.rebalanceOnStrategyDrift !== false && (tracked.strategy || null) === "bid_ask";

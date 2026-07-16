@@ -10,6 +10,7 @@ import { repoPath } from "../repo-root.js";
 import {
   classifyOorDirection,
   buildRebalancePlan,
+  applySpotRebalanceGates,
   shouldRebalance,
   isRebalanceCandidate,
 } from "../tools/position-router.js";
@@ -18,9 +19,16 @@ import { config } from "../config.js";
 
 const STATE_PATH = repoPath("state.json");
 
-// Pin: buildRebalancePlan reuses buildDeployPlan, so a live user-config with
-// spot disabled (owner interim toggle) would turn widen_spot plans into holds.
+// Pin autoStrategy so live user-config knobs don't flip the matrix.
+// - allowSpot: owner interim toggle would turn widen_spot / convert_to_spot into holds
+// - preferSpotHighFee + bidAskWideRange: live values invent balanced/wide plans and
+//   collapse the "one-sided hot re-entry → OOR risk close" fixture
+// - maxOorRisk / spotFeeTvlMin: stable thresholds for gate assertions
 config.autoStrategy.allowSpot = true;
+config.autoStrategy.preferSpotHighFee = false;
+config.autoStrategy.bidAskWideRangeEnabled = false;
+config.autoStrategy.maxOorRisk = 65;
+config.autoStrategy.spotFeeTvlMin = 2;
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -53,8 +61,8 @@ assert(classifyOorDirection({}) === "unknown", "missing bins must be unknown");
 
 // ── buildRebalancePlan matrix ──────────────────────────────────
 function testPlanMatrix() {
-  // 1. OOR upside + pump + volume → widen_spot
-  let plan = buildRebalancePlan({ pool: poolAlive, position: posOorUp, tracked: { strategy: "bid_ask" }, signal: bullish, priceChange1h: 25, mgmtConfig: MGMT });
+  // 1. OOR upside + pump + volume → widen_spot (fee/TVL must clear spot floor)
+  let plan = buildRebalancePlan({ pool: { ...poolAlive, fee_active_tvl_ratio: 2.5 }, position: posOorUp, tracked: { strategy: "bid_ask" }, signal: bullish, priceChange1h: 25, mgmtConfig: MGMT });
   assert(plan.action === "rebalance" && plan.rebalance_type === "widen_spot", `upside pump must widen_spot, got ${plan.action}/${plan.rebalance_type}`);
   assert(plan.strategy === "spot" && plan.bins_above > 0, "widen_spot must carry upside cover");
 
@@ -71,7 +79,7 @@ function testPlanMatrix() {
   assert(plan.action === "close" && plan.reason.includes("dead"), "downside + dead volume must close");
 
   // 5. In-range strategy drift (bid_ask deployed, sideways market) → convert_to_spot
-  plan = buildRebalancePlan({ pool: { ...poolAlive, volatility: 3 }, position: posInRange, tracked: { strategy: "bid_ask" }, signal: null, priceChange1h: 5, mgmtConfig: MGMT });
+  plan = buildRebalancePlan({ pool: { ...poolAlive, volatility: 3, fee_active_tvl_ratio: 2.5 }, position: posInRange, tracked: { strategy: "bid_ask" }, signal: null, priceChange1h: 5, mgmtConfig: MGMT });
   assert(plan.action === "rebalance" && plan.rebalance_type === "convert_to_spot", `sideways drift must convert_to_spot, got ${plan.action}/${plan.rebalance_type}`);
 
   // 6. Same drift with rebalanceOnStrategyDrift=false → hold
@@ -86,7 +94,79 @@ function testPlanMatrix() {
   plan = buildRebalancePlan({ pool: { volatility: 8, volume: 50_000, fee_active_tvl_ratio: 1 }, position: posOorDown, tracked: {}, signal: null, priceChange1h: 18, mgmtConfig: MGMT });
   assert(plan.action === "close" && plan.reason.includes("OOR risk"), `risky re-plan must close, got ${plan.action} (${plan.reason})`);
 
-  console.log("  plan-matrix: widen_spot/close-dead/reseed/convert/drift-flag/breakdown/risk-gate OK");
+  // 9. maxxing pattern: sideways drift → convert_to_spot blocked on low fee/TVL
+  const savedFeeMin = config.autoStrategy.spotFeeTvlMin;
+  config.autoStrategy.spotFeeTvlMin = 2;
+  plan = buildRebalancePlan({
+    pool: { ...poolAlive, volatility: 3, fee_active_tvl_ratio: 0.2337 },
+    position: posInRange,
+    tracked: { strategy: "bid_ask" },
+    signal: null,
+    priceChange1h: 5,
+    mgmtConfig: MGMT,
+  });
+  assert(plan.action === "hold" && plan.rebalance_type == null, `low-fee convert_to_spot must hold, got ${plan.action}/${plan.rebalance_type}`);
+  assert(/Spot rebalance blocked/i.test(plan.reason), `must cite spot gate, got: ${plan.reason}`);
+
+  // 10. widen_spot on pump still allowed when fee/TVL pays for spot exposure
+  plan = buildRebalancePlan({
+    pool: { ...poolAlive, fee_active_tvl_ratio: 3.5 },
+    position: posOorUp,
+    tracked: { strategy: "bid_ask" },
+    signal: bullish,
+    priceChange1h: 25,
+    mgmtConfig: MGMT,
+  });
+  assert(plan.action === "rebalance" && plan.rebalance_type === "widen_spot", `high-fee widen_spot must proceed, got ${plan.action}/${plan.rebalance_type}`);
+
+  // 11. widen_spot blocked when pump fee/TVL below floor (pump view → block, not fallback)
+  plan = buildRebalancePlan({
+    pool: { ...poolAlive, fee_active_tvl_ratio: 0.92 },
+    position: posOorUp,
+    tracked: { strategy: "bid_ask" },
+    signal: bullish,
+    priceChange1h: 25,
+    mgmtConfig: MGMT,
+  });
+  assert(plan.action === "hold", `low-fee pump widen_spot must hold, got ${plan.action}`);
+  assert(/fee\/TVL 0\.92 < 2/i.test(plan.reason), `must cite fee floor, got: ${plan.reason}`);
+
+  config.autoStrategy.spotFeeTvlMin = savedFeeMin;
+
+  console.log("  plan-matrix: widen_spot/close-dead/reseed/convert/drift-flag/breakdown/risk-gate/spot-gates OK");
+}
+
+function testSpotRebalanceGates() {
+  const savedPumpCap = config.autoStrategy.maxPumpPct1h;
+  config.autoStrategy.maxPumpPct1h = 15;
+  try {
+    const basePlan = {
+      action: "rebalance",
+      rebalance_type: "convert_to_spot",
+      market_view: "sideways",
+      strategy: "spot",
+      bins_below: 80,
+      bins_above: 20,
+      deposit_side: "sol_balanced",
+      reason: "drift",
+      notes: [],
+    };
+    let gated = applySpotRebalanceGates(basePlan, {
+      pool: { fee_active_tvl_ratio: 3 },
+      priceChange1h: -28.65,
+    });
+    assert(gated.action === "hold" && gated.rebalance_type == null, "dump must block convert_to_spot");
+    assert(/dump/i.test(gated.reason), `must cite dump gate, got: ${gated.reason}`);
+
+    gated = applySpotRebalanceGates(basePlan, {
+      pool: { fee_active_tvl_ratio: 3 },
+      priceChange1h: 5,
+    });
+    assert(gated.action === "rebalance" && gated.rebalance_type === "convert_to_spot", "clean sideways drift must pass gates");
+  } finally {
+    config.autoStrategy.maxPumpPct1h = savedPumpCap;
+  }
+  console.log("  spot-rebalance-gates: dump-block + clean-pass OK");
 }
 
 // ── shouldRebalance operational gates ──────────────────────────
@@ -273,6 +353,7 @@ function testRecordRebalance() {
 }
 
 testPlanMatrix();
+testSpotRebalanceGates();
 testShouldRebalance();
 testPreGate();
 testRecordRebalance();

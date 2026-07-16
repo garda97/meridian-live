@@ -157,6 +157,51 @@ function convertPlanToBalancedSpot(plan, { baseBins, note }) {
 
 const SPOT_BIAS_VIEWS = new Set(["sideways", "flat", "retracement"]);
 
+/**
+ * Vladimir-style bid_ask downside target (% below active price).
+ * Young token or wild 1h pump → 90%; established → 65%.
+ */
+export function resolveBidAskDownsidePct(pool, priceChange1h) {
+  const cfg = config.autoStrategy;
+  if (!cfg?.bidAskWideRangeEnabled) return null;
+  const youngAge = Number(cfg.bidAskYoungMaxAgeHours ?? 48);
+  const youngPump = Number(cfg.bidAskYoungPumpPct1h ?? 80);
+  const age = Number(pool?.token_age_hours);
+  const pump1h = Number(priceChange1h ?? pool?.price_change_1h);
+  const isYoung = Number.isFinite(youngAge) && youngAge > 0 && Number.isFinite(age) && age < youngAge;
+  const isWildPump = Number.isFinite(youngPump) && youngPump > 0 && Number.isFinite(pump1h) && pump1h >= youngPump;
+  return (isYoung || isWildPump)
+    ? Number(cfg.bidAskDownsidePctYoung ?? 90)
+    : Number(cfg.bidAskDownsidePctMature ?? 65);
+}
+
+/** Apply % downside range to SOL-below bid_ask plans (spot/curve untouched). */
+export function applyBidAskWideRange(plan, { pool, priceChange1h } = {}) {
+  if (!plan || plan.strategy !== "bid_ask") return plan;
+  if ((plan.bins_above ?? 0) > 0 || plan.deposit_side === "sol_balanced") return plan;
+  const downside_pct = resolveBidAskDownsidePct(pool, priceChange1h);
+  if (downside_pct == null) return plan;
+  const youngAge = Number(config.autoStrategy?.bidAskYoungMaxAgeHours ?? 48);
+  const youngPump = Number(config.autoStrategy?.bidAskYoungPumpPct1h ?? 80);
+  const age = Number(pool?.token_age_hours);
+  const pump1h = Number(priceChange1h ?? pool?.price_change_1h);
+  let tier = "mature";
+  if (Number.isFinite(age) && age < youngAge) tier = "young";
+  else if (Number.isFinite(pump1h) && pump1h >= youngPump) tier = "pump";
+  return {
+    ...plan,
+    downside_pct,
+    upside_pct: 0,
+    bins_below: undefined,
+    bins_above: 0,
+    wide_range: true,
+    notes: [
+      ...(plan.notes || []),
+      `Bid-ask wide range (${tier}): ${downside_pct}% downside target`,
+    ],
+  };
+}
+
 function applyHighFeeSpotBias(plan, { pool, baseBins, spotBelowRatio, allowSpot, view }) {
   if (!allowSpot || !shouldPreferSpotForHighFee(pool) || !plan.entry_allowed) return plan;
   if (!SPOT_BIAS_VIEWS.has(view)) return plan;
@@ -598,6 +643,8 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
 
   applyPumpUpsideCoverGate(plan);
 
+  plan = applyBidAskWideRange(plan, { pool, priceChange1h });
+
   // Evil Panda ATH gate (opt-in): only enter on a fresh ATH with supertrend
   // confirmation. See resolveAthGateOutcome for the fail-open/fail-closed split.
   if (config.autoStrategy?.athEntryGateEnabled) {
@@ -611,10 +658,13 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
     }
   }
 
+  const oorBinsBelow = plan.downside_pct != null
+    ? (config.autoStrategy?.maxBins ?? 200)
+    : plan.bins_below;
   plan.oor_risk = computeOorRisk({
     volatility: pool?.volatility,
     priceChange1h,
-    binsBelow: plan.bins_below,
+    binsBelow: oorBinsBelow,
     binsAbove: plan.bins_above,
   });
   const maxOorRisk = Number(config.autoStrategy?.maxOorRisk ?? 65);
@@ -661,8 +711,12 @@ export function formatDeployPlanBlock(plan) {
   if (!plan) return "";
   const lines = [
     `  auto_strategy: ${plan.strategy} | market_view: ${plan.market_view} (${plan.view_reason})`,
-    `  deploy_plan: SOL-only | bins_below=${plan.bins_below} bins_above=${plan.bins_above}${plan.wide_range ? " WIDE" : ""}`,
-    `  FINAL_BINS_OK: ${plan.bins_below + plan.bins_above} total bins (min 60 satisfied) — USE THESE EXACT NUMBERS, do not recompute`,
+    plan.downside_pct != null
+      ? `  deploy_plan: SOL-only bid_ask | downside=${plan.downside_pct}% upside=0%${plan.wide_range ? " WIDE" : ""}`
+      : `  deploy_plan: SOL-only | bins_below=${plan.bins_below} bins_above=${plan.bins_above}${plan.wide_range ? " WIDE" : ""}`,
+    plan.downside_pct != null
+      ? `  FINAL_RANGE_OK: use downside_pct=${plan.downside_pct} (do not recompute bins from volatility)`
+      : `  FINAL_BINS_OK: ${plan.bins_below + plan.bins_above} total bins (min 60 satisfied) — USE THESE EXACT NUMBERS, do not recompute`,
     `  entry_gate: ${plan.entry_allowed ? "ALLOW" : "BLOCK"} — ${plan.entry_reason}`,
   ];
   if (plan.oor_risk != null) lines.push(`  oor_risk: ${plan.oor_risk}/100`);
@@ -703,15 +757,22 @@ export function applyPendingPlanToDeployArgs(args) {
   // perfectly valid plan. Override the LLM's bins/strategy with the router's
   // authoritative values instead of only filling when null.
   if (plan.strategy) merged.strategy = plan.strategy;
-  if (plan.bins_below != null) merged.bins_below = plan.bins_below;
-  if (plan.bins_above != null) merged.bins_above = plan.bins_above;
-  // The router plans use bins_below/bins_above directly. If the LLM also passed
-  // downside_pct/upside_pct, deployPosition (dlmm.js) would RE-DERIVE bins from
-  // those percentages and collapse to 0 bins when pct≈0. Strip them so dlmm.js
-  // honors the router's exact bin counts instead of recomputing from pct.
-  if (plan.bins_below != null || plan.bins_above != null) {
-    delete merged.downside_pct;
-    delete merged.upside_pct;
+  if (plan.strategy === "bid_ask" && plan.downside_pct != null && config.autoStrategy?.bidAskWideRangeEnabled) {
+    merged.downside_pct = plan.downside_pct;
+    merged.upside_pct = plan.upside_pct ?? 0;
+    delete merged.bins_below;
+    delete merged.bins_above;
+  } else {
+    if (plan.bins_below != null) merged.bins_below = plan.bins_below;
+    if (plan.bins_above != null) merged.bins_above = plan.bins_above;
+    // The router plans use bins_below/bins_above directly. If the LLM also passed
+    // downside_pct/upside_pct, deployPosition (dlmm.js) would RE-DERIVE bins from
+    // those percentages and collapse to 0 bins when pct≈0. Strip them so dlmm.js
+    // honors the router's exact bin counts instead of recomputing from pct.
+    if (plan.bins_below != null || plan.bins_above != null) {
+      delete merged.downside_pct;
+      delete merged.upside_pct;
+    }
   }
   if (merged.amount_x == null) merged.amount_x = plan.amount_x ?? 0;
   if (plan.volatility != null && merged.volatility == null) merged.volatility = plan.volatility;
