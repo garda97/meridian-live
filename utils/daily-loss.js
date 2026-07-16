@@ -32,17 +32,25 @@ export function sumRealizedPnlUsd(decisions, sinceMs) {
 }
 
 /**
- * @returns {{ blocked: boolean, realizedPnlUsd: number, limitUsd: number|null, dayStartIso: string }}
+ * @param {number} [strandedUsd] - USD value of unrecovered stranded tokens
+ *   (fees-maxi port: capital stuck in unsold base tokens after a failed
+ *   auto-swap counts toward the loss gate in full — it is at-risk in an
+ *   illiquid memecoin until it is back in SOL). 0 / omitted = unchanged.
+ * @returns {{ blocked: boolean, realizedPnlUsd: number, strandedUsd: number, effectiveLossUsd: number, limitUsd: number|null, dayStartIso: string }}
  */
-export function checkDailyLossGate({ decisions, limitUsd, nowMs = Date.now(), tzOffsetHours = 7 }) {
+export function checkDailyLossGate({ decisions, limitUsd, strandedUsd = 0, nowMs = Date.now(), tzOffsetHours = 7 }) {
   const start = dayStartMs(nowMs, tzOffsetHours);
   const realizedPnlUsd = sumRealizedPnlUsd(decisions, start);
+  const stranded = Number.isFinite(Number(strandedUsd)) ? Math.max(0, Number(strandedUsd)) : 0;
+  const effectiveLossUsd = Math.round((realizedPnlUsd - stranded) * 10000) / 10000;
   const limit = limitUsd == null ? null : Number(limitUsd);
   const blocked =
-    limit != null && Number.isFinite(limit) && limit > 0 && realizedPnlUsd <= -limit;
+    limit != null && Number.isFinite(limit) && limit > 0 && effectiveLossUsd <= -limit;
   return {
     blocked,
     realizedPnlUsd,
+    strandedUsd: stranded,
+    effectiveLossUsd,
     limitUsd: limit,
     dayStartIso: new Date(start).toISOString(),
   };
