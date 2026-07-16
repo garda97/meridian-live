@@ -27,6 +27,8 @@ import { stageSignals } from "../../signal-tracker.js";
 import { getWeightsSummary } from "../../signal-weights.js";
 import { agentLoop } from "../../agent.js";
 import { recordScreeningOutcome } from "../../filter-autotune.js";
+import { formatWalletSignalNote } from "../../utils/wallet-signal-enrich.js";
+import { getBlockedThemeRejectReason } from "../../utils/blocked-theme.js";
 
 export async function runScreeningCycle({ silent = false } = {}) {
   if (engineState.screeningBusy) {
@@ -204,6 +206,18 @@ export async function runScreeningCycle({ silent = false } = {}) {
     // Hard filters after token recon — block launchpads and excessive Jupiter bot holders
     const filteredOut = [];
     const passing = allCandidates.filter(({ pool, ti }) => {
+      const themeReject = getBlockedThemeRejectReason(
+        {
+          poolName: pool?.name,
+          symbol: ti?.symbol || pool?.base?.symbol,
+        },
+        config.screening.blockedNameKeywords,
+      );
+      if (themeReject) {
+        log("screening", `Skipping ${pool.name} — ${themeReject}`);
+        filteredOut.push({ name: pool.name, reason: themeReject });
+        return false;
+      }
       const launchpad = ti?.launchpad ?? null;
       if (launchpad && config.screening.allowedLaunchpads?.length > 0 && !config.screening.allowedLaunchpads.includes(launchpad)) {
         log("screening", `Skipping ${pool.name} — launchpad ${launchpad} not in allow-list`);
@@ -376,12 +390,20 @@ export async function runScreeningCycle({ silent = false } = {}) {
         ? `  pvp: HIGH — rival ${pool.pvp_rival_name || pool.pvp_symbol} (${pool.pvp_rival_mint?.slice(0, 8)}...) has pool ${pool.pvp_rival_pool?.slice(0, 8)}..., tvl=$${pool.pvp_rival_tvl}, holders=${pool.pvp_rival_holders}, fees=${pool.pvp_rival_fees}SOL`
         : null;
 
+      const ws = pool.wallet_signal;
+      const walletSignalLine = ws
+        ? `  wallet_signal: ${ws.wallet_name} → inferred ${ws.inferred_strategy} (${formatWalletSignalNote(ws) || "shape unknown"}, confidence=${ws.strategy_confidence}) — REFERENCE ONLY, do NOT mirror range/size`
+        : pool.discord_signal && pool.signal_source?.startsWith("signal:")
+          ? `  wallet_signal: ${pool.signal_source.replace("signal:", "")} flagged this pool (strategy shape unavailable) — REFERENCE ONLY`
+          : null;
+
       const block = [
         `POOL: ${pool.name} (${pool.pool})`,
         `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.tvl ?? pool.active_tvl}, volatility_${pool.volatility_timeframe || "30m"}=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}${estSharePct != null ? `, est_share=${estSharePct}% of TVL` : ""}`,
         `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${bundlerPct != null ? `, gmgn_bundlers=${bundlerPct}%` : ""}${smartDegen != null ? `, gmgn_sm=${smartDegen}` : ""}${holderRatios.fresh_wallet_holder_pct != null ? `, fresh_holders=${holderRatios.fresh_wallet_holder_pct}%` : ""}${holderRatios.bundled_wallet_holder_pct != null ? `, bundled_holders=${holderRatios.bundled_wallet_holder_pct}%` : ""}${launchpad ? `, launchpad=${launchpad}` : ""}`,
         pvpLine,
         `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
+        walletSignalLine,
         activeBin != null ? `  active_bin: ${activeBin}` : null,
         priceChange != null ? `  1h: price${priceChange >= 0 ? "+" : ""}${priceChange}%, net_buyers=${netBuyers ?? "?"}` : null,
         n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
@@ -431,6 +453,7 @@ PRE-LOADED CANDIDATES (${finalPassing.length} pools):
 ${candidateBlocks.join("\n\n")}
 
 STEPS:
+0. Do NOT call get_top_candidates, search_pools, get_token_info, get_token_holders, get_token_narrative, or check_smart_wallets_on_pool — all candidate data is already pre-loaded above.
 1. Decide if any candidate is actually worth deploying. One surviving candidate is not automatically good enough.
 2. Pick the best candidate based on narrative quality, smart wallets, pool metrics, and auto_strategy fit. Skip candidates with entry_gate: BLOCK.
    ENTRY GATE: dip zone is [${config.autoStrategy?.dropEntryMin ?? "n/a"}%, ${config.autoStrategy?.dropEntryMax ?? "n/a"}%] 1h (dropEntryGate=${config.autoStrategy?.dropEntryGate ? "ON" : "OFF"}). When reporting BLOCK, quote the candidate's entry_reason EXACTLY — never invent -55%/-20% or other bands.
@@ -502,7 +525,15 @@ PENTING:
         },
       });
     screenReport = content;
-    if (/⛔\s*(NO DEPLOY|TIDAK DEPLOY)/i.test(content)) {
+    if (/🚀\s*DEPLOY/i.test(content) && !deploySucceeded) {
+      screenReport = "⚠️ Screening: model mengklaim deploy tanpa eksekusi deploy_position. Siklus dibatalkan — akan dicoba lagi.";
+      appendDecision(enrichDecisionEntry({
+        type: "no_deploy",
+        actor: "SCREENER",
+        summary: "Hallucinated deploy without tool execution",
+        reason: stripThink(content).slice(0, 500),
+      }, content));
+    } else if (/⛔\s*(NO DEPLOY|TIDAK DEPLOY)/i.test(content)) {
       appendDecision(enrichDecisionEntry({
         type: "no_deploy",
         actor: "SCREENER",

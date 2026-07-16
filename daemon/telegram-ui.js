@@ -133,6 +133,9 @@ function settingValue(key) {
     trailingTakeProfit: config.management.trailingTakeProfit,
     useDiscordSignals: config.screening.useDiscordSignals,
     blockPvpSymbols: config.screening.blockPvpSymbols,
+    autoStrategyEnabled: config.autoStrategy.enabled,
+    autoStrategyAllowSpot: config.autoStrategy.allowSpot,
+    autoStrategyAllowCurve: config.autoStrategy.allowCurve,
     strategy: config.strategy.strategy,
     minBinsBelow: config.strategy.minBinsBelow,
     maxBinsBelow: config.strategy.maxBinsBelow,
@@ -192,7 +195,7 @@ function renderSettingsMenu(page = "main") {
     title,
     "",
     `Mode: ${config.management.solMode ? "SOL" : "USD"} | Relay: ${onOff(config.api.lpAgentRelayEnabled)}`,
-    `Strategi: ${config.strategy.strategy} | bins ${config.strategy.minBinsBelow}-${config.strategy.maxBinsBelow} | deploy ${config.management.deployAmountSol} SOL`,
+    `Auto strategi: ${config.autoStrategy?.enabled ? "ON" : "OFF"} | fallback ${config.strategy.strategy} | bins ${config.strategy.minBinsBelow}-${config.strategy.maxBinsBelow} | deploy ${config.management.deployAmountSol} SOL`,
     `TP/SL: ${config.management.takeProfitPct}% / ${config.management.stopLossPct}% | trailing ${onOff(config.management.trailingTakeProfit)}`,
     `Indikator: ${onOff(config.indicators.enabled)} | entry ${config.indicators.entryPreset} | ${fmtSettingValue(config.indicators.intervals)}`,
   ].join("\n");
@@ -232,10 +235,12 @@ function renderSettingsMenu(page = "main") {
     ];
   } else if (page === "screen") {
     rows = [
+      [toggleButton("autoStrategyEnabled", "Auto strategi")],
+      [toggleButton("autoStrategyAllowSpot", "Allow spot"), toggleButton("autoStrategyAllowCurve", "Allow curve")],
       [toggleButton("useDiscordSignals", "Discord signals"), toggleButton("blockPvpSymbols", "PVP hard block")],
       [
-        settingButton(`Strategy: spot`, "cfg:set:strategy:spot"),
-        settingButton(`Strategy: bid_ask`, "cfg:set:strategy:bid_ask"),
+        settingButton(`Fallback: spot`, "cfg:set:strategy:spot"),
+        settingButton(`Fallback: bid_ask`, "cfg:set:strategy:bid_ask"),
       ],
       stepButtons("minBinsBelow", "Min bins", 1, { digits: 0 }),
       stepButtons("maxBinsBelow", "Max bins", 1, { digits: 0 }),
@@ -361,7 +366,7 @@ async function applySettingsMenuCallback(msg) {
   }
   page = key.startsWith("indicator") || key === "chartIndicatorsEnabled" || key === "rsiLength" || key === "requireAllIntervals"
     ? "indicators"
-    : ["useDiscordSignals", "blockPvpSymbols", "strategy", "minBinsBelow", "maxBinsBelow", "defaultBinsBelow", "managementIntervalMin", "screeningIntervalMin"].includes(key)
+    : ["autoStrategyEnabled", "autoStrategyAllowSpot", "autoStrategyAllowCurve", "useDiscordSignals", "blockPvpSymbols", "strategy", "minBinsBelow", "maxBinsBelow", "defaultBinsBelow", "managementIntervalMin", "screeningIntervalMin"].includes(key)
       ? "screen"
       : "risk";
   await answerCallbackQuery(msg.callbackQueryId, `Diupdate ${key}`);

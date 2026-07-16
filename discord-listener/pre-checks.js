@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { getBlockedThemeRejectReason } from "../utils/blocked-theme.js";
 
 /**
  * Discord signal pre-check pipeline
@@ -57,9 +58,19 @@ function screeningRejectReason(pool, s) {
   if (pool?.quote_token_has_critical_warnings === true) return "quote token has critical warnings";
   if (pool?.base_token_has_high_single_ownership === true) return "base token has high single ownership";
   if (pool?.pool_type && pool.pool_type !== "dlmm") return `pool_type ${pool.pool_type} is not dlmm`;
+  const themeReject = getBlockedThemeRejectReason(
+    {
+      poolName: pool?.name || pool?.pool_name,
+      symbol: base?.symbol || pool?.mint_x_symbol,
+    },
+    s.blockedNameKeywords,
+  );
+  if (themeReject) return themeReject;
   if (mcap == null || mcap < s.minMcap) return `mcap ${mcap ?? "unknown"} below minMcap ${s.minMcap}`;
   if (mcap > s.maxMcap) return `mcap ${mcap} above maxMcap ${s.maxMcap}`;
-  if (holders == null || holders < s.minHolders) return `holders ${holders ?? "unknown"} below minHolders ${s.minHolders}`;
+  if (s.minHolders != null && (holders == null || holders < s.minHolders)) {
+    return `holders ${holders ?? "unknown"} below minHolders ${s.minHolders}`;
+  }
   if (volume == null || volume < s.minVolume) return `volume ${volume ?? "unknown"} below minVolume ${s.minVolume}`;
   if (tvl == null || tvl < s.minTvl) return `TVL ${tvl ?? "unknown"} below minTvl ${s.minTvl}`;
   if (s.maxTvl != null && tvl > s.maxTvl) return `TVL ${tvl} above maxTvl ${s.maxTvl}`;
@@ -245,25 +256,115 @@ export async function feesCheck(mint) {
   }
 }
 
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+
+export function isSolQuoteDiscoveryPool(pool) {
+  const mint =
+    pool?.token_y?.address ||
+    pool?.quote?.mint ||
+    pool?.quote_mint ||
+    pool?.tokenY?.mint ||
+    null;
+  return mint === SOL_MINT;
+}
+
+export async function fetchDiscoveryPoolRecord(poolAddress, cfg = loadScreeningConfig()) {
+  const url = `${POOL_DISCOVERY_BASE}/pools?` +
+    `page_size=1` +
+    `&filter_by=${encodeURIComponent(`pool_address=${poolAddress}`)}` +
+    `&timeframe=${cfg.timeframe}` +
+    `&category=${cfg.category}`;
+  const res = await axios.get(url, { timeout: 10_000 });
+  return (res.data?.data || [])[0] ?? null;
+}
+
 // Stage 7: Screening gate — same thresholds as main screener before queueing
-export async function screeningGateCheck(poolAddress) {
+export async function screeningGateCheck(poolAddress, { failOpenOnApiError = true } = {}) {
   const s = loadScreeningConfig();
   try {
-    const url = `${POOL_DISCOVERY_BASE}/pools?` +
-      `page_size=1` +
-      `&filter_by=${encodeURIComponent(`pool_address=${poolAddress}`)}` +
-      `&timeframe=${s.timeframe}` +
-      `&category=${s.category}`;
-    const res = await axios.get(url, { timeout: 10_000 });
-    const pool = (res.data?.data || [])[0];
+    const pool = await fetchDiscoveryPoolRecord(poolAddress, s);
     if (!pool) return { pass: false, reason: "pool not found in discovery API" };
     const reason = screeningRejectReason(pool, s);
     if (reason) return { pass: false, reason: `screening: ${reason}` };
     return { pass: true };
   } catch (e) {
-    console.warn(`  [screening] discovery API error: ${e.message} — passing`);
-    return { pass: true };
+    if (failOpenOnApiError) {
+      console.warn(`  [screening] discovery API error: ${e.message} — passing`);
+      return { pass: true };
+    }
+    return { pass: false, reason: `screening API unavailable: ${e.message}` };
   }
+}
+
+/**
+ * Pre-check pipeline when the Meteora pool address is already known
+ * (gacor wallet watcher, pending-signal revalidation).
+ */
+export async function runPoolPreChecks(poolAddress, { verbose = false } = {}) {
+  const poolRecord = await fetchDiscoveryPoolRecord(poolAddress).catch(() => null);
+  if (!poolRecord?.pool_address) {
+    const reason = "pool not found in discovery API";
+    if (verbose) console.log(`  REJECT [pool] ${reason}`);
+    return { pass: false, reason };
+  }
+
+  if (!isSolQuoteDiscoveryPool(poolRecord)) {
+    const qSym = poolRecord?.token_y?.symbol || poolRecord?.quote?.symbol || "non-SOL";
+    const reason = `quote is not SOL (single-sided SOL deploy unsupported for ${qSym} pairs)`;
+    if (verbose) console.log(`  REJECT [quote] ${reason}`);
+    return { pass: false, reason, pool_address: poolAddress };
+  }
+
+  const baseMint =
+    poolRecord?.token_x?.address ||
+    poolRecord?.base_mint ||
+    poolRecord?.mint_x ||
+    null;
+  const symbol =
+    poolRecord?.name?.split("-")?.[0] ||
+    poolRecord?.token_x?.symbol ||
+    poolRecord?.mint_x_symbol ||
+    "?";
+
+  const bl = blacklistCheck(baseMint);
+  if (!bl.pass) {
+    if (verbose) console.log(`  REJECT [blacklist] ${bl.reason}`);
+    return { pass: false, ...bl, pool_address: poolAddress, base_mint: baseMint, symbol };
+  }
+
+  const rug = await rugCheck(baseMint);
+  if (!rug.pass) {
+    if (verbose) console.log(`  REJECT [rug] ${rug.reason}`);
+    return rejectStage("rug", rug, { pool_address: poolAddress, base_mint: baseMint, symbol });
+  }
+
+  const deployer = await deployerCheck(poolAddress);
+  if (!deployer.pass) {
+    if (verbose) console.log(`  REJECT [deployer] ${deployer.reason}`);
+    return rejectStage("deployer", deployer, { pool_address: poolAddress, base_mint: baseMint, symbol });
+  }
+
+  const fees = await feesCheck(baseMint);
+  if (!fees.pass) {
+    if (verbose) console.log(`  REJECT [fees] ${fees.reason}`);
+    return rejectStage("fees", fees, { pool_address: poolAddress, base_mint: baseMint, symbol });
+  }
+
+  const screening = await screeningGateCheck(poolAddress, { failOpenOnApiError: false });
+  if (!screening.pass) {
+    if (verbose) console.log(`  REJECT [screening] ${screening.reason}`);
+    return rejectStage("screening", screening, { pool_address: poolAddress, base_mint: baseMint, symbol });
+  }
+
+  if (verbose) console.log(`  PASS [pool] ${poolAddress} (${symbol})`);
+  return {
+    pass: true,
+    pool_address: poolAddress,
+    base_mint: baseMint,
+    symbol,
+    rug_score: rug.rug_score,
+    total_fees_sol: fees.global_fees_sol,
+  };
 }
 
 function rejectStage(stage, result, pool = null) {

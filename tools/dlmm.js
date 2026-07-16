@@ -29,6 +29,7 @@ export {
   addLiquidity,
 } from "./dlmm/liquidity.js";
 export { rebalancePosition } from "./dlmm/rebalance.js";
+export { reshapePosition, flipToCurve, resumePendingShapeOperations } from "./dlmm/reshape.js";
 export { closePosition } from "./dlmm/close.js";
 export {
   getDeterministicCloseRule,

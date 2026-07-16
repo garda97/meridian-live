@@ -63,6 +63,10 @@ function loadChatId() {
   chatId = resolveChatId();
 }
 
+export function refreshChatId() {
+  loadChatId();
+}
+
 function saveChatId(id) {
   try {
     let cfg = fs.existsSync(USER_CONFIG_PATH)
@@ -118,28 +122,55 @@ export function isEnabled() {
   return !!TOKEN;
 }
 
-async function postTelegram(method, body) {
+function isTransientTelegramError(message = "") {
+  const m = String(message).toLowerCase();
+  return m.includes("fetch failed")
+    || m.includes("timed out")
+    || m.includes("network")
+    || m.includes("econnreset")
+    || m.includes("econnrefused")
+    || m.includes("socket hang up");
+}
+
+async function postTelegram(method, body, { retries = 2 } = {}) {
+  loadChatId();
   if (!TOKEN || !chatId) return null;
-  try {
-    const res = await fetchWithTimeout(`${BASE}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, ...body }),
-    }, TELEGRAM_FETCH_TIMEOUT_MS);
-    if (!res.ok) {
-      const err = await res.text();
-      if (res.status === 401) {
-        log("telegram_error", `${method} 401 Unauthorized — check TELEGRAM_BOT_TOKEN in .env (invalid, revoked, or encrypted without .envrypt key)`);
-      } else {
-        log("telegram_error", `${method} ${res.status}: ${err.slice(0, 200)}`);
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(`${BASE}/${method}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, ...body }),
+      }, TELEGRAM_FETCH_TIMEOUT_MS);
+      if (!res.ok) {
+        const err = await res.text();
+        if (res.status === 401) {
+          log("telegram_error", `${method} 401 Unauthorized — check TELEGRAM_BOT_TOKEN in .env (invalid, revoked, or encrypted without .envrypt key)`);
+          return null;
+        }
+        lastError = `${method} ${res.status}: ${err.slice(0, 200)}`;
+        if (attempt < retries && res.status >= 500) {
+          await sleep(1000 * (attempt + 1));
+          continue;
+        }
+        log("telegram_error", lastError);
+        return null;
       }
+      return await res.json();
+    } catch (e) {
+      lastError = e.message;
+      if (attempt < retries && isTransientTelegramError(lastError)) {
+        log("telegram_warn", `${method} transient error (attempt ${attempt + 1}/${retries + 1}): ${lastError}`);
+        await sleep(1000 * (attempt + 1));
+        continue;
+      }
+      log("telegram_error", `${method} failed: ${lastError}`);
       return null;
     }
-    return await res.json();
-  } catch (e) {
-    log("telegram_error", `${method} failed: ${e.message}`);
-    return null;
   }
+  if (lastError) log("telegram_error", `${method} failed after retries: ${lastError}`);
+  return null;
 }
 
 async function postTelegramRaw(method, body) {
@@ -188,7 +219,11 @@ export async function sendMessageWithButtons(text, inlineKeyboard) {
 }
 
 export async function sendHTML(html) {
-  if (!TOKEN || !chatId) return;
+  loadChatId();
+  if (!TOKEN || !chatId) {
+    log("telegram_warn", "sendHTML skipped — TELEGRAM_CHAT_ID / telegramChatId not configured");
+    return null;
+  }
   return postTelegram("sendMessage", { text: html.slice(0, 4096), parse_mode: "HTML" });
 }
 
@@ -581,7 +616,13 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
     config = cfg.telegramNotifications || {};
   } catch {}
   
-  if (!config.deployNotify || hasActiveLiveMessage()) return;
+  if (!config.deployNotify) return;
+  if (config.enabled === false) return;
+  // Screening/agent cycles finalize the live message with the full 🚀 DEPLOY
+  // report — skip the short card here to avoid double notifications. Paths
+  // without a live message (recovery, CLI, TG /deploy, silent screening) still
+  // get this card.
+  if (hasActiveLiveMessage()) return;
   const priceStr = priceRange
     ? TG.priceRange(priceRange.min, priceRange.max)
     : "";
@@ -606,7 +647,19 @@ export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd = null, deploy
   // transient live-message tool line. The card is the record the operator wants,
   // so a minor overlap with the live-message line is acceptable here.
   if (!config.closeNotify) return;
-  await sendHTML(TG.closed({ pair, pnlUsd, pnlPct, feesUsd, deployedUsd, amountSol, holdMinutes, strategy, reason }));
+  if (config.enabled === false) return;
+  try {
+    const sent = await sendHTML(TG.closed({ pair, pnlUsd, pnlPct, feesUsd, deployedUsd, amountSol, holdMinutes, strategy, reason }));
+    if (!sent) {
+      log("telegram_warn", `notifyClose: Telegram API returned no response (pair=${pair})`);
+      return false;
+    }
+    log("telegram", `Close notification sent for ${pair} (msg ${sent.result?.message_id ?? "?"})`);
+    return true;
+  } catch (e) {
+    log("telegram_error", `notifyClose failed: ${e.message}`);
+    return false;
+  }
 }
 
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {

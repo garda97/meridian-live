@@ -123,11 +123,60 @@ const CONFIG_READ_ONLY_INTENTS = /\b(check|show|what(?:'s| is)?|review|inspect|s
 const DECISION_EXPLANATION_INTENTS = /\b(why did you|why'd you|why was (?:this|that|it)|what made you|what was the reason|why no deploy|why didn't you deploy|why did you close|why did you deploy|why did you skip)\b/i;
 
 function shouldRequireRealToolUse(goal, agentType, interactive = false) {
-  if (agentType === "MANAGER") return false;
+  if (agentType === "MANAGER" || agentType === "SCREENER") return false;
   if (DECISION_EXPLANATION_INTENTS.test(goal)) return false;
   if (CONFIG_READ_ONLY_INTENTS.test(goal)) return false;
   if (MUTATING_TOOL_INTENTS.test(goal)) return true;
   return interactive && LIVE_DATA_TOOL_INTENTS.test(goal);
+}
+
+/** Screening may end with a formatted no-deploy report without calling deploy_position. */
+function isScreenerNoDeployAnswer(content) {
+  return /⛔\s*(NO DEPLOY|TIDAK DEPLOY)/i.test(String(content || ""));
+}
+
+function extractReasoningText(msg) {
+  const direct = String(msg?.reasoning ?? "").trim();
+  if (direct) return direct;
+  const details = msg?.reasoning_details;
+  if (!Array.isArray(details)) return "";
+  return details
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part?.type === "reasoning.text" && part?.text) return part.text;
+      if (part?.text) return part.text;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+/** Some 9router/Hermes providers return empty content but populate reasoning/refusal fields. */
+function getAssistantText(msg) {
+  const content = String(msg?.content ?? "").trim();
+  if (content) return content;
+  const refusal = String(msg?.refusal ?? "").trim();
+  if (refusal) return refusal;
+  return extractReasoningText(msg);
+}
+
+function hydrateAssistantMessage(msg) {
+  return msg;
+}
+
+function hasReasoningOnly(msg) {
+  return !String(msg?.content ?? "").trim() && Boolean(extractReasoningText(msg));
+}
+
+/** SCREENER must return the Telegram report format, not English chain-of-thought. */
+function isScreenerIncompleteAnswer(content) {
+  const c = String(content || "").trim();
+  if (!c) return true;
+  if (/⛔\s*(NO DEPLOY|TIDAK DEPLOY)|🚀\s*DEPLOY|KANDIDAT TERBAIK/i.test(c)) return false;
+  if (c.length < 120) return true;
+  if (/let me analyze|let me reconsider|i need to think|step by step/i.test(c)) return true;
+  return false;
 }
 
 function buildMessages(systemPrompt, sessionHistory, goal, providerMode = "system") {
@@ -218,9 +267,14 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       // Retry up to 3 times on transient provider errors (502, 503, 529)
       let response;
       let usedModel = emptyFallbackActive ? fallbackModel : activeModel;
-      // Force a tool call on step 0 for action intents — prevents the model from inventing deploy/close outcomes
+      // Force a tool call on step 0 for action intents — prevents the model from inventing deploy/close outcomes.
+      // SCREENER skips required: Hermes-free often returns empty under forced tools; no-deploy answers are valid.
       const ACTION_INTENTS = /\b(deploy|open|add liquidity|close|exit|withdraw|claim|swap|block|unblock)\b/i;
-      let toolChoice = (step === 0 && (ACTION_INTENTS.test(goal) || mustUseRealTool)) ? "required" : "auto";
+      let stepToolChoice = (
+        agentType !== "SCREENER"
+        && step === 0
+        && (ACTION_INTENTS.test(goal) || mustUseRealTool)
+      ) ? "required" : "auto";
 
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -232,7 +286,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             max_tokens: maxOutputTokens ?? config.llm.maxTokens,
             stream: false,
           };
-          if (!omitToolChoice) reqParams.tool_choice = toolChoice;
+          if (!omitToolChoice) reqParams.tool_choice = stepToolChoice;
           response = await client.chat.completions.create(reqParams);
         } catch (error) {
           if (providerMode === "system" && isSystemRoleError(error)) {
@@ -242,8 +296,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             attempt -= 1;
             continue;
           }
-          if (toolChoice === "required" && isToolChoiceRequiredError(error)) {
-            toolChoice = "auto";
+          if (stepToolChoice === "required" && isToolChoiceRequiredError(error)) {
+            stepToolChoice = "auto";
             log("agent", "Provider rejected tool_choice=required — retrying with tool_choice=auto");
             attempt -= 1;
             continue;
@@ -284,7 +338,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         log("error", `Bad API response: ${JSON.stringify(response).slice(0, 200)}`);
         throw new Error(`API returned no choices: ${response.error?.message || JSON.stringify(response)}`);
       }
-      const msg = response.choices[0].message;
+      const msg = hydrateAssistantMessage(response.choices[0].message);
+      const assistantText = getAssistantText(msg);
       const invalidToolArgErrors = new Map();
       // Keep tool-call history API-valid, but never execute unrecoverable args.
       if (msg.tool_calls) {
@@ -306,13 +361,27 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           }
         }
       }
-      messages.push(msg);
-
       // If the model didn't call any tools, it's done
       if (!msg.tool_calls || msg.tool_calls.length === 0) {
         // Some providers return null/whitespace content with no tool_calls — retry without burning a step
-        if (!msg.content || !String(msg.content).trim()) {
-          messages.pop();
+        if (!assistantText) {
+          if (hasReasoningOnly(msg)) {
+            log("agent", "Reasoning-only response — nudging model for final formatted answer");
+            messages.push({
+              role: providerMode === "system" ? "system" : "user",
+              content: providerMode === "system"
+                ? "Do not stop at internal reasoning. Reply now in the message content field using the exact Indonesian report format from the goal (⛔ TIDAK DEPLOY or 🚀 DEPLOY)."
+                : "[SYSTEM REMINDER]\nDo not stop at internal reasoning. Reply now in the message content field using the exact Indonesian report format from the goal (⛔ TIDAK DEPLOY or 🚀 DEPLOY).",
+            });
+            step -= 1;
+            continue;
+          }
+          if (stepToolChoice === "required") {
+            stepToolChoice = "auto";
+            log("agent", "Empty response with tool_choice=required — retrying with tool_choice=auto");
+            step -= 1;
+            continue;
+          }
           emptyStreak += 1;
           if (emptyStreak >= MAX_EMPTY_RETRIES) {
             log("agent", `Empty response cap reached (${emptyStreak}/${MAX_EMPTY_RETRIES}), aborting`);
@@ -321,11 +390,10 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               userMessage: goal,
             };
           }
-          // Second consecutive empty: the primary model is likely degraded — switch
-          // to the fallback for the rest of the run instead of hammering it.
-          if (emptyStreak >= 2 && !emptyFallbackActive && (model || DEFAULT_MODEL) !== fallbackModel) {
+          if (emptyStreak >= 1 && !emptyFallbackActive && (model || DEFAULT_MODEL) !== fallbackModel) {
             emptyFallbackActive = true;
-            log("agent", `Repeated empty responses — switching to fallback model ${fallbackModel}`);
+            stepToolChoice = "auto";
+            log("agent", `Empty response — switching to fallback model ${fallbackModel}`);
           }
           const wait = emptyStreak * 2000;
           log("agent", `Empty response, retrying in ${wait / 1000}s (${emptyStreak}/${MAX_EMPTY_RETRIES})...`);
@@ -333,8 +401,31 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           step -= 1;
           continue;
         }
+        messages.push(msg);
         emptyStreak = 0;
+        if (agentType === "SCREENER" && isScreenerIncompleteAnswer(msg.content)) {
+          noToolRetryCount += 1;
+          messages.pop();
+          log("agent", `SCREENER incomplete answer (${noToolRetryCount}/3) — requesting formatted report`);
+          if (noToolRetryCount >= 3) {
+            return {
+              content: "Screening selesai tetapi model tidak mengembalikan format laporan yang valid. Coba lagi pada siklus berikutnya.",
+              userMessage: goal,
+            };
+          }
+          messages.push({
+            role: providerMode === "system" ? "system" : "user",
+            content: providerMode === "system"
+              ? "Your last reply was not a valid screening report. Respond ONLY with the final Indonesian Telegram format from the goal: either the full ⛔ TIDAK DEPLOY block or the full 🚀 DEPLOY block after a real deploy_position tool result. No English analysis."
+              : "[SYSTEM REMINDER]\nYour last reply was not a valid screening report. Respond ONLY with the final Indonesian Telegram format from the goal: either the full ⛔ TIDAK DEPLOY block or the full 🚀 DEPLOY block after a real deploy_position tool result. No English analysis.",
+          });
+          continue;
+        }
         if (mustUseRealTool && !sawToolCall) {
+          if (agentType === "SCREENER" && isScreenerNoDeployAnswer(msg.content)) {
+            log("agent", "SCREENER no-deploy answer accepted without tool call");
+            return { content: msg.content, userMessage: goal };
+          }
           noToolRetryCount += 1;
           messages.pop();
           log("agent", `Rejected no-tool final answer (${noToolRetryCount}/2) for tool-required request`);
@@ -344,11 +435,14 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               userMessage: goal,
             };
           }
+          const screenerReminder = agentType === "SCREENER"
+            ? "If no pool is worth deploying, reply with the ⛔ TIDAK DEPLOY format from the goal — that is valid without tools. If you ARE deploying, you MUST call deploy_position first and only report results from the real tool response. Never claim 🚀 DEPLOY without a deploy_position tool result."
+            : "You have not used any tool yet. This request requires real tool execution or live tool-backed data. Do not answer from memory or inference. Call the appropriate tool first, then report only the real result.";
           messages.push({
             role: providerMode === "system" ? "system" : "user",
             content: providerMode === "system"
-              ? "You have not used any tool yet. This request requires real tool execution or live tool-backed data. Do not answer from memory or inference. Call the appropriate tool first, then report only the real result."
-              : "[SYSTEM REMINDER]\nYou have not used any tool yet. This request requires real tool execution or live tool-backed data. Do not answer from memory or inference. Call the appropriate tool first, then report only the real result.",
+              ? screenerReminder
+              : `[SYSTEM REMINDER]\n${screenerReminder}`,
           });
           continue;
         }
@@ -356,6 +450,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         log("agent", msg.content);
         return { content: msg.content, userMessage: goal };
       }
+      messages.push(msg);
       emptyStreak = 0;
       sawToolCall = true;
 

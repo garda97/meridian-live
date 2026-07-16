@@ -12,6 +12,7 @@ import {
   computeOorRisk,
   applyPumpUpsideCoverGate,
   applySpotDumpGate,
+  applyBidAskWideRange,
   resolveAthGateOutcome,
   resolveDeployStrategyForCandidate,
 } from "../tools/strategy-router.js";
@@ -112,6 +113,36 @@ function testStrategyMatrix() {
   console.log(`  matrix: pump=spot(${pumpPlan.bins_below}/${pumpPlan.bins_above}) breakdown=bid_ask(${breakdownPlan.bins_below}) sideways=spot OK`);
   } finally {
     config.autoStrategy.allowSpot = savedSpot;
+  }
+}
+
+// ── Vladimir-style bid_ask wide range ─────────────────────────
+function testBidAskWideRange() {
+  const saved = config.autoStrategy.bidAskWideRangeEnabled;
+  config.autoStrategy.bidAskWideRangeEnabled = true;
+  try {
+    const young = applyBidAskWideRange(
+      { strategy: "bid_ask", deposit_side: "sol_below", bins_below: 100, bins_above: 0, notes: [] },
+      { pool: { token_age_hours: 12, price_change_1h: 5 }, priceChange1h: 5 },
+    );
+    assert(young.downside_pct === 90, `young token should get 90% downside, got ${young.downside_pct}`);
+    assert(young.bins_below === undefined, "wide range should clear bins_below");
+
+    const mature = applyBidAskWideRange(
+      { strategy: "bid_ask", deposit_side: "sol_below", bins_below: 100, bins_above: 0, notes: [] },
+      { pool: { token_age_hours: 200, price_change_1h: 2 }, priceChange1h: 2 },
+    );
+    assert(mature.downside_pct === 65, `mature token should get 65%, got ${mature.downside_pct}`);
+
+    const spotUntouched = applyBidAskWideRange(
+      { strategy: "spot", bins_below: 50, bins_above: 50, notes: [] },
+      { pool: { token_age_hours: 12 } },
+    );
+    assert(spotUntouched.downside_pct == null, "spot must not get wide range");
+
+    console.log("  bid_ask wide range: young=90% mature=65% spot=untouched OK");
+  } finally {
+    config.autoStrategy.bidAskWideRangeEnabled = saved;
   }
 }
 
@@ -568,6 +599,7 @@ function testAthEntryGate() {
 async function main() {
   testOorRisk();
   testStrategyMatrix();
+  testBidAskWideRange();
   testCooldownStacking();
   testWinRedeployCooldown();
   testChartExitPnlGate();
