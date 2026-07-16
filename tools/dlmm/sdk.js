@@ -3,15 +3,41 @@
  * Jito-aware transaction submission, and the pool/pool-metadata caches.
  * Everything on-chain in tools/dlmm/* goes through this module.
  */
-import { Keypair, PublicKey, sendAndConfirmTransaction as sendAndConfirmTransaction_original } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  Transaction,
+  sendAndConfirmTransaction as sendAndConfirmTransaction_original,
+} from "@solana/web3.js";
 import bs58 from "bs58";
 import { sendJitoBundle } from "../jito-helper.js";
 import { config } from "../../config.js";
 import { log } from "../../logger.js";
 import { getRpcConnection } from "../../utils/rpc-connection.js";
 
+/** True when a submitted tx missed its last-valid block height window. */
+export function isSignatureExpiredError(error) {
+  const msg = String(error?.message || error || "").toLowerCase();
+  return (
+    msg.includes("block height exceeded")
+    || msg.includes("signature expired")
+    || msg.includes("blockhash not found")
+    || (msg.includes("expired") && msg.includes("signature"))
+  );
+}
+
+/** Refresh legacy Transaction blockhash immediately before send (Meteora chunk txs share one stale hash). */
+export async function refreshLegacyTransactionBlockhash(connection, transaction, feePayer) {
+  if (!(transaction instanceof Transaction)) return false;
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  transaction.recentBlockhash = blockhash;
+  transaction.lastValidBlockHeight = lastValidBlockHeight;
+  transaction.feePayer = feePayer;
+  return true;
+}
+
 // Jito wrapper: route transactions through Jito if enabled, fallback to standard RPC
-export async function sendAndConfirmTransaction(connection, transaction, signers, options) {
+export async function sendAndConfirmTransaction(connection, transaction, signers, options = {}) {
   if (config.jito?.enabled) {
     try {
       log("jito", "Attempting Jito bundle submission for this transaction...");
@@ -22,7 +48,31 @@ export async function sendAndConfirmTransaction(connection, transaction, signers
       log("jito_warn", `Jito submission failed (${jitoErr.message}), falling back to standard RPC`);
     }
   }
-  return await sendAndConfirmTransaction_original(connection, transaction, signers, options);
+
+  const maxRetries = options.maxRetries ?? 3;
+  const feePayer = signers[0]?.publicKey;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      if (feePayer) {
+        await refreshLegacyTransactionBlockhash(connection, transaction, feePayer);
+      }
+      return await sendAndConfirmTransaction_original(connection, transaction, signers, {
+        commitment: "confirmed",
+        ...options,
+      });
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries - 1 && isSignatureExpiredError(err)) {
+        log("tx_retry", `Blockhash expired — refresh and retry (${attempt + 2}/${maxRetries})`);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError ?? new Error("sendAndConfirmTransaction failed");
 }
 
 // ─── Lazy SDK loader ───────────────────────────────────────────

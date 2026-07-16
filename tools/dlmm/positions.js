@@ -29,6 +29,8 @@ import {
   markInRange,
   minutesOutOfRange,
   syncOpenPositions,
+  markPositionsSeenOnChain,
+  markCloseNotified,
 } from "../../state.js";
 import { recordPoolDeploy } from "../../pool-memory.js";
 import { appendDecision } from "../../decision-log.js";
@@ -36,7 +38,7 @@ import { normalizeMint } from "../wallet.js";
 import { computePositions, fetchDlmmPnlForPool } from "../pnl.js";
 import { fetchWithTimeout, withTimeout } from "../../utils/fetch-timeout.js";
 import { notifyClose, sendMessage } from "../../telegram.js";
-import { findUntrackedOnChainPositions } from "../../state.js";
+import { findUntrackedOnChainPositions, getTrackedPositions } from "../../state.js";
 
 // ─── Get Active Bin ────────────────────────────────────────────
 export async function getActiveBin({ pool_address }) {
@@ -123,7 +125,21 @@ export async function getPositionPnl({ pool_address, position_address }) {
  * Fire-and-forget from the getMyPositions sync path — never throws.
  */
 async function handleExternalCloses(externallyClosed, walletAddress) {
+  const { isPositionClosingInFlight, getTrackedPosition } = await import("../../state.js");
   for (const pos of externallyClosed) {
+    if (isPositionClosingInFlight(pos.position)) {
+      log("external_close", `Skip external-close record for ${String(pos.position).slice(0, 8)} — close in flight`);
+      continue;
+    }
+    const tracked = getTrackedPosition(pos.position);
+    if (tracked?.closed_via_tool) {
+      log("external_close", `Skip external-close record for ${String(pos.position).slice(0, 8)} — already closed via daemon tool`);
+      continue;
+    }
+    if (tracked?.close_notified) {
+      log("external_close", `Skip external-close record for ${String(pos.position).slice(0, 8)} — close notification already sent`);
+      continue;
+    }
     const reason = "closed externally (missing on-chain, manual close?)";
     let pnlUsd = null;
     let pnlPct = null;
@@ -199,7 +215,7 @@ async function handleExternalCloses(externallyClosed, walletAddress) {
       // Telegram close report at all, so fire it explicitly. Fire-and-forget; the
       // notifyClose closeNotify gate still applies. deployedUsd is unknown on this path
       // (no fresh deploy quote) so we pass amountSol only and let TG.closed fall back.
-      notifyClose({
+      const notified = await notifyClose({
         pair: pos.pool_name || pos.position.slice(0, 8),
         pnlUsd,
         pnlPct,
@@ -209,7 +225,11 @@ async function handleExternalCloses(externallyClosed, walletAddress) {
         holdMinutes: minutesHeld,
         strategy: pos.strategy ?? null,
         reason: "closed externally (manual / off-daemon)",
-      }).catch(() => {});
+      }).catch((e) => {
+        log("telegram_error", `notifyClose failed (external close ${pos.pool_name || pos.position.slice(0, 8)}): ${e.message}`);
+        return false;
+      });
+      if (notified) markCloseNotified(pos.position);
     } catch (e) {
       log("external_close_warn", `Recording external close failed for ${pos.position.slice(0, 8)}: ${e.message}`);
     }
@@ -225,8 +245,28 @@ async function handleExternalCloses(externallyClosed, walletAddress) {
 const _untrackedAlertedAt = new Map();
 const UNTRACKED_ALERT_COOLDOWN_MS = 60 * 60_000;
 
-async function alertUntrackedPositions(activeAddresses, walletAddress) {
-  const untracked = findUntrackedOnChainPositions(activeAddresses);
+function filterBenignUntracked(untracked, positionRows = []) {
+  if (!untracked.length) return untracked;
+
+  const valueById = new Map(
+    positionRows.map((p) => [p.position, p.total_value_true_usd ?? p.total_value_usd ?? null]),
+  );
+  const poolById = new Map(positionRows.map((p) => [p.position, p.pool ?? null]));
+  const openTrackedPools = new Set(getTrackedPositions(true).map((p) => p.pool));
+
+  return untracked.filter((id) => {
+    const value = valueById.get(id);
+    // Empty NFT shells after rebalance/reshape still appear in portfolio lists ($0).
+    if (value != null && value < 1) return false;
+    const pool = poolById.get(id);
+    // Same pool already has a live tracked position (migrated address).
+    if (pool && openTrackedPools.has(pool)) return false;
+    return true;
+  });
+}
+
+async function alertUntrackedPositions(activeAddresses, walletAddress, positionRows = []) {
+  const untracked = filterBenignUntracked(findUntrackedOnChainPositions(activeAddresses), positionRows);
   if (!untracked.length) return;
 
   const now = Date.now();
@@ -286,11 +326,12 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
         );
         if (useLocalWallet) {
           const activeIds = rpcResult.positions.map((p) => p.position);
+          markPositionsSeenOnChain(activeIds);
           const externallyClosed = syncOpenPositions(activeIds);
           if (externallyClosed?.length) {
             handleExternalCloses(externallyClosed, walletAddress).catch((e) => log("external_close_warn", e.message));
           }
-          alertUntrackedPositions(activeIds, walletAddress).catch((e) => log("state_error", `Untracked-position check failed: ${e.message}`));
+          alertUntrackedPositions(activeIds, walletAddress, rpcResult.positions).catch((e) => log("state_error", `Untracked-position check failed: ${e.message}`));
           setPositionsCache(rpcResult);
         }
         return rpcResult;
@@ -438,6 +479,16 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
           pnl_pct_derived:    derivedPnlPct != null ? Math.round(derivedPnlPct * 100) / 100 : null,
           pnl_pct_diff:       pnlPctDiff != null ? Math.round(pnlPctDiff * 100) / 100 : null,
           pnl_pct_suspicious: !!pnlPctSuspicious,
+          token_x_value_usd: (() => {
+            const up = binData?.unrealizedPnl;
+            const v = parseFloat(up?.balanceTokenX?.usd ?? up?.tokenX?.usd ?? up?.balanceX?.usd ?? NaN);
+            return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+          })(),
+          token_y_value_usd: (() => {
+            const up = binData?.unrealizedPnl;
+            const v = parseFloat(up?.balanceTokenY?.usd ?? up?.tokenY?.usd ?? up?.balanceY?.usd ?? NaN);
+            return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+          })(),
           unclaimed_fees_true_usd: lpData
             ? Math.round(safeNum(lpData.unCollectedFee) * 10000) / 10000
             : binData
@@ -461,11 +512,12 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
     };
     if (useLocalWallet) {
       const activeIds = positions.map(p => p.position);
+      markPositionsSeenOnChain(activeIds);
       const externallyClosed = syncOpenPositions(activeIds);
       if (externallyClosed?.length) {
         handleExternalCloses(externallyClosed, walletAddress).catch((e) => log("external_close_warn", e.message));
       }
-      alertUntrackedPositions(activeIds, walletAddress).catch((e) => log("state_error", `Untracked-position check failed: ${e.message}`));
+      alertUntrackedPositions(activeIds, walletAddress, positions).catch((e) => log("state_error", `Untracked-position check failed: ${e.message}`));
       setPositionsCache(result);
     }
     return result;

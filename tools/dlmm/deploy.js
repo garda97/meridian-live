@@ -18,6 +18,8 @@ import {
 import { isBinSlippageError, planBinSlippageRetry } from "./rules.js";
 import { invalidatePositionsCache } from "./positions-cache.js";
 import { getMyPositions } from "./positions.js";
+import { addLiquidityChunked, reclaimEmptyPositionAccount } from "./liquidity.js";
+import { estimatePositionSolAmount } from "./position-utils.js";
 import { trackPosition } from "../../state.js";
 import {
   addPoolNote,
@@ -471,6 +473,7 @@ export async function deployPosition({
         await assertRangeDoesNotRequireBinArrayInitialization(pool, runMinBinId, runMaxBinId);
       }
       const txHashes = [];
+      let wideAdd = null;
 
       if (runIsWide) {
         // ── Wide Range Path (>69 bins) ─────────────────────────────────
@@ -494,33 +497,25 @@ export async function deployPosition({
           log("deploy", `Create tx ${i + 1}/${createTxArray.length}: ${txHash}`);
         }
 
+        // Phase 2: Add liquidity (may be multiple txs; fresh blockhash per tx + partial adopt)
         try {
-          // Phase 2: Add liquidity (may be multiple txs)
-          const addTxs = await pool.addLiquidityByStrategyChunkable({
+          wideAdd = await addLiquidityChunked(pool, {
             positionPubKey: newPosition.publicKey,
-            user: wallet.publicKey,
             totalXAmount: totalXLamports,
             totalYAmount: totalYLamports,
             strategy: { minBinId: runMinBinId, maxBinId: runMaxBinId, strategyType: runStrategyType },
-            slippage: 10, // 10%
+            slippage: 10,
+            wallet,
+            logPrefix: "deploy",
           });
-          const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
-          for (let i = 0; i < addTxArray.length; i++) {
-            const txHash = await sendAndConfirmTransaction(getConnection(), addTxArray[i], [wallet]);
-            txHashes.push(txHash);
-            log("deploy", `Add liquidity tx ${i + 1}/${addTxArray.length}: ${txHash}`);
-          }
+          txHashes.push(...wideAdd.txHashes);
         } catch (addError) {
           // Empty position already exists on-chain; a ladder retry re-anchors
           // with a new keypair, so reclaim this one's rent first.
-          try {
-            const orphan = await pool.getPosition(newPosition.publicKey);
-            const closeTx = await pool.closePositionIfEmpty({ owner: wallet.publicKey, position: orphan });
-            if (closeTx) await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]);
-            log("deploy", `Reclaimed empty position ${newPosition.publicKey.toString().slice(0, 8)} after failed add`);
-          } catch (cleanupError) {
-            log("deploy", `Could not reclaim empty position ${newPosition.publicKey.toString()}: ${cleanupError.message}`);
-          }
+          await reclaimEmptyPositionAccount(pool, wallet, newPosition.publicKey.toString(), {
+            delayMs: 0,
+            label: "deploy",
+          });
           throw addError;
         }
       } else {
@@ -548,6 +543,10 @@ export async function deployPosition({
         binsAbove: runBinsAbove,
         isWide: runIsWide,
         retries: attempt,
+        partial: wideAdd?.partial === true,
+        partialAddTxs: wideAdd?.completed ?? null,
+        partialAddTotal: wideAdd?.total ?? null,
+        partialError: wideAdd?.error ?? null,
       };
       break;
     } catch (error) {
@@ -582,6 +581,19 @@ export async function deployPosition({
   // Always consume staged signals — darwin uses them for weighting, the deploy
   // decision log uses them for the holder-audit snapshot.
   const signalSnapshot = getAndClearStagedSignals(pool_address, baseMint);
+  let trackedAmountY = finalAmountY;
+  if (deployed.partial) {
+    try {
+      const onChainSol = await estimatePositionSolAmount(pool, deployed.position);
+      if (onChainSol != null && onChainSol > 0) trackedAmountY = onChainSol;
+    } catch (estimateError) {
+      log("deploy", `Could not estimate partial deploy SOL amount: ${estimateError.message}`);
+    }
+    log(
+      "deploy",
+      `Partial wide deploy adopted — ${deployed.partialAddTxs}/${deployed.partialAddTotal} add txs, ~${trackedAmountY.toFixed(3)} SOL on-chain`,
+    );
+  }
   trackPosition({
     position: deployed.position,
     pool: pool_address,
@@ -592,7 +604,7 @@ export async function deployPosition({
     volatility: normalizedVolatility,
     fee_tvl_ratio,
     organic_score,
-    amount_sol: finalAmountY,
+    amount_sol: trackedAmountY,
     amount_x: finalAmountX,
     active_bin: deployed.activeBinId,
     initial_value_usd,
@@ -610,8 +622,10 @@ export async function deployPosition({
     pool: pool_address,
     pool_name,
     position: deployed.position,
-    summary: `Deployed ${finalAmountY} SOL with ${deployed.strategy}`,
-    reason: `Chosen range ${deployed.minBinId}→${deployed.maxBinId} around active bin ${deployed.activeBinId}${deployed.retries > 0 ? ` (0x1774 ladder: ${deployed.retries} retr${deployed.retries === 1 ? "y" : "ies"})` : ""}`,
+    summary: deployed.partial
+      ? `Partial deploy ~${trackedAmountY} SOL (${deployed.partialAddTxs}/${deployed.partialAddTotal} add txs) with ${deployed.strategy}`
+      : `Deployed ${finalAmountY} SOL with ${deployed.strategy}`,
+    reason: `Chosen range ${deployed.minBinId}→${deployed.maxBinId} around active bin ${deployed.activeBinId}${deployed.partial ? ` (partial wide add: ${deployed.partialError || "mid-sequence failure"})` : ""}${deployed.retries > 0 ? ` (0x1774 ladder: ${deployed.retries} retr${deployed.retries === 1 ? "y" : "ies"})` : ""}`,
     risks: [
       normalizedVolatility != null ? `volatility ${normalizedVolatility}` : null,
       fee_tvl_ratio != null ? `fee/TVL ${fee_tvl_ratio}%` : null,

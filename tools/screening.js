@@ -13,6 +13,9 @@ import {
 import { confirmIndicatorPreset } from "./chart-indicators.js";
 import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { fetchWithTimeout } from "../utils/fetch-timeout.js";
+import { getBlockedThemeRejectReason } from "../utils/blocked-theme.js";
+import { runPoolPreChecks } from "../discord-listener/pre-checks.js";
+import { atomicWriteFileSync } from "../utils/atomic-write.js";
 import { getGmgnTokenSecurity, getGmgnTokenTopHolders, hasGmgnApiKey } from "./gmgn.js";
 
 const SCREENING_FETCH_TIMEOUT_MS = 10_000;
@@ -251,9 +254,20 @@ export function getRawPoolScreeningRejectReason(pool, s) {
   if (pool?.base_token_has_high_single_ownership === true) return "base token has high single ownership";
   if (pool?.pool_type && pool.pool_type !== "dlmm") return `pool_type ${pool.pool_type} is not dlmm`;
 
+  const themeReject = getBlockedThemeRejectReason(
+    {
+      poolName: pool?.name || pool?.pool_name,
+      symbol: base?.symbol || pool?.mint_x_symbol,
+    },
+    s.blockedNameKeywords,
+  );
+  if (themeReject) return themeReject;
+
   if (mcap == null || mcap < s.minMcap) return `mcap ${mcap ?? "unknown"} below minMcap ${s.minMcap}`;
   if (mcap > s.maxMcap) return `mcap ${mcap} above maxMcap ${s.maxMcap}`;
-  if (holders == null || holders < s.minHolders) return `holders ${holders ?? "unknown"} below minHolders ${s.minHolders}`;
+  if (s.minHolders != null && (holders == null || holders < s.minHolders)) {
+    return `holders ${holders ?? "unknown"} below minHolders ${s.minHolders}`;
+  }
   if (volume == null || volume < s.minVolume) return `volume ${volume ?? "unknown"} below minVolume ${s.minVolume}`;
   if (tvl == null || tvl < s.minTvl) return `TVL ${tvl ?? "unknown"} below minTvl ${s.minTvl}`;
   if (s.maxTvl != null && tvl > s.maxTvl) return `TVL ${tvl} above maxTvl ${s.maxTvl}`;
@@ -465,13 +479,30 @@ async function fetchLocalDiscordSignalCandidates(timeframe) {
   const pending = signals.filter((s) => s.status === "pending" && s.pool_address);
   if (pending.length === 0) return [];
 
+  let rejectedCount = 0;
   const results = await Promise.allSettled(
     pending.map(async (signal) => {
+      const precheck = await runPoolPreChecks(signal.pool_address);
+      if (!precheck.pass) {
+        signal.status = "rejected";
+        signal.rejected_at = new Date().toISOString();
+        signal.reject_reason = precheck.reason;
+        rejectedCount += 1;
+        log("screening", `Local signal rejected ${signal.pool_address?.slice(0, 8)}: ${precheck.reason}`);
+        return null;
+      }
+
       const discoveryPool = await fetchPoolDiscoveryDetail({
         poolAddress: signal.pool_address,
         timeframe,
       });
-      if (!discoveryPool?.pool_address) return null;
+      if (!discoveryPool?.pool_address) {
+        signal.status = "rejected";
+        signal.rejected_at = new Date().toISOString();
+        signal.reject_reason = "pool not found in discovery API";
+        rejectedCount += 1;
+        return null;
+      }
       return {
         discovery_pool: discoveryPool,
         source_count: 1,
@@ -479,16 +510,24 @@ async function fetchLocalDiscordSignalCandidates(timeframe) {
         first_seen_at: signal.queued_at || null,
         last_seen_at: signal.queued_at || null,
         local_signal_id: signal.id || null,
+        signal_source: signal.source || signal.signal_source || null,
+        signal_note: signal.note || null,
+        wallet_signal: signal.wallet_signal || null,
       };
     }),
   );
+
+  if (rejectedCount > 0) {
+    atomicWriteFileSync(DISCORD_SIGNALS_FILE, JSON.stringify(signals, null, 2));
+    log("screening", `Pruned ${rejectedCount} local signal(s) that failed Meteora pre-check`);
+  }
 
   const candidates = results
     .filter((r) => r.status === "fulfilled" && r.value)
     .map((r) => r.value);
 
   if (candidates.length > 0) {
-    log("screening", `Loaded ${candidates.length} local Discord signal(s) from discord-signals.json`);
+    log("screening", `Loaded ${candidates.length} Meteora-valid local signal(s) from discord-signals.json`);
   }
   return candidates;
 }
@@ -514,6 +553,9 @@ async function fetchDiscordSignalCandidates(timeframe) {
       source_count: Math.max(existing.source_count || 1, candidate.source_count || 1),
       seen_count: Math.max(existing.seen_count || 1, candidate.seen_count || 1),
       last_seen_at: candidate.last_seen_at || existing.last_seen_at,
+      signal_source: candidate.signal_source || existing.signal_source || null,
+      signal_note: candidate.signal_note || existing.signal_note || null,
+      wallet_signal: candidate.wallet_signal || existing.wallet_signal || null,
     });
   }
   return Array.from(byPool.values());
@@ -796,6 +838,9 @@ export async function discoverPools({
           discord_signal_seen_count: candidate.seen_count || 1,
           discord_signal_first_seen_at: candidate.first_seen_at || null,
           discord_signal_last_seen_at: candidate.last_seen_at || null,
+          signal_source: candidate.signal_source || null,
+          signal_note: candidate.signal_note || null,
+          wallet_signal: candidate.wallet_signal || null,
         };
       })
       .filter(Boolean);
@@ -816,6 +861,9 @@ export async function discoverPools({
             discord_signal_seen_count: signalPool.discord_signal_seen_count,
             discord_signal_first_seen_at: signalPool.discord_signal_first_seen_at,
             discord_signal_last_seen_at: signalPool.discord_signal_last_seen_at,
+            signal_source: signalPool.signal_source || byPool.get(signalPool.pool_address).signal_source || null,
+            signal_note: signalPool.signal_note || byPool.get(signalPool.pool_address).signal_note || null,
+            wallet_signal: signalPool.wallet_signal || byPool.get(signalPool.pool_address).wallet_signal || null,
           });
         } else {
           byPool.set(signalPool.pool_address, signalPool);
@@ -1251,6 +1299,9 @@ function condensePool(p) {
     discord_signal_count: p.discord_signal_count || 0,
     discord_signal_seen_count: p.discord_signal_seen_count || 0,
     discord_signal_last_seen_at: p.discord_signal_last_seen_at || null,
+    signal_source: p.signal_source || null,
+    signal_note: p.signal_note || null,
+    wallet_signal: p.wallet_signal || null,
 
     // Price action
     price: p.pool_price,

@@ -14,7 +14,7 @@ import { getTrackedPosition, confirmPeak, updatePnlAndCheckExits } from "../../s
 import { isRebalanceCandidate, resolveRebalancePlanForPosition, shouldRebalance, computeTvlDilution, checkTvlDilutionExit } from "../../tools/position-router.js";
 import { executeTool } from "../../tools/executor.js";
 import { observeOpenPosition } from "../../lessons.js";
-import { getMyPositions, rebalancePosition } from "../../tools/dlmm.js";
+import { getMyPositions, rebalancePosition, reshapePosition, flipToCurve, resumePendingShapeOperations } from "../../tools/dlmm.js";
 import { canTriggerScreening } from "../../utils/screening-gate.js";
 import { isEnabled as telegramEnabled, notifyOutOfRange, sendMessage, createLiveMessage } from "../../telegram.js";
 import { TG, TG_TITLES, localizeTelegramReport } from "../../utils/telegram-id.js";
@@ -101,15 +101,38 @@ export async function executeManagementActions(actionPositions, actionMap, { liv
       await liveMessage?.toolFinish("close_position", res, ok);
       lines.push(`${p.pair}: ${ok ? `closed (${reason})` : `close FAILED — ${res?.error || res?.reason || "unknown"}`}`);
     } else if (act.action === "REBALANCE") {
-      await liveMessage?.toolStart("rebalance_position");
-      const res = await rebalancePosition({ position_address: p.position, plan: act.plan, reason: act.reason }).catch(e => ({ error: e.message }));
+      const rtype = act.plan?.rebalance_type;
+      const toolName = rtype === "reshape" ? "reshape_position" : rtype === "flip_to_curve" ? "flip_to_curve" : "rebalance_position";
+      await liveMessage?.toolStart(toolName);
+      let res;
+      if (rtype === "reshape") {
+        res = await reshapePosition({
+          position_address: p.position,
+          pool_address: p.pool,
+          reason: act.reason,
+        }).catch((e) => ({ error: e.message }));
+      } else if (rtype === "flip_to_curve") {
+        res = await flipToCurve({
+          position_address: p.position,
+          pool_address: p.pool,
+          reason: act.reason,
+        }).catch((e) => ({ error: e.message }));
+      } else {
+        res = await rebalancePosition({ position_address: p.position, plan: act.plan, reason: act.reason }).catch((e) => ({ error: e.message }));
+      }
       const ok = res?.success === true;
-      await liveMessage?.toolFinish("rebalance_position", res, ok);
-      lines.push(`${p.pair}: ${ok
-        ? `rebalanced (${act.plan?.rebalance_type}, ${res.rebalance_path}) → bins ${res.bin_range?.min}→${res.bin_range?.max}`
-        : res?.blocked
-          ? `rebalance SKIPPED — ${res?.error || "blocked"}`
-          : `rebalance FAILED — ${res?.error || "unknown"}${res?.position_closed ? " (position closed, funds in wallet)" : ""}`}`);
+      await liveMessage?.toolFinish(toolName, res, ok);
+      if (rtype === "reshape") {
+        lines.push(`${p.pair}: ${ok ? `reshaped (${act.reason})` : `reshape FAILED — ${res?.error || "unknown"}`}`);
+      } else if (rtype === "flip_to_curve") {
+        lines.push(`${p.pair}: ${ok ? `flipped → curve ${String(res.position || "").slice(0, 8)}` : `flip FAILED — ${res?.error || "unknown"}`}`);
+      } else {
+        lines.push(`${p.pair}: ${ok
+          ? `rebalanced (${act.plan?.rebalance_type}, ${res.rebalance_path}) → bins ${res.bin_range?.min}→${res.bin_range?.max}`
+          : res?.blocked
+            ? `rebalance SKIPPED — ${res?.error || "blocked"}`
+            : `rebalance FAILED — ${res?.error || "unknown"}${res?.position_closed ? " (position closed, funds in wallet)" : ""}`}`);
+      }
     } else if (act.action === "CLAIM") {
       await liveMessage?.toolStart("claim_fees");
       const res = await executeTool("claim_fees", { position_address: p.position }).catch(e => ({ error: e.message }));
@@ -163,6 +186,10 @@ export async function runManagementCycle({ silent = false } = {}) {
 
   try {
     reloadUserConfigFromDisk();
+    await mgmtPhase("resume_pending_shape", resumePendingShapeOperations().catch((e) => {
+      log("cron_error", `Pending reshape/flip resume failed: ${e.message}`);
+      return [];
+    }), 120000);
     if (!silent && telegramEnabled()) {
       liveMessage = await mgmtPhase("createLiveMessage", createLiveMessage(TG_TITLES.management, TG_TITLES.managementEval), 20000);
     }

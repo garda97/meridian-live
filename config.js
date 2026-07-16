@@ -151,6 +151,9 @@ export const config = {
     loneCandidateMinDegen: u.loneCandidateMinDegen ?? 50, // degen score that lets a SOLO candidate deploy without a narrative
     allowedLaunchpads: u.allowedLaunchpads ?? [],  // allow-list launchpads, [] = no allow-list
     blockedLaunchpads:  u.blockedLaunchpads  ?? [],  // e.g. ["letsbonk.fun", "pump.fun"]
+    blockedNameKeywords: Array.isArray(u.blockedNameKeywords) && u.blockedNameKeywords.length > 0
+      ? u.blockedNameKeywords.map((k) => String(k).trim().toLowerCase()).filter(Boolean)
+      : ["trump", "musk", "elon", "barron", "melania", "melani"], // hard-skip political/celebrity bait names in pool + symbol
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     rugcheckEnabled:    boolConfig(u.rugcheckEnabled, true), // rugcheck.xyz gate on final candidates (fails open on API error)
@@ -256,6 +259,7 @@ export const config = {
     ilGapCloseEnabled:      boolConfig(u.ilGapCloseEnabled, false),
     ilGapCloseThresholdPct: u.ilGapCloseThresholdPct ?? 15,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
+    minAgeBeforeOorClose: u.minAgeBeforeOorClose ?? 5, // minutes before RULE_3/4 OOR closes (stop-loss still immediate)
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
     // Min hold before deterministic take-profit may fire (deposits + PnL cache settle).
     // Stop loss stays live. Default tracks pnlWarmupMinutes (≥ pnlDepositCacheTtlSec/60).
@@ -303,6 +307,27 @@ export const config = {
     minBinsBelow: strategyMinBinsBelow,
     maxBinsBelow: strategyMaxBinsBelow,
     defaultBinsBelow: strategyDefaultBinsBelow,
+  },
+
+  // ─── Reshape / Flip (2026-07-14, ported from yunus-0x/fees-maxi) ───────
+  // Reshape: withdraw all liquidity from an in-range Curve position and
+  // re-add the measured amount back into the SAME account, re-centered on
+  // the current active bin — cheaper than a full close+reopen for ordinary
+  // in-range price drift. Flip: once a bid_ask position's token value share
+  // has settled to ~50:50 (it accumulated the dumping token as price fell
+  // into it), close it and reopen a centered Curve position with the exact
+  // withdrawn amounts, no swap. Both default OFF — real-money bot, ship
+  // dark first and enable explicitly after a DRY_RUN/tiny-size trial.
+  reshape: {
+    enabled:          boolConfig(u.reshapeEnabled, false),
+    binTrigger:        u.reshapeBinTrigger        ?? 3,      // active-bin drift (bins) that triggers a reshape
+    minIntervalMs:     u.reshapeMinIntervalMs      ?? 10_000, // min time between reshapes on the same position
+    depositSafetyBps:  u.reshapeDepositSafetyBps   ?? 9950,   // re-add this fraction (bps) of the measured withdrawn delta
+  },
+  flip: {
+    enabled:  boolConfig(u.flipEnabled, false),
+    ratioLow:  u.flipRatioLow  ?? 0.4, // token-value-share band [ratioLow, ratioHigh] that triggers bid_ask -> curve
+    ratioHigh: u.flipRatioHigh ?? 0.6,
   },
 
   // ─── Scheduling ─────────────────────────
@@ -501,6 +526,13 @@ export const config = {
     chillMinTvl: Number(u.chillMinTvl ?? 100000),
     chillMinAgeHours: Number(u.chillMinAgeHours ?? 168), // 7 hari
     chillMaxVolatility: Number(u.chillMaxVolatility ?? 2),
+    // D — Vladimir-style bid_ask wide range: SOL-below deploys target a %
+    // downside (young/pump → wide, mature → narrower). Spot/curve unchanged.
+    bidAskWideRangeEnabled: boolConfig(u.bidAskWideRangeEnabled, false),
+    bidAskDownsidePctYoung: Number(u.bidAskDownsidePctYoung ?? 90),
+    bidAskDownsidePctMature: Number(u.bidAskDownsidePctMature ?? 65),
+    bidAskYoungMaxAgeHours: Number(u.bidAskYoungMaxAgeHours ?? 48),
+    bidAskYoungPumpPct1h: Number(u.bidAskYoungPumpPct1h ?? 80),
   },
 
   indicators: {
@@ -622,6 +654,24 @@ function applyFlatUserKey(fresh, key) {
     case "positionSizePct":
       if (fresh.positionSizePct != null) config.management.positionSizePct = n(fresh.positionSizePct);
       break;
+    case "strategyDeployAmountSol":
+      if (fresh.strategyDeployAmountSol && typeof fresh.strategyDeployAmountSol === "object") {
+        config.management.strategyDeployAmountSol = fresh.strategyDeployAmountSol;
+      }
+      break;
+    case "lossRedeployMinLossPct":
+      if (fresh.lossRedeployMinLossPct != null) {
+        config.management.lossRedeployMinLossPct = Math.max(0, n(fresh.lossRedeployMinLossPct));
+      }
+      break;
+    case "stopLossPct":
+      if (fresh.stopLossPct != null) config.management.stopLossPct = n(fresh.stopLossPct);
+      break;
+    case "maxLossPct":
+      if (fresh.maxLossPct !== undefined) {
+        config.management.maxLossPct = fresh.maxLossPct == null ? null : n(fresh.maxLossPct);
+      }
+      break;
     case "dailyLossLimitUsd":
       if (fresh.dailyLossLimitUsd !== undefined) {
         config.management.dailyLossLimitUsd = fresh.dailyLossLimitUsd == null ? null : n(fresh.dailyLossLimitUsd);
@@ -686,8 +736,77 @@ function applyFlatUserKey(fresh, key) {
     case "generalModel":
       if (fresh.generalModel) config.llm.generalModel = fresh.generalModel;
       break;
+    case "reshapeEnabled":
+      if (fresh.reshapeEnabled !== undefined) config.reshape.enabled = !!fresh.reshapeEnabled;
+      break;
+    case "reshapeBinTrigger":
+      if (fresh.reshapeBinTrigger != null) config.reshape.binTrigger = Math.max(1, Math.round(n(fresh.reshapeBinTrigger)));
+      break;
+    case "flipEnabled":
+      if (fresh.flipEnabled !== undefined) config.flip.enabled = !!fresh.flipEnabled;
+      break;
     default:
       break;
+  }
+}
+
+/** Reload all auto-strategy + rebalance-router knobs from user-config.json. */
+export function reloadAutoStrategyFromUserConfig(fresh) {
+  if (!fresh || typeof fresh !== "object") return;
+  const a = config.autoStrategy;
+  const setBool = (key, target, defaultValue) => {
+    if (fresh[key] !== undefined) a[target] = boolConfig(fresh[key], defaultValue);
+  };
+  const setNum = (key, target, transform = Number) => {
+    if (fresh[key] != null && fresh[key] !== "") a[target] = transform(fresh[key]);
+  };
+
+  setBool("autoStrategyEnabled", "enabled", true);
+  setBool("autoStrategyFetchIndicators", "fetchIndicators", true);
+  if (fresh.autoStrategyIndicatorInterval) {
+    a.indicatorInterval = nonEmptyString(fresh.autoStrategyIndicatorInterval, a.indicatorInterval);
+  }
+  setBool("autoStrategyAllowSpot", "allowSpot", true);
+  setBool("autoStrategyAllowCurve", "allowCurve", false);
+  setBool("autoStrategyPreferSpotHighFee", "preferSpotHighFee", true);
+  setNum("autoStrategySpotFeeTvlMin", "spotFeeTvlMin");
+  setNum("autoStrategySpotRatioBelow", "spotRatioBelow");
+  setNum("autoStrategyMaxPumpPct1h", "maxPumpPct1h");
+  setNum("autoStrategyMaxOorRisk", "maxOorRisk");
+  if (fresh.autoStrategyMaxBins != null) {
+    a.maxBins = Math.max(69, Math.round(Number(fresh.autoStrategyMaxBins)));
+  }
+  setBool("autoStrategyRequireEntryConfirm", "requireEntryConfirm", false);
+  setNum("minUpsideCoverPctPump", "minUpsideCoverPctPump");
+  setBool("athEntryGateEnabled", "athEntryGateEnabled", false);
+  if (fresh.athGateFailMode === "closed" || fresh.athGateFailMode === "open") {
+    a.athGateFailMode = fresh.athGateFailMode;
+  }
+  setNum("athLookbackCandles", "athLookbackCandles", (v) => Math.max(2, Number(v)));
+  setBool("supertrendRange", "supertrendRange", false);
+  setBool("dropEntryGate", "dropEntryGate", false);
+  setNum("dropEntryMin", "dropEntryMin");
+  setNum("dropEntryMax", "dropEntryMax");
+  setBool("bidAskChillEnabled", "bidAskChillEnabled", false);
+  setBool("bidAskWideRangeEnabled", "bidAskWideRangeEnabled", false);
+  setNum("bidAskDownsidePctYoung", "bidAskDownsidePctYoung");
+  setNum("bidAskDownsidePctMature", "bidAskDownsidePctMature");
+  setNum("bidAskYoungMaxAgeHours", "bidAskYoungMaxAgeHours");
+  setNum("bidAskYoungPumpPct1h", "bidAskYoungPumpPct1h");
+  if (fresh.tgeMaxAgeHours !== undefined) {
+    a.tgeMaxAgeHours = fresh.tgeMaxAgeHours == null ? null : Number(fresh.tgeMaxAgeHours);
+  }
+  setNum("tgeMinFeePct", "tgeMinFeePct");
+  setNum("tgeMaxHoldHours", "tgeMaxHoldHours");
+
+  if (fresh.tgePlayEnabled !== undefined) {
+    config.management.tgePlayEnabled = boolConfig(fresh.tgePlayEnabled, false);
+  }
+  if (fresh.autoRebalanceEnabled !== undefined) {
+    config.management.autoRebalanceEnabled = boolConfig(fresh.autoRebalanceEnabled, true);
+  }
+  if (fresh.rebalanceOnStrategyDrift !== undefined) {
+    config.management.rebalanceOnStrategyDrift = boolConfig(fresh.rebalanceOnStrategyDrift, true);
   }
 }
 
@@ -701,14 +820,16 @@ export function reloadUserConfigFromDisk() {
   try {
     if (!fs.existsSync(USER_CONFIG_PATH)) return;
     const fresh = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+    reloadAutoStrategyFromUserConfig(fresh);
     for (const key of [
-      "maxPositions", "maxDeployAmount", "deployAmountSol", "gasReserve", "minSolToOpen",
+      "maxPositions", "maxDeployAmount", "deployAmountSol", "strategyDeployAmountSol", "lossRedeployMinLossPct", "stopLossPct", "maxLossPct", "gasReserve", "minSolToOpen",
       "positionSizePct", "dailyLossLimitUsd", "noDeployAfterHour", "noDeployBeforeHour",
       "screeningIntervalMin", "managementIntervalMin", "opportunityPollEnabled",
       "autoStrategyEnabled", "autoStrategyMaxBins", "rugcheckTop10MaxPct",
       "rebalanceMinAgeMinutes", "rebalanceMinOorMinutes", "rebalanceCooldownMinutes",
       "minAgeBeforeYieldCheck",
       "screeningModel", "managementModel", "generalModel",
+      "reshapeEnabled", "reshapeBinTrigger", "flipEnabled",
     ]) {
       applyFlatUserKey(fresh, key);
     }
@@ -747,6 +868,11 @@ export function reloadScreeningThresholds() {
     if (fresh.maxBotHoldersPct  != null) s.maxBotHoldersPct = fresh.maxBotHoldersPct;
     if (fresh.allowedLaunchpads !== undefined) s.allowedLaunchpads = fresh.allowedLaunchpads;
     if (fresh.blockedLaunchpads !== undefined) s.blockedLaunchpads = fresh.blockedLaunchpads;
+    if (fresh.blockedNameKeywords !== undefined) {
+      s.blockedNameKeywords = Array.isArray(fresh.blockedNameKeywords)
+        ? fresh.blockedNameKeywords.map((k) => String(k).trim().toLowerCase()).filter(Boolean)
+        : ["trump", "musk", "elon", "barron", "melania", "melani"];
+    }
     const minBinsBelow = numericConfig(fresh.minBinsBelow) ?? config.strategy.minBinsBelow;
     const maxBinsBelow = numericConfig(fresh.maxBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.maxBinsBelow;
     const defaultBinsBelow = numericConfig(fresh.defaultBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.defaultBinsBelow ?? maxBinsBelow;

@@ -15,6 +15,7 @@ import {
   evictPool,
   sendAndConfirmTransaction,
 } from "./sdk.js";
+import { positionHasLiquidity } from "./position-utils.js";
 import { invalidatePositionsCache } from "./positions-cache.js";
 import { REBALANCE_SETTLE_DELAY_MS } from "./rules.js";
 import { lookupPoolForPosition } from "./positions.js";
@@ -329,6 +330,57 @@ export async function addLiquidity({
   } catch (error) {
     log("add_liquidity_error", error.message);
     return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Wide-range chunkable add with fresh blockhash per tx.
+ * On mid-sequence failure, adopts partial liquidity instead of leaving an orphan.
+ */
+export async function addLiquidityChunked(pool, {
+  positionPubKey,
+  totalXAmount,
+  totalYAmount,
+  strategy,
+  slippage = 10,
+  wallet,
+  logPrefix = "deploy",
+}) {
+  const addTxs = await pool.addLiquidityByStrategyChunkable({
+    positionPubKey,
+    user: wallet.publicKey,
+    totalXAmount,
+    totalYAmount,
+    strategy,
+    slippage,
+  });
+  const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
+  const txHashes = [];
+  let completed = 0;
+
+  try {
+    for (let i = 0; i < addTxArray.length; i++) {
+      const txHash = await sendAndConfirmTransaction(getConnection(), addTxArray[i], [wallet]);
+      txHashes.push(txHash);
+      completed = i + 1;
+      log(logPrefix, `Add liquidity tx ${completed}/${addTxArray.length}: ${txHash}`);
+    }
+    return { success: true, txHashes, completed, total: addTxArray.length, partial: false };
+  } catch (error) {
+    const hasLiq = await positionHasLiquidity(pool, positionPubKey);
+    if (!hasLiq) throw error;
+    log(
+      logPrefix,
+      `Partial chunkable add ${completed}/${addTxArray.length} — position has liquidity, adopting (${error.message})`,
+    );
+    return {
+      success: true,
+      txHashes,
+      completed,
+      total: addTxArray.length,
+      partial: true,
+      error: error.message,
+    };
   }
 }
 

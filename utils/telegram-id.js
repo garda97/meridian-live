@@ -9,6 +9,15 @@ export const TG_TITLES = {
   managementEval: "Mengevaluasi posisi...",
 };
 
+/** Escape for Telegram parse_mode=HTML user-controlled strings. */
+export function escapeTelegramHtml(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 /** Terjemahkan laporan screening/management/LLM (EN → ID). */
 export function translateReport(text = "") {
   if (!text) return text;
@@ -143,8 +152,11 @@ export const TG = {
       return `${signed ? sgn(v) : ""}◎${Math.abs(v).toFixed(4)}`;
     };
     const pnlSol = solStr(pnlUsd);
+    const safePair = escapeTelegramHtml(pair);
+    const safeStrategy = strategy ? escapeTelegramHtml(strategy) : null;
+    const safeReason = reason ? escapeTelegramHtml(reason) : null;
     const lines = [
-      `${color} <b>Position Closed</b> — ${pair}`,
+      `${color} <b>Position Closed</b> — ${safePair}`,
       `💰 PnL: ${sgn(pnlUsd)}$${Math.abs(Number(pnlUsd) || 0).toFixed(2)}${pnlSol ? ` (${pnlSol})` : ""} (${sgn(pnlPct)}${Math.abs(Number(pnlPct) || 0).toFixed(2)}%)`,
     ];
     if (deployedUsd != null || amountSol != null) {
@@ -153,8 +165,8 @@ export const TG = {
       lines.push(`💎 Deployed: ${dep}${depSol}`);
     }
     if (holdMinutes != null) lines.push(`⏱️ Hold time: ${fmtHold(holdMinutes)}`);
-    if (strategy) lines.push(`📐 Strategy: ${strategy}`);
-    if (reason) lines.push(`📝 Reason: ${reason}`);
+    if (safeStrategy) lines.push(`📐 Strategy: ${safeStrategy}`);
+    if (safeReason) lines.push(`📝 Reason: ${safeReason}`);
     if (feesUsd != null) {
       const feeSol = solStr(feesUsd, false);
       lines.push(`💸 Fees: $${Number(feesUsd).toFixed(2)}${feeSol ? ` (${feeSol})` : ""}`);
