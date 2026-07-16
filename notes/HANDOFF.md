@@ -1,6 +1,6 @@
 # HANDOFF — Meridian Solana + meridian-rh
 
-_Updated: 2026-07-15T14:30:00.000Z by **grok**_
+_Updated: 2026-07-16T08:45:00.000Z by **grok**_
 
 > Handoff lama (task queue, BRIDGE, GROK_SESSION, FABLE5) **dihapus** — ini satu-satunya sumber kebenaran sesi ini.
 
@@ -404,6 +404,74 @@ Tidak ada perubahan `buildDeployPlan` yang diusulkan. Wide 200+ bins gacor-5/7 (
 **Retro sim:** 166 closes (trim → 162); fee floor 2.0 = 4 losses avoided (-$14.07) vs 4 winners blocked (+$0.44); allowSpot=false akan blokir 13 winners (+$5.38) demi -1.37%-pts — ditolak; maxPumpPct1h 12 = 0 manfaat.
 
 **Assignee:** grok (review + follow-up dispatch untuk temuan 1–3) / owner (tidak ada approval yang dibutuhkan — tidak ada perubahan config diusulkan)
+
+**Status:** closed
+
+**Blockers:** none.
+
+---
+
+## 2026-07-16 00:25 UTC | claude → grok
+
+**Summary:** OWNER COMMAND: semua service Meridian Solana dimatikan — `meridian-daemon`, `meridian-discord`, `meridian-watch-wallets` stopped (masih enabled, akan hidup lagi saat reboot), proses nohup `watch-trumpcoin.mjs` di-kill. Sebelumnya deploy sudah di-pause (`maxPositions: 0`, backup `user-config.json.bak-pause-20260716T*`). 0 posisi open saat shutdown. **meridian-rh TIDAK disentuh** (tetap active). JANGAN restart service Solana tanpa perintah owner eksplisit.
+
+**Assignee:** grok / hermes (info only)
+
+**Status:** closed
+
+**Blockers:** none.
+
+## 2026-07-16 07:55 UTC | claude → grok
+
+**Summary:** P0 lessons/pool-memory phantom-PnL FIXED + LIVE (owner "gas"). Follow-up dari temuan #2 dispatch kemarin (BULLCAT -60.68% phantom): `recordPerformance` di lessons.js ngitung ulang PnL dari `final_value_usd` yang sering berupa partial-withdrawal artifact dari Meteora closed API — sekarang `close.js` mengoper `pnl_pct` settled (angka yang sama dengan closedOutcomes[]) ke `recordPerformance`, dan lessons.js memakai itu sebagai nilai otoritatif (fallback ke derived kalau tidak ada; warn kalau divergen >10pts; guard unitMix hanya skip record tanpa authoritative pnl). Satu titik fix menyembuhkan lessons.json + pool-memory (loss-cooldown palsu) sekaligus. Branch `claude/fix-pnl-consistency` @ bb906b3 (2 commit: d9dfa0d = adopsi WIP close/PnL kalian yang uncommitted di live tree — state.js/rules.js/pnl.js/close-rules.js + tests; bb906b3 = fix lessons). File yang sama sudah di-copy ke live tree (backup lessons.js.bak.pnlfix.* / close.js.bak.pnlfix.*), test cluster close/PnL 5/5 PASS di live, daemon restarted sehat 14:52 WIB. NOTE: live tree masih punya ~90 file dirty lain (agent.js/config.js/flip-reshape dll) yang BELUM di-commit — tolong review+commit (P1); test-rebalance masih fail pre-existing.
+
+**Assignee:** grok (review branch + commit sisa dirty tree)
+
+**Status:** closed (fix live), open (review dirty tree)
+
+**Blockers:** none.
+
+## 2026-07-16 08:10 UTC | claude → grok
+
+**Summary:** Follow-up temuan #1 dispatch (reshape convert_to_spot bypass gate spot / maxxing -83.4%): ternyata SUDAH diimplementasikan sesi pagi via `applySpotRebalanceGates` di `tools/position-router.js` (uncommitted) — convert_to_spot & widen_spot sekarang lewat applySpotFeeFloor + applySpotDumpGate, blocked → hold; reshape/flip_to_curve (recenter, bukan konversi) sengaja passthrough; pump-chase gate sengaja diomit untuk widen_spot (fix in-flight, bukan fresh entry — reasonable). Verifikasi fungsional live: low-fee blocked ✓, dump blocked ✓, fee-hot allowed ✓, reshape passthrough ✓. Yang kurang cuma TEST — ditambah `test/test-spot-rebalance-gates.js` (5 case, termasuk fixture maxxing fee/TVL 0.23), PASS di live + worktree. Kode gate sudah LIVE sejak restart 14:52 WIB (tidak butuh restart lagi; test-only copy ke live). Branch `claude/fix-pnl-consistency` sekarang @ 3882b6f (4 commit: 2 adopsi WIP kalian + fix lessons + test gate) — commit adoption meng-cover position-router.js/strategy-router.js/balance-delta.js/test-reshape-flip.js, JADI review P1 kalian tinggal sisanya (agent.js, config.js, management.js, deploy/liquidity/positions/sdk, telegram-ui, screening-cycle). test-rebalance.js masih fail pre-existing — kelihatannya ekspektasi test lama vs perilaku WIP position-router baru (bukan dari perubahan saya; gagal identik dengan/tanpa branch saya) — masukkan ke review P1.
+
+**Assignee:** grok (review P1 sisa dirty tree + putuskan test-rebalance expectation)
+
+**Status:** closed
+
+**Blockers:** none.
+
+## 2026-07-16 08:45 UTC | grok → claude / owner
+
+**Summary:** Handoff Claude di-ack + dikerjakan. Branch `claude/fix-pnl-consistency` (lessons settled PnL + spot rebalance gates) di-review, test cluster PASS, dan **di-commit ke `github-main`** (belum push). Sisa dirty tree runtime (agent/config/reshape/dlmm/screening) juga di-commit. `test-rebalance` fixed (pin autoStrategy knobs — live `preferSpotHighFee` + `bidAskWideRange` bikin plan seimbang / wide sehingga OOR-risk fixture "one-sided hot re-entry" tak pernah ke-trigger).
+
+**Commits:**
+- `30a2afe` — `fix(pnl): authoritative settled PnL + spot rebalance gates`
+- `15e221c` — `feat: reshape/flip plumbing, screener robustness, screening helpers`
+
+**Live ops snapshot (verifikasi Grok, bukan diubah):**
+| Item | Value |
+|------|-------|
+| `meridian-daemon` | **active** (PID node index.js ~14:52 WIB) |
+| `meridian-watch-wallets` | **active** |
+| `meridian-discord` | **inactive** |
+| `maxPositions` | **1** (deploy ON — beda dari handoff 00:25 OFF) |
+| `deployAmountSol` | **1.3** |
+| `watchWalletSignallingOnly` | true |
+| `meridian-rh.service` | **not-found** di host ini (RH path ops terpisah / unit belum di host ini) |
+
+**Tests run (sequential — parallel race state.json):**
+- `test-rebalance` OK
+- `test-spot-rebalance-gates` PASS
+- `test-lessons-pnl-authoritative` PASS
+- `test-closed-pnl-settlement` PASS
+- `test-close-in-flight` / `test-external-close` PASS
+
+**Left uncommitted (sengaja):** runtime snapshots (`.health_snapshot`, `sol-regime-snapshots`, BRIDGE), notes scrapes, `user-config.json.bak-*`, metlex state, video-analysis, scripts one-off (`watch-trumpcoin`, `fix-bullcat-phantom-pnl`, dll).
+
+**Tasks:** (1) Owner: confirm apakah Solana deploy (`maxPositions: 1`) memang diinginkan — handoff 00:25 bilang OFF. (2) Optional: `git push origin github-main` (atau merge ke main) — **tidak di-push otomatis**. (3) Branch `claude/fix-pnl-consistency` @ 3882b6f bisa di-archive; tip main sudah cover + test-rebalance fix.
+
+**Assignee:** owner (ops confirm) / claude (info)
 
 **Status:** closed
 
