@@ -320,6 +320,43 @@ export function setPositionInstruction(position_address, instruction) {
  * aren't raised, trailing can't arm, take-profit can't fire. Stop loss stays
  * live — missing a real instant rug is worse than a spurious 0% close.
  */
+/**
+ * Cumulative lifecycle PnL % vs the ORIGINAL entry, for positions that have
+ * been rebalanced (migrate re-keys the account → per-account PnL basis
+ * resets). current value + unclaimed fees + lifecycle claimed fees vs
+ * initial_value_usd — all in true USD (solMode-independent *_true_usd
+ * fields), matching close.js's settled-PnL semantics (fees included).
+ * Returns null when not applicable (never rebalanced, no USD basis, or the
+ * tick carries no value fields) — caller falls back to the per-account tick.
+ */
+export function computeLifecyclePnlPct(pos, positionData) {
+  if (!pos || !((pos.rebalance_count || 0) > 0)) return null;
+  const initial = Number(pos.initial_value_usd);
+  if (!(initial > 0)) return null;
+  const nowVal = Number(positionData?.total_value_true_usd ?? positionData?.total_value_usd);
+  if (!Number.isFinite(nowVal)) return null;
+  const unclaimed = Number(positionData?.unclaimed_fees_true_usd) || 0;
+  // Lifecycle claimed fees (recordClaim accumulates across migrates). The
+  // per-account collected_fees_true_usd is deliberately NOT added on top —
+  // claims on the current account are already tracked here (adding both
+  // would double-count; an untracked external claim just makes this
+  // conservative, i.e. slightly more likely to stop-loss).
+  const claimed = Number(pos.total_fees_claimed_usd) || 0;
+  return ((nowVal + unclaimed + claimed - initial) / initial) * 100;
+}
+
+/**
+ * confirmPeak with a lifecycle-aware candidate: for rebalanced positions the
+ * per-account tick under-reports (basis reset), so peaks would stop rising
+ * after a migrate and trailing would under-track. Derives the candidate from
+ * the full tick row, then delegates to confirmPeak unchanged.
+ */
+export function confirmPeakFromTick(position_address, positionData, confirmTicks, warmupMinutes) {
+  const pos = load().positions[position_address];
+  const candidate = computeLifecyclePnlPct(pos, positionData) ?? positionData?.pnl_pct;
+  return confirmPeak(position_address, candidate, confirmTicks, warmupMinutes);
+}
+
 export function isInPnlWarmup(pos, warmupMinutes, nowMs = Date.now()) {
   const warmup = Number(warmupMinutes);
   if (!Number.isFinite(warmup) || warmup <= 0) return false;
@@ -580,10 +617,23 @@ export function checkIlGapExit(tracked, positionData, mgmtConfig) {
  * Returns { action, reason } or null if no exit needed.
  */
 export function updatePnlAndCheckExits(position_address, positionData, mgmtConfig) {
-  const { pnl_pct: currentPnlPct, pnl_pct_suspicious, in_range, fee_per_tvl_24h } = positionData;
+  const { pnl_pct: rawPnlPct, pnl_pct_suspicious, in_range, fee_per_tvl_24h } = positionData;
   const state = load();
   const pos = state.positions[position_address];
   if (!pos || pos.closed) return null;
+
+  // Cumulative lifecycle PnL across rebalances (ported from fees-maxi risk.ts):
+  // a migrate rebalance re-keys the on-chain account, so the per-account
+  // pnl_pct resets its basis to the migrated deposit — each rebalance could
+  // then eat up to stopLossPct again without any single account tripping it,
+  // and the carried-over peak_pnl_pct would compare against a reset series
+  // (false trailing drops). For rebalanced positions we recompute PnL against
+  // the ORIGINAL entry (initial_value_usd survives the migrate re-key), so
+  // stop-loss, peaks and trailing all stay on one continuous series.
+  const currentPnlPct = computeLifecyclePnlPct(pos, positionData) ?? rawPnlPct;
+  if (currentPnlPct !== rawPnlPct && Number.isFinite(rawPnlPct) && Math.abs(currentPnlPct - rawPnlPct) >= 5) {
+    log("state", `Position ${position_address} lifecycle PnL ${currentPnlPct.toFixed(2)}% (per-account tick ${rawPnlPct.toFixed(2)}% — basis reset by ${pos.rebalance_count} rebalance(s))`);
+  }
 
   let changed = false;
 
