@@ -61,6 +61,47 @@ function inferFibBins(signal) {
   return { fib: 0.51, bins: clampInt(100, 35, maxBins) };
 }
 
+/**
+ * Bottom-base detector (fees-maxi trend.ts port): over the lookback window,
+ * the token drew down at least `bottomDrawdownPct` (dump already happened)
+ * AND the recent slope has flattened to within `bottomFlatSlopePct` (knife
+ * has landed). Distinct from "retracement" (mid-pullback, possibly still
+ * falling) — bottom requires BOTH the damage and the flattening, so it can
+ * never fire mid-dump. Pure; returns { isBottom, drawdownPct, slopePct } or
+ * null when candles are insufficient/disabled.
+ */
+export function computeBottomSignal(candles, autoCfg = {}) {
+  if (autoCfg?.bottomViewEnabled === false) return null;
+  const lookback = Math.max(4, Number(autoCfg?.bottomLookbackCandles ?? 16));
+  const slopeCandles = Math.max(2, Number(autoCfg?.bottomSlopeCandles ?? 6));
+  const rows = (Array.isArray(candles) ? candles : [])
+    .filter((c) => Number.isFinite(Number(c?.close)) && Number(c?.close) > 0);
+  if (rows.length < Math.max(slopeCandles + 1, 4)) return null;
+  const window = rows.slice(-lookback);
+  const firstClose = Number(window[0].close);
+  if (!(firstClose > 0)) return null;
+
+  const minLow = Math.min(...window.map((c) => {
+    const low = Number(c.low);
+    return Number.isFinite(low) && low > 0 ? low : Number(c.close);
+  }));
+  const drawdownPct = ((minLow - firstClose) / firstClose) * 100;
+
+  const slopeSlice = window.slice(-Math.min(slopeCandles, window.length));
+  const slopeFirst = Number(slopeSlice[0].close);
+  const slopeLast = Number(slopeSlice[slopeSlice.length - 1].close);
+  const slopePct = slopeFirst > 0 ? ((slopeLast - slopeFirst) / slopeFirst) * 100 : 0;
+
+  const maxDrawdown = Number(autoCfg?.bottomDrawdownPct ?? -40);
+  const maxSlope = Number(autoCfg?.bottomFlatSlopePct ?? 2);
+  return {
+    isBottom: drawdownPct <= maxDrawdown && Math.abs(slopePct) <= maxSlope,
+    drawdownPct: Math.round(drawdownPct * 10) / 10,
+    slopePct: Math.round(slopePct * 100) / 100,
+    slopeCandles,
+  };
+}
+
 export function classifyMarketView({ pool, priceChange1h, signal }) {
   const vol = Number(pool?.volatility);
   const absChange = Math.abs(Number(priceChange1h ?? 0));
@@ -75,6 +116,15 @@ export function classifyMarketView({ pool, priceChange1h, signal }) {
   }
   if (bullishBreak || (Number(priceChange1h) > 15 && isBullish)) {
     return { view: "pump", confidence: "high", reason: `Strong upside momentum (${priceChange1h ?? "?"}% 1h, ST bullish)` };
+  }
+  // Bottom base (fees-maxi port) — checked AFTER breakdown/pump so an active
+  // Supertrend break-down (knife still falling) can never classify as bottom.
+  if (signal?.bottom?.isBottom) {
+    return {
+      view: "bottom",
+      confidence: "medium",
+      reason: `Bottom base: drawdown ${signal.bottom.drawdownPct}% flattened (slope ${signal.bottom.slopePct}% over ${signal.bottom.slopeCandles} candles)`,
+    };
   }
   if (Number.isFinite(vol) && vol < 2 && absChange < 8) {
     // C — Bid-Ask Chill (LP Army 2-4): token mapan/stable.
@@ -310,6 +360,30 @@ export function buildDeployPlan({ pool, classification, signal, fibHint }) {
       if (signal?.supertrendBreakDown) {
         entryAllowed = false;
         entryReason = "Sideways spot blocked while Supertrend breaking down";
+      }
+      break;
+    }
+    case "bottom": {
+      // fees-maxi port: dump already happened (deep drawdown) AND price has
+      // flattened — base-building regime. Double-sided curve captures the
+      // chop without the knife-catch risk of bid_ask SOL-below mid-dump.
+      if (allowCurve) {
+        strategy = "curve";
+        depositSide = "sol_balanced";
+        const half = clampInt(baseBins / 2, 18, 100);
+        binsBelow = half;
+        binsAbove = half;
+        notes.push("Bottom base: curve centered post-drawdown (dump done, price flattened)");
+      } else if (allowSpot) {
+        strategy = "spot";
+        depositSide = "sol_balanced";
+        binsBelow = clampInt(baseBins * 0.55, 20, baseBins);
+        binsAbove = Math.max(0, baseBins - binsBelow);
+        notes.push("Bottom base: balanced spot post-drawdown (curve disabled)");
+      } else {
+        strategy = "bid_ask";
+        depositSide = "sol_below";
+        binsBelow = baseBins;
       }
       break;
     }
@@ -600,6 +674,7 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
         rsiLength: config.indicators.rsiLength ?? 2,
       });
       signal = buildSignalSummary(payload);
+      signal.bottom = computeBottomSignal(payload?.candles, config.autoStrategy);
       indicatorOk = true;
       if (config.autoStrategy?.athEntryGateEnabled) {
         athGate = evaluateAthEntryGate(payload, signal);
