@@ -20,6 +20,7 @@ import {
   roundNum,
   deriveOpenPnlPct,
   deriveLpAgentPnlPct,
+  chooseFallbackPnlPct,
   getClosedPnlValue,
   getClosedPnlPct,
 } from "./rules.js";
@@ -98,9 +99,15 @@ export async function getPositionPnl({ pool_address, position_address }) {
       ? maybeNum(p.pnlSolPctChange)
       : maybeNum(p.pnlPctChange);
     const derivedPnlPct = deriveOpenPnlPct(p, solMode);
+    // Same divergence handling as the getMyPositions fallback path: on a big
+    // reported-vs-derived gap, act on derived (reported = stale deposit cache).
+    const pnlChoice = chooseFallbackPnlPct(reportedPnlPct, derivedPnlPct, config.management.pnlSanityMaxDiffPct ?? 5);
+    if (pnlChoice.divergent) {
+      log("pnl_warn", `getPositionPnl divergence for ${position_address.slice(0, 8)}: reported=${reportedPnlPct.toFixed(2)} derived=${derivedPnlPct.toFixed(2)} diff=${pnlChoice.gap.toFixed(2)} — acting on derived`);
+    }
     return {
       pnl_usd:           roundNum(solMode ? p.pnlSol : p.pnlUsd, 4),
-      pnl_pct:           roundNum(reportedPnlPct ?? derivedPnlPct ?? 0, 2),
+      pnl_pct:           roundNum(pnlChoice.pnl_pct ?? 0, 2),
       current_value_usd: roundNum(currentValue, 4),
       unclaimed_fee_usd: roundNum(unclaimedValue, 4),
       all_time_fees_usd: roundNum(solMode ? p.allTimeFees?.total?.sol : p.allTimeFees?.total?.usd, 4),
@@ -394,14 +401,20 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
           : null;
         // Gate PnL rules ONLY when the tick is genuinely unpriceable (no real number
         // from either method — e.g. missing deposits / data outage). Reported-vs-derived
-        // divergence is normal noise on volatile pools, so it is logged but NOT gated —
-        // gating on it froze all exits (stop-loss/trailing/close) and stranded positions.
-        const pnlPctSuspicious = reportedPnlPct == null && derivedPnlPct == null;
+        // divergence NEVER gates exits (gating froze stop-loss/trailing and stranded
+        // positions — known past incident); instead we pick the better source:
+        // the API's precomputed pct comes from its deposit cache (documented stale,
+        // same class as the BULLCAT partial-withdrawal artifact), while derived is
+        // recomputed fresh from the API's own components with the same formula the
+        // primary RPC path uses. On divergence, derived wins (fees-maxi
+        // apiChainDivergencePct port). This also aligns the fallback with the
+        // primary path, which has always acted on the derived value.
+        const pnlChoice = chooseFallbackPnlPct(reportedPnlPct, derivedPnlPct, config.management.pnlSanityMaxDiffPct ?? 5);
+        const pnlPctSuspicious = pnlChoice.pnl_pct == null;
         if (pnlPctSuspicious) {
           log("positions_warn", `Unpriceable pnl_pct for ${positionAddress.slice(0, 8)}: no valid reported/derived value this tick — PnL rules paused`);
-        } else if (pnlPctDiff != null && pnlPctDiff > (config.management.pnlSanityMaxDiffPct ?? 5)) {
-          // Informational only — does not gate rules.
-          log("positions_warn", `pnl_pct divergence for ${positionAddress.slice(0, 8)}: reported=${reportedPnlPct.toFixed(2)} derived=${derivedPnlPct.toFixed(2)} diff=${pnlPctDiff.toFixed(2)} (informational)`);
+        } else if (pnlChoice.divergent) {
+          log("positions_warn", `pnl_pct divergence for ${positionAddress.slice(0, 8)}: reported=${reportedPnlPct.toFixed(2)} derived=${derivedPnlPct.toFixed(2)} diff=${pnlChoice.gap.toFixed(2)} — acting on derived (reported likely stale deposit cache)`);
         }
 
         positions.push({
@@ -473,9 +486,10 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
             : binData
             ? Math.round(parseFloat(binData.pnlUsd || 0) * 10000) / 10000
             : null,
-          pnl_pct:            (lpData || binData)
-            ? Math.round(reportedPnlPct * 100) / 100
+          pnl_pct:            pnlChoice.pnl_pct != null
+            ? Math.round(pnlChoice.pnl_pct * 100) / 100
             : null,
+          pnl_pct_source:     pnlChoice.source,
           pnl_pct_derived:    derivedPnlPct != null ? Math.round(derivedPnlPct * 100) / 100 : null,
           pnl_pct_diff:       pnlPctDiff != null ? Math.round(pnlPctDiff * 100) / 100 : null,
           pnl_pct_suspicious: !!pnlPctSuspicious,

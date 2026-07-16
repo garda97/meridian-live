@@ -252,6 +252,32 @@ export function deriveLpAgentPnlPct(lpData, solMode = false) {
   return (pnl / deposit) * 100;
 }
 
+/**
+ * Pick the pnl_pct the API-fallback path should act on (fees-maxi
+ * apiChainDivergencePct port, adapted): `reported` is the API's precomputed
+ * pct, which comes from its deposit cache and is documented to go stale —
+ * the same failure class as the BULLCAT 2026-07-16 partial-withdrawal
+ * artifact. `derived` is recomputed fresh from the API's own components with
+ * the identical formula the primary RPC path uses. On divergence we PREFER
+ * the better source instead of freezing exits (gating exits on divergence is
+ * a known past incident — it stranded positions during fast moves):
+ *  - both present, gap > maxDiff → derived wins (divergent: true, logged by caller)
+ *  - both present, gap ≤ maxDiff → reported (unchanged legacy behavior)
+ *  - one present → that one; none → null (caller's unpriceable path).
+ */
+export function chooseFallbackPnlPct(reported, derived, maxDiff = 5) {
+  const rep = Number.isFinite(reported) ? reported : null;
+  const der = Number.isFinite(derived) ? derived : null;
+  if (rep == null && der == null) return { pnl_pct: null, source: "none", divergent: false };
+  if (der == null) return { pnl_pct: rep, source: "reported", divergent: false };
+  if (rep == null) return { pnl_pct: der, source: "derived", divergent: false };
+  const gap = Math.abs(rep - der);
+  if (Number.isFinite(maxDiff) && maxDiff > 0 && gap > maxDiff) {
+    return { pnl_pct: der, source: "derived", divergent: true, gap };
+  }
+  return { pnl_pct: rep, source: "reported", divergent: false, gap };
+}
+
 /** Base-token USD (or native) share of position liquidity value — for flip detection. */
 export function computeTokenValueShare(position, solMode = false) {
   const x = solMode
