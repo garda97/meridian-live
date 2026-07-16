@@ -258,10 +258,37 @@ export function recordClose(position_address, reason, overrides = {}) {
   pos.closed = true;
   pos.closed_at = new Date().toISOString();
   pos.notes.push(`Closed at ${pos.closed_at}: ${reason}`);
+  if (overrides.via_tool) pos.closed_via_tool = true;
+  if (overrides.close_notified) pos.close_notified = true;
   pushEvent(state, { action: "close", position: position_address, pool_name: pos.pool_name || pos.pool, reason });
   pushClosedOutcome(state, pos, reason, overrides);
   save(state);
   log("state", `Position ${position_address} marked closed: ${reason}`);
+}
+
+/** Stamp open tracked positions that are still on-chain (enables grace bypass on manual close). */
+export function markPositionsSeenOnChain(activeIds) {
+  const state = load();
+  const now = new Date().toISOString();
+  let changed = false;
+  for (const id of activeIds || []) {
+    const pos = state.positions[id];
+    if (pos && !pos.closed) {
+      pos.last_seen_on_chain_at = now;
+      changed = true;
+    }
+  }
+  if (changed) save(state);
+}
+
+export function markCloseNotified(position_address) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  if (!pos.close_notified) {
+    pos.close_notified = true;
+    save(state);
+  }
 }
 
 /**
@@ -777,6 +804,48 @@ export function recordRebalance(position_address, { plan, tx_hashes = [], new_po
   return pos;
 }
 
+export function setPositionPendingReshape(position_address, payload) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  pos.pending_reshape = { ...payload, at: new Date().toISOString() };
+  save(state);
+}
+
+export function clearPositionPendingReshape(position_address) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  delete pos.pending_reshape;
+  save(state);
+}
+
+export function setPositionPendingFlip(position_address, payload) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  pos.pending_flip = { ...payload, at: new Date().toISOString() };
+  save(state);
+}
+
+export function clearPositionPendingFlip(position_address) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  delete pos.pending_flip;
+  save(state);
+}
+
+export function recordReshapeComplete(position_address, { active_bin, reason } = {}) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  if (Number.isFinite(active_bin)) pos.last_reshape_bin = active_bin;
+  pos.last_reshape_at = new Date().toISOString();
+  if (reason) pos.notes.push(`Reshape OK: ${sanitizeStoredText(reason)}`);
+  save(state);
+}
+
 // ─── Briefing Tracking ─────────────────────────────────────────
 
 /**
@@ -805,6 +874,7 @@ export function setLastBriefingDate() {
  * set `closed` with a proper reason before the next sync runs.
  */
 const SYNC_GRACE_MS = 5 * 60_000; // don't auto-close positions deployed < 5 min ago
+const CLOSING_IN_FLIGHT_TTL_MS = 5 * 60_000;
 
 // Positions with an in-flight close_position tx (our own tool). During the
 // ~5-10s an on-chain close takes, the position is already gone on-chain but
@@ -812,9 +882,59 @@ const SYNC_GRACE_MS = 5 * 60_000; // don't auto-close positions deployed < 5 min
 // would flag it as an EXTERNAL close and fire a SECOND notifyClose card on top of
 // the one executor.js sends when the tool returns (double Telegram notification).
 // executor.js marks/unmarks around the close_position fn call.
+// Persisted to state.json so CLI/watch scripts in other processes respect it too.
 const _closingInFlight = new Set();
-export function markPositionClosing(posId) { if (posId) _closingInFlight.add(posId); }
-export function unmarkPositionClosing(posId) { if (posId) _closingInFlight.delete(posId); }
+
+function pruneStaleClosingInFlight(state) {
+  const map = state.closingInFlight;
+  if (!map || typeof map !== "object") return false;
+  let changed = false;
+  const now = Date.now();
+  for (const [posId, startedAt] of Object.entries(map)) {
+    const ts = Date.parse(startedAt);
+    if (!Number.isFinite(ts) || now - ts >= CLOSING_IN_FLIGHT_TTL_MS) {
+      delete map[posId];
+      _closingInFlight.delete(posId);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+export function isPositionClosingInFlight(posId) {
+  if (!posId) return false;
+  if (_closingInFlight.has(posId)) return true;
+  const state = load();
+  pruneStaleClosingInFlight(state);
+  const startedAt = state.closingInFlight?.[posId];
+  if (!startedAt) return false;
+  const ts = Date.parse(startedAt);
+  if (!Number.isFinite(ts) || Date.now() - ts >= CLOSING_IN_FLIGHT_TTL_MS) {
+    delete state.closingInFlight[posId];
+    save(state);
+    return false;
+  }
+  return true;
+}
+
+export function markPositionClosing(posId) {
+  if (!posId) return;
+  _closingInFlight.add(posId);
+  const state = load();
+  state.closingInFlight = state.closingInFlight || {};
+  state.closingInFlight[posId] = new Date().toISOString();
+  save(state);
+}
+
+export function unmarkPositionClosing(posId) {
+  if (!posId) return;
+  _closingInFlight.delete(posId);
+  const state = load();
+  if (state.closingInFlight?.[posId]) {
+    delete state.closingInFlight[posId];
+    save(state);
+  }
+}
 
 export function syncOpenPositions(active_addresses) {
   const state = load();
@@ -827,16 +947,21 @@ export function syncOpenPositions(active_addresses) {
     if (pos.closed || activeSet.has(posId)) continue;
     // Our own close_position tx is settling — let the tool path record + notify it,
     // don't double-fire an external-close notification for the same position.
-    if (_closingInFlight.has(posId)) {
+    if (isPositionClosingInFlight(posId)) {
       log("state", `Position ${posId} missing on-chain but close in flight — deferring to tool close (no external-close)`);
       continue;
     }
 
-    // Grace period: newly deployed positions may not be indexed yet
+    // Grace period: newly deployed positions may not be indexed yet — unless we
+    // already saw this position on-chain and it vanished (manual UI close).
     const deployedAt = pos.deployed_at ? new Date(pos.deployed_at).getTime() : 0;
-    if (Date.now() - deployedAt < SYNC_GRACE_MS) {
+    const wasSeenOnChain = !!pos.last_seen_on_chain_at;
+    if (Date.now() - deployedAt < SYNC_GRACE_MS && !wasSeenOnChain) {
       log("state", `Position ${posId} not on-chain yet — within grace period, skipping auto-close`);
       continue;
+    }
+    if (Date.now() - deployedAt < SYNC_GRACE_MS && wasSeenOnChain) {
+      log("state", `Position ${posId} missing on-chain but was seen before — external close (grace bypass)`);
     }
 
     pos.closed = true;

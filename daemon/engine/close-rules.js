@@ -53,20 +53,25 @@ export function getDeterministicCloseRule(position, managementConfig) {
   ) {
     return { action: "CLOSE", rule: 2, reason: "take profit" };
   }
-  if (
-    position.active_bin != null &&
-    position.upper_bin != null &&
-    position.active_bin > position.upper_bin + managementConfig.outOfRangeBinsToClose
-  ) {
-    return { action: "CLOSE", rule: 3, reason: "pumped far above range" };
-  }
-  if (
-    position.active_bin != null &&
-    position.upper_bin != null &&
-    position.active_bin > position.upper_bin &&
-    (position.minutes_out_of_range ?? 0) >= managementConfig.outOfRangeWaitMinutes
-  ) {
-    return { action: "CLOSE", rule: 4, reason: "OOR" };
+  const minAgeBeforeOorClose =
+    managementConfig.minAgeBeforeOorClose ?? config.management.minAgeBeforeOorClose ?? 5;
+  const ageMinutes = position.age_minutes ?? 0;
+  if (ageMinutes >= minAgeBeforeOorClose) {
+    if (
+      position.active_bin != null &&
+      position.upper_bin != null &&
+      position.active_bin > position.upper_bin + managementConfig.outOfRangeBinsToClose
+    ) {
+      return { action: "CLOSE", rule: 3, reason: "pumped far above range" };
+    }
+    if (
+      position.active_bin != null &&
+      position.upper_bin != null &&
+      position.active_bin > position.upper_bin &&
+      (position.minutes_out_of_range ?? 0) >= managementConfig.outOfRangeWaitMinutes
+    ) {
+      return { action: "CLOSE", rule: 4, reason: "OOR" };
+    }
   }
   if (
     position.fee_per_tvl_24h != null &&

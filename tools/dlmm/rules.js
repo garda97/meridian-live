@@ -181,6 +181,41 @@ export function getClosedPnlPct(posEntry, solMode = false) {
   return deposit && deposit > 0 ? (pnl / deposit) * 100 : 0;
 }
 
+/** Meteora closed API often returns partial withdrawals right after close. */
+export function isClosedWithdrawalSettled(initialUsd, finalUsd, minRatio = 0.5) {
+  const initial = Number(initialUsd);
+  const final = Number(finalUsd);
+  if (!Number.isFinite(initial) || initial <= 0) return Number.isFinite(final) && final > 0;
+  if (!Number.isFinite(final) || final <= 0) return false;
+  return final >= initial * minRatio;
+}
+
+/**
+ * When API pnlPct is extreme but IL was tiny and withdrawals did settle,
+ * trust deposit/withdrawal delta over the stale pnlUsd field (BULLCAT 2026-07-16).
+ */
+export function applySettledWithdrawalPnlOverride({
+  pnlPct,
+  pnlUsd,
+  ilPct = 0,
+  finalValueUsd,
+  initialUsd,
+  feesUsd = 0,
+  solMode = false,
+  solPrice = null,
+}) {
+  if (!(pnlPct < -50) || Math.abs(ilPct) >= 5 || finalValueUsd <= 0 || initialUsd <= 0) {
+    return { pnlPct, pnlUsd, overridden: false };
+  }
+  const settledPnlUsd = finalValueUsd - initialUsd + feesUsd;
+  const settledPct = (settledPnlUsd / initialUsd) * 100;
+  return {
+    pnlPct: settledPct,
+    pnlUsd: solMode && solPrice > 0 ? settledPnlUsd / solPrice : settledPnlUsd,
+    overridden: true,
+  };
+}
+
 export function deriveOpenPnlPct(binData, solMode = false) {
   if (!binData) return null;
 
@@ -215,6 +250,20 @@ export function deriveLpAgentPnlPct(lpData, solMode = false) {
   const unclaimedFees = solMode ? safeNum(lpData.unCollectedFeeNative) : safeNum(lpData.unCollectedFee);
   const pnl = currentValue + unclaimedFees - deposit;
   return (pnl / deposit) * 100;
+}
+
+/** Base-token USD (or native) share of position liquidity value — for flip detection. */
+export function computeTokenValueShare(position, solMode = false) {
+  const x = solMode
+    ? Number(position?.token_x_value_native)
+    : Number(position?.token_x_value_usd);
+  const y = solMode
+    ? Number(position?.token_y_value_native)
+    : Number(position?.token_y_value_usd);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const total = x + y;
+  if (!(total > 0)) return null;
+  return x / total;
 }
 
 /** Bucket a free-text close reason into a stable exit_signal_type for the decision log. */

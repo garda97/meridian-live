@@ -7,7 +7,7 @@
 
 import fs from "fs";
 import { repoPath } from "../repo-root.js";
-import { trackPosition, recordClose, syncOpenPositions, getTrackedPosition } from "../state.js";
+import { trackPosition, recordClose, syncOpenPositions, getTrackedPosition, markPositionsSeenOnChain } from "../state.js";
 
 const STATE_PATH = repoPath("state.json");
 
@@ -69,5 +69,30 @@ function testExternalCloseSync() {
   }
 }
 
+function testGraceBypassAfterSeenOnChain() {
+  const saved = backup(STATE_PATH);
+  try {
+    fs.writeFileSync(STATE_PATH, JSON.stringify({ positions: {} }));
+
+    trackPosition({ position: "MANUAL_POS", pool: "MAN_POOL", pool_name: "MAN-SOL", strategy: "spot", amount_sol: 0.75 });
+    // Fresh deploy — normally within grace period
+    assert(getTrackedPosition("MANUAL_POS").closed !== true, "fresh position starts open");
+
+    // Bot saw it on-chain, then user closed manually in Meteora UI
+    markPositionsSeenOnChain(["MANUAL_POS"]);
+    assert(getTrackedPosition("MANUAL_POS").last_seen_on_chain_at != null, "last_seen_on_chain_at must be stamped");
+
+    const closed = syncOpenPositions([]);
+    assert(closed.length === 1, `expected 1 grace-bypass close, got ${closed.length}`);
+    assert(closed[0].position === "MANUAL_POS", `expected MANUAL_POS, got ${closed[0].position}`);
+    assert(getTrackedPosition("MANUAL_POS").closed === true, "manual close must mark position closed despite grace");
+
+    console.log("  grace bypass: fresh position closed after last_seen_on_chain_at OK");
+  } finally {
+    restore(STATE_PATH, saved);
+  }
+}
+
 testExternalCloseSync();
+testGraceBypassAfterSeenOnChain();
 console.log("test-external-close: OK");

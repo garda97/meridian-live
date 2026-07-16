@@ -109,15 +109,31 @@ export async function recordPerformance(perf) {
     perf.final_value_usd > 0 &&
     perf.final_value_usd <= perf.amount_sol * 2;
 
-  if (suspiciousUnitMix) {
+  if (suspiciousUnitMix && !Number.isFinite(perf.pnl_pct)) {
+    // Only skip when there's no authoritative settled pnl_pct to fall back on —
+    // the guard protects the derived (final+fees-initial) computation below.
     log("lessons_warn", `Skipped suspicious performance record for ${perf.pool_name || perf.pool}: initial=${perf.initial_value_usd}, final=${perf.final_value_usd}, amount_sol=${perf.amount_sol}`);
     return;
   }
 
-  const pnl_usd = (perf.final_value_usd + perf.fees_earned_usd) - perf.initial_value_usd;
-  const pnl_pct = perf.initial_value_usd > 0
-    ? (pnl_usd / perf.initial_value_usd) * 100
+  // Derived PnL from the Meteora closed-positions snapshot. final_value_usd can
+  // be a partial-withdrawal artifact right after close (BULLCAT 2026-07-16:
+  // withdrawn=22.82 vs deposited=58.13 → phantom -60.68% while the settled
+  // close was ~breakeven), so when close.js passes its settled pnl_pct we use
+  // that instead — the SAME number recordClose puts in closedOutcomes[], so the
+  // three stores (closedOutcomes / lessons / pool-memory) can never disagree.
+  const derived_pnl_usd = (perf.final_value_usd + perf.fees_earned_usd) - perf.initial_value_usd;
+  const derived_pnl_pct = perf.initial_value_usd > 0
+    ? (derived_pnl_usd / perf.initial_value_usd) * 100
     : 0;
+  const hasAuthoritativePnl = Number.isFinite(perf.pnl_pct);
+  const pnl_pct = hasAuthoritativePnl ? perf.pnl_pct : derived_pnl_pct;
+  const pnl_usd = hasAuthoritativePnl && perf.initial_value_usd > 0
+    ? (perf.pnl_pct / 100) * perf.initial_value_usd
+    : derived_pnl_usd;
+  if (hasAuthoritativePnl && Math.abs(derived_pnl_pct - pnl_pct) > 10) {
+    log("lessons_warn", `Settled PnL ${pnl_pct.toFixed(2)}% disagrees with final_value-derived ${derived_pnl_pct.toFixed(2)}% for ${perf.pool_name || perf.pool} — using settled (final_value_usd likely unsettled/partial withdrawal)`);
+  }
   const range_efficiency = perf.minutes_held > 0
     ? (perf.minutes_in_range / perf.minutes_held) * 100
     : 0;
