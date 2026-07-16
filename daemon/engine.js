@@ -42,7 +42,7 @@ import {
   getTrackedPosition,
   getTrackedPositions,
   updatePnlAndCheckExits,
-  confirmPeak,
+  confirmPeakFromTick,
   registerExitSignal,
   shouldPartialTakeProfit,
   canFireTakeProfit,
@@ -231,7 +231,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       if (!result?.positions?.length) return;
       for (const p of result.positions) {
-        confirmPeak(p.position, p.pnl_pct, confirmTicks, config.management.pnlWarmupMinutes);
+        confirmPeakFromTick(p.position, p, confirmTicks, config.management.pnlWarmupMinutes);
 
         // Detect an exit signal this tick (rule-based exits, then deterministic close rules).
         let exit = updatePnlAndCheckExits(p.position, p, config.management);

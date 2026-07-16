@@ -10,7 +10,7 @@ import { runScreeningCycle } from "./screening-cycle.js";
 import { stripThink, timers } from "../runtime.js";
 import { log } from "../../logger.js";
 import { config, reloadUserConfigFromDisk } from "../../config.js";
-import { getTrackedPosition, confirmPeak, updatePnlAndCheckExits } from "../../state.js";
+import { getTrackedPosition, confirmPeakFromTick, updatePnlAndCheckExits } from "../../state.js";
 import { isRebalanceCandidate, resolveRebalancePlanForPosition, shouldRebalance, computeTvlDilution, checkTvlDilutionExit } from "../../tools/position-router.js";
 import { executeTool } from "../../tools/executor.js";
 import { observeOpenPosition } from "../../lessons.js";
@@ -235,7 +235,7 @@ export async function runManagementCycle({ silent = false } = {}) {
     // confirmation lives in the fast 3s poller below.
     const exitMap = new Map();
     await mgmtPhase("exit-checks", Promise.all(positionData.map(async (p) => {
-      confirmPeak(p.position, p.pnl_pct, 1, config.management.pnlWarmupMinutes);
+      confirmPeakFromTick(p.position, p, 1, config.management.pnlWarmupMinutes);
       let exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (!exit) {
         exit = await checkPositionChartExit(p).catch(() => null);
