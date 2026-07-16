@@ -47,7 +47,7 @@ const TIMEFRAME_MINUTES = {
   "24h": 1440,
 };
 import { log, logAction } from "../logger.js";
-import { notifyDeploy, notifyClose, notifySwap } from "../telegram.js";
+import { notifyDeploy, notifyClose, notifySwap, sendMessage as sendTelegramMessage } from "../telegram.js";
 import { atomicWriteFileSync } from "../utils/atomic-write.js";
 
 function numberOrNull(value) {
@@ -715,10 +715,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * fills). Treats both a throw AND result.success===false / missing tx as failure.
  * Returns { swapped, result, token } — swapped=false if nothing to do or all attempts failed.
  */
-export async function swapBaseToSolWithRetry(baseMint, label) {
+export async function swapBaseToSolWithRetry(baseMint, label, meta = {}) {
   const attempts = Math.max(1, Number(config.management.autoSwapRetryAttempts ?? 3));
   const delayMs = Math.max(0, Number(config.management.autoSwapRetryDelayMs ?? 3000));
   let lastErr = null;
+  let lastToken = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const balances = await getWalletBalances({});
@@ -727,6 +728,7 @@ export async function swapBaseToSolWithRetry(baseMint, label) {
         // Nothing left to swap (already sold or dust) — treat as done.
         return { swapped: attempt > 1, result: null, token: null };
       }
+      lastToken = token;
       log("executor", `Auto-swapping ${label} ${token.symbol || baseMint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL (attempt ${attempt}/${attempts})`);
       const swapResult = await swapToken({ input_mint: baseMint, output_mint: "SOL", amount: token.balance });
       const ok = swapResult && swapResult.success !== false && !swapResult.error && (swapResult.tx || swapResult.amount_out);
@@ -739,7 +741,66 @@ export async function swapBaseToSolWithRetry(baseMint, label) {
     if (attempt < attempts) await sleep(delayMs);
   }
   log("executor_warn", `Auto-swap ${label} failed after ${attempts} attempts — base token left unsold (${baseMint.slice(0, 8)})`);
-  return { swapped: false, result: null, token: null };
+  // Stranded-capital ledger (fees-maxi port): the unsold token's value would
+  // otherwise vanish from all accounting. Record it so the management cycle
+  // retries the swap and the daily-loss gate counts the stuck capital.
+  if (lastToken && lastToken.usd >= Number(config.management.strandedMinUsd ?? 0.5)) {
+    try {
+      const { recordStranded } = await import("../stranded-capital.js");
+      recordStranded({
+        mint: baseMint,
+        symbol: lastToken.symbol,
+        amount: lastToken.balance,
+        usd_at_strand: lastToken.usd,
+        label,
+        position: meta.position || null,
+        pool_name: meta.pool_name || null,
+      });
+      sendTelegramMessage(`⚠️ Stranded: ${lastToken.symbol || baseMint.slice(0, 8)} $${lastToken.usd.toFixed(2)} left unsold (${label}) — will retry each management cycle`).catch(() => {});
+    } catch (e) {
+      log("executor_warn", `Stranded-capital record failed: ${e.message}`);
+    }
+  }
+  return { swapped: false, result: null, token: lastToken };
+}
+
+/**
+ * Retry swapping stranded tokens back to SOL (called from the management
+ * cycle, fire-and-forget). One pass over due entries per call; each entry
+ * respects strandedRetryCooldownMin so a dead token doesn't burn a swap
+ * quote every 5 minutes forever. A vanished balance (sold manually / below
+ * $0.10) closes the entry as recovered with its realized value unknown.
+ */
+export async function retryStrandedSwaps() {
+  const { getUnrecoveredStranded, strandedEntriesDueForRetry, markStrandedRetry, markStrandedRecovered } =
+    await import("../stranded-capital.js");
+  const due = strandedEntriesDueForRetry(
+    getUnrecoveredStranded(),
+    Date.now(),
+    Number(config.management.strandedRetryCooldownMin ?? 15),
+  );
+  for (const entry of due) {
+    markStrandedRetry(entry.mint);
+    try {
+      const balances = await getWalletBalances({});
+      const token = balances.tokens?.find((t) => t.mint === entry.mint);
+      if (!token || token.usd < 0.10) {
+        markStrandedRecovered(entry.mint, { usd_recovered: null });
+        continue;
+      }
+      const swapResult = await swapToken({ input_mint: entry.mint, output_mint: "SOL", amount: token.balance });
+      const ok = swapResult && swapResult.success !== false && !swapResult.error && (swapResult.tx || swapResult.amount_out);
+      if (ok) {
+        markStrandedRecovered(entry.mint, { usd_recovered: token.usd });
+        notifySwap({ inputSymbol: token.symbol || entry.mint.slice(0, 8), outputSymbol: "SOL", amountIn: swapResult.amount_in, amountOut: swapResult.amount_out, tx: swapResult.tx }).catch(() => {});
+      } else {
+        log("executor_warn", `Stranded retry failed for ${entry.symbol || entry.mint.slice(0, 8)}: ${swapResult?.error || "no tx"}`);
+      }
+    } catch (e) {
+      log("executor_warn", `Stranded retry error for ${entry.symbol || entry.mint.slice(0, 8)}: ${e.message}`);
+    }
+  }
+  return due.length;
 }
 
 /**
@@ -854,7 +915,7 @@ export async function executeTool(name, args, context = {}) {
         }
         // Auto-swap base token back to SOL unless user said to hold (retried).
         if (!args.skip_swap && result.base_mint) {
-          const { swapped, result: swapResult } = await swapBaseToSolWithRetry(result.base_mint, "after close");
+          const { swapped, result: swapResult } = await swapBaseToSolWithRetry(result.base_mint, "after close", { position: args.position_address, pool_name: result.pool_name });
           if (swapped) {
             // Tell the model the swap already happened so it doesn't call swap_token again
             result.auto_swapped = true;

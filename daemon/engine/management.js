@@ -371,6 +371,14 @@ export async function runManagementCycle({ silent = false } = {}) {
 
     // Trigger screening after management
     reloadUserConfigFromDisk();
+    // Stranded-capital retry (fees-maxi port): fire-and-forget, never blocks
+    // the cycle. Retries unsold post-close/claim dust back to SOL; entries
+    // respect strandedRetryCooldownMin internally.
+    import("../../tools/executor.js")
+      .then((m) => m.retryStrandedSwaps())
+      .then((n) => { if (n > 0) log("cron", `Stranded-capital retry pass: ${n} entr${n === 1 ? "y" : "ies"} attempted`); })
+      .catch((e) => log("cron_error", `Stranded retry pass failed: ${e.message}`));
+
     const afterPositions = await mgmtPhase("post-getMyPositions", getMyPositions({ force: true }).catch(() => null), 30000);
     const afterCount = afterPositions?.positions?.length ?? 0;
     const postTrigger = canTriggerScreening(config);

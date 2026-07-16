@@ -196,6 +196,8 @@ export const config = {
     autoSwapAfterClose:    boolConfig(u.autoSwapAfterClose, true),
     autoSwapRetryAttempts: u.autoSwapRetryAttempts ?? 3,    // retries for base→SOL auto-swap on Jupiter failure
     autoSwapRetryDelayMs:  u.autoSwapRetryDelayMs  ?? 3000, // delay between auto-swap retries
+    strandedMinUsd:        u.strandedMinUsd        ?? 0.5,  // min USD to ledger an unsold token as stranded capital
+    strandedRetryCooldownMin: u.strandedRetryCooldownMin ?? 15, // min minutes between swap retries per stranded entry
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
     outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,

@@ -11,6 +11,7 @@ import { getWalletBalances, getSolPriceUsd } from "../../tools/wallet.js";
 import { checkScreeningDeployGate } from "../../utils/screening-gate.js";
 import { appendDecision, enrichDecisionEntry, getRecentDecisions } from "../../decision-log.js";
 import { checkDailyLossGate } from "../../utils/daily-loss.js";
+import { getUnrecoveredStrandedUsd } from "../../stranded-capital.js";
 import { isWithinDeployWindow } from "../../utils/deploy-window.js";
 import { checkSolRegimeGate } from "../../tools/sol-regime.js";
 import { createLiveMessage, sendMessage, isEnabled as telegramEnabled } from "../../telegram.js";
@@ -89,9 +90,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const dailyLoss = checkDailyLossGate({
       decisions: getRecentDecisions(100),
       limitUsd: config.management.dailyLossLimitUsd,
+      strandedUsd: getUnrecoveredStrandedUsd(),
     });
     if (dailyLoss.blocked) {
-      const reason = `Daily loss gate: realized ${dailyLoss.realizedPnlUsd} USD today <= -${dailyLoss.limitUsd} USD limit`;
+      const reason = `Daily loss gate: realized ${dailyLoss.realizedPnlUsd} USD today${dailyLoss.strandedUsd > 0 ? ` + stranded $${dailyLoss.strandedUsd}` : ""} <= -${dailyLoss.limitUsd} USD limit`;
       log("cron", `Screening skipped — ${reason} (existing positions still managed)`);
       screenReport = `Screening dilewati — ${reason}. Deploy baru dijeda sampai tengah malam WIB.`;
       outcome.skipped = true;

@@ -4,6 +4,7 @@ import { isWithinDeployWindow } from "../../utils/deploy-window.js";
 import { executeTool } from "../../tools/executor.js";
 import { appendDecision, getRecentDecisions } from "../../decision-log.js";
 import { checkDailyLossGate } from "../../utils/daily-loss.js";
+import { getUnrecoveredStrandedUsd } from "../../stranded-capital.js";
 import { getTrackedPosition, linkRecoveryPosition } from "../../state.js";
 
 /**
@@ -78,6 +79,7 @@ export async function maybeAutoRecovery(positionData) {
     const dailyLoss = checkDailyLossGate({
       decisions: getRecentDecisions(100),
       limitUsd: config.management.dailyLossLimitUsd,
+      strandedUsd: getUnrecoveredStrandedUsd(),
     });
     if (dailyLoss.blocked) {
       log("cron", `Recovery skipped for ${p.pair} — daily loss gate blocked`);
