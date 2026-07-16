@@ -507,6 +507,15 @@ export const config = {
     // means a rate-limited data source can also block otherwise-good entries.
     athGateFailMode: u.athGateFailMode === "closed" ? "closed" : "open",
     maxPumpPct1h: Number(u.autoStrategyMaxPumpPct1h ?? 20),
+    // Bottom-base view (fees-maxi port): deep drawdown + flattened slope →
+    // double-sided curve entry instead of the retracement-default bid_ask
+    // (which knife-catches mid-dump). Thresholds mirror fees-maxi defaults
+    // scaled to the 15m indicator interval (16 candles ≈ 4h window).
+    bottomViewEnabled: boolConfig(u.bottomViewEnabled, true),
+    bottomDrawdownPct: Number(u.bottomDrawdownPct ?? -40),
+    bottomFlatSlopePct: Number(u.bottomFlatSlopePct ?? 2),
+    bottomSlopeCandles: Math.max(2, Number(u.bottomSlopeCandles ?? 6)),
+    bottomLookbackCandles: Math.max(4, Number(u.bottomLookbackCandles ?? 16)),
     // TGE play (opt-in): tokens younger than tgeMaxAgeHours get a very wide
     // range + max-hold clock, and are skipped on low-fee pools where the fee
     // tier can't cover launch volatility. null = off.
