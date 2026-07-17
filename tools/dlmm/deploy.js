@@ -170,6 +170,20 @@ export async function deployPosition({
 
     activeBinsBelow = Math.max(0, activeBin.binId - lowerBinId);
     activeBinsAbove = Math.max(0, upperBinId - activeBin.binId);
+
+    // 2026-07-17 lesson: this price-target path computes bins straight from
+    // downside_pct/upside_pct with no ceiling — unlike the raw bins_below/
+    // bins_above path, which executor.js's safety check already clamps to
+    // maxBinsBelow. A 232-bin SOLdiers-SOL deploy came through here (bypassing
+    // the 140 cap entirely) and needed so many chunked re-add txs on its next
+    // rebalance that the wallet ran out of SOL mid-redeploy, leaving 2 orphaned
+    // on-chain positions the tracker never knew existed. Same ceiling, same gate.
+    const maxBinsEachSide = Math.max(MIN_SAFE_BINS_BELOW, Number(config.strategy.maxBinsBelow ?? MIN_SAFE_BINS_BELOW));
+    if (activeBinsBelow > maxBinsEachSide || activeBinsAbove > maxBinsEachSide) {
+      log("deploy", `downside_pct/upside_pct range (${activeBinsBelow}/${activeBinsAbove} bins) exceeds maxBinsBelow ${maxBinsEachSide} — clamping`);
+      activeBinsBelow = Math.min(activeBinsBelow, maxBinsEachSide);
+      activeBinsAbove = Math.min(activeBinsAbove, maxBinsEachSide);
+    }
   }
 
   const strategyMap = {
