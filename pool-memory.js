@@ -168,6 +168,7 @@ export function recordPoolDeploy(poolAddress, deployData) {
     exit_mcap: deployData.exit_mcap ?? null,
     exit_tvl: deployData.exit_tvl ?? null,
     exit_volume: deployData.exit_volume ?? null,
+    amount_sol: deployData.amount_sol ?? null,
   };
 
   entry.deploys.push(deploy);
@@ -226,15 +227,34 @@ export function recordPoolDeploy(poolAddress, deployData) {
     if (Number.isFinite(pnlPct) && Math.abs(pnlPct) < minLossPct) {
       log("pool-memory", `Loss cooldown skipped for ${entry.name}: |${pnlPct}%| < minLossPct ${minLossPct}% (dust loss)`);
     } else {
-      const cooldownHours = Math.max(1, Number(config.management.lossRedeployCooldownHours ?? 24));
+      // unc-SOL, 2026-07-12: -57% loss on 0.5 SOL, redeployed 4x bigger (2 SOL) after
+      // the flat cooldown expired, lost again. A severe loss now gets a longer cooldown
+      // AND caps the next deploy's size — the cap alone survives even if a future config
+      // change shortens the cooldown back down.
+      const severeLossPct = Math.max(0, Number(config.management.severeLossPct ?? 10));
+      const isSevere = severeLossPct > 0 && Number.isFinite(pnlPct) && Math.abs(pnlPct) >= severeLossPct;
+      const cooldownHours = Math.max(
+        1,
+        Number(isSevere ? (config.management.severeLossCooldownHours ?? 72) : (config.management.lossRedeployCooldownHours ?? 24))
+      );
       const pnlLabel = deploy.pnl_pct != null ? `${deploy.pnl_pct}%` : `${deploy.pnl_usd ?? "?"} USD`;
-      const reason = `loss close (PnL ${pnlLabel})`;
+      const reason = `${isSevere ? "severe " : ""}loss close (PnL ${pnlLabel})`;
       const poolCooldownUntil = setPoolCooldown(entry, cooldownHours, reason);
       log("pool-memory", `Loss cooldown set for pool ${entry.name} until ${poolCooldownUntil} (${reason})`);
       if (entry.base_mint) {
         const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, cooldownHours, reason);
         if (mintCooldownUntil) {
           log("pool-memory", `Loss cooldown set for token ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
+        }
+      }
+      if (isSevere) {
+        const capHours = Math.max(1, Number(config.management.severeLossSizeCapHours ?? 72));
+        const capFactor = Math.min(1, Math.max(0, Number(config.management.severeLossSizeCapFactor ?? 0.5)));
+        const priorSol = Number(deploy.amount_sol);
+        if (Number.isFinite(priorSol) && priorSol > 0) {
+          entry.severe_loss_cap_sol = Math.round(priorSol * capFactor * 1e6) / 1e6;
+          entry.severe_loss_cap_until = new Date(Date.now() + capHours * 60 * 60 * 1000).toISOString();
+          log("pool-memory", `Size cap set for ${entry.name}: next deploy <= ${entry.severe_loss_cap_sol} SOL until ${entry.severe_loss_cap_until} (severe loss ${pnlLabel} on ${priorSol} SOL)`);
         }
       }
     }
@@ -347,8 +367,16 @@ export function getPoolCooldownReason(poolAddress) {
 /**
  * True when the pool's most recent close (within `hours`) was the volatile-pump
  * pattern: price ran above the range (OOR) — either flagged "pumped far above
- * range" or a win that still ended OOR. Strategy router uses this to force
- * spot-only redeploys with upside cover.
+ * range" or any close (win or loss) that went OOR. Strategy router uses this to
+ * force spot-only redeploys with upside cover.
+ *
+ * Losing OOR closes used to be excluded (only wins-that-went-OOR counted) —
+ * 2026-07-17 lesson: unc-SOL/yep-SOL/Trump Coin-SOL, the three biggest losses
+ * on record, were all one-sided bid_ask (bins_above=0, the only shape a
+ * single-sided SOL bid_ask deploy can take) that lost badly via a losing OOR
+ * close, so the pattern never tripped this check and kept getting redeployed
+ * the same one-sided way. A losing OOR close proves the range was wrong just
+ * as much as a winning one.
  */
 export function hasRecentVolatileOorClose(poolAddress, hours = 24) {
   if (!poolAddress) return false;
@@ -360,7 +388,20 @@ export function hasRecentVolatileOorClose(poolAddress, hours = 24) {
   if (Date.now() - closedAt.getTime() > hours * 60 * 60 * 1000) return false;
   const reason = String(last.close_reason || "").toLowerCase();
   if (reason.includes("pumped far above range")) return true;
-  return Number(last.pnl_pct) >= 0 && isOorCloseReason(last.close_reason);
+  return isOorCloseReason(last.close_reason);
+}
+
+/**
+ * Deploy-size ceiling stamped by a severe loss (see recordPoolDeploy) — null
+ * once severe_loss_cap_until expires or none was ever set.
+ */
+export function getPoolSizeCapSol(poolAddress) {
+  if (!poolAddress) return null;
+  const entry = load()[poolAddress];
+  if (!entry?.severe_loss_cap_sol || !entry?.severe_loss_cap_until) return null;
+  if (new Date(entry.severe_loss_cap_until).getTime() < Date.now()) return null;
+  const cap = Number(entry.severe_loss_cap_sol);
+  return Number.isFinite(cap) && cap > 0 ? cap : null;
 }
 
 export function getBaseMintCooldownReason(baseMint) {

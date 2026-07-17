@@ -8,7 +8,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { config, computeDeployAmount, MIN_SAFE_BINS_BELOW } from "../../config.js";
 import { log } from "../../logger.js";
-import { getDLMM, getConnection, getWallet, getPool, sendAndConfirmTransaction } from "./sdk.js";
+import { getDLMM, getConnection, getWallet, getPool, getPoolMetadata, sendAndConfirmTransaction } from "./sdk.js";
 import {
   assertRangeDoesNotRequireBinArrayInitialization,
   assertNoInitializeBinArrayInstructions,
@@ -25,6 +25,7 @@ import {
   addPoolNote,
   getBaseMintCooldownReason,
   getPoolCooldownReason,
+  getPoolSizeCapSol,
   isBaseMintOnCooldown,
   isPoolOnCooldown,
 } from "../../pool-memory.js";
@@ -103,6 +104,13 @@ export async function deployPosition({
   const pool = await getPool(pool_address);
   const baseMint = pool.lbPair.tokenXMint.toString();
   const quoteMint = pool.lbPair.tokenYMint.toString();
+  // Agent doesn't always pass pool_name — without it every downstream log/notification
+  // (poller, Telegram, decision log) falls back to a bare "?/SOL". Backfill from Meteora's
+  // pool metadata so tracked positions always have a readable pair name.
+  if (!pool_name) {
+    const meta = await getPoolMetadata(pool_address).catch(() => null);
+    pool_name = meta?.name || null;
+  }
   // Single-sided SOL path (amount_x=0, amount_y/amount_sol>0) deposits into tokenY.
   // tokenY MUST be WSOL. Misdiagnosed earlier as "Token-2022 ATA rent":
   // KINS-USDC failed 0x1 on Tokenkeg because amount_y=0.5 was treated as USDC, not SOL.
@@ -181,7 +189,7 @@ export async function deployPosition({
     amount_y == null && amount_sol == null
       ? computeDeployAmount((await getWalletBalances()).sol)
       : 0;
-  const finalAmountY = Number(amount_y ?? amount_sol ?? fallbackAmountY);
+  let finalAmountY = Number(amount_y ?? amount_sol ?? fallbackAmountY);
   const finalAmountX = Number(amount_x ?? 0);
   if (!Number.isFinite(finalAmountY) || !Number.isFinite(finalAmountX) || finalAmountY < 0 || finalAmountX < 0) {
     throw new Error("Invalid deploy amount: amount_x and amount_y must be valid non-negative numbers.");
@@ -191,6 +199,11 @@ export async function deployPosition({
   }
   if (finalAmountY <= 0) {
     throw new Error("Invalid deploy amount: provide a positive amount_y/amount_sol.");
+  }
+  const severeLossCapSol = getPoolSizeCapSol(pool_address);
+  if (severeLossCapSol != null && finalAmountY > severeLossCapSol) {
+    log("deploy", `Size cap active for ${pool_address.slice(0, 8)}: ${finalAmountY} SOL requested, capped to ${severeLossCapSol} SOL (severe loss on this pool recently)`);
+    finalAmountY = severeLossCapSol;
   }
   const isSingleSidedSol = finalAmountX <= 0 && finalAmountY > 0;
   const allowsUpsideBins = activeStrategy === "spot" || activeStrategy === "curve";

@@ -596,6 +596,33 @@ export function applySpotFeeFloor(plan, { pool, volatileRecall = false } = {}) {
 }
 
 /**
+ * Fee floor for bid_ask deploys (WORLDCUP-SOL lesson, 2026-07-16): bid_ask has
+ * never had a fee/TVL check at entry — only applySpotFeeFloor, spot-only. Two
+ * back-to-back bid_ask entries into WORLDCUP-SOL (fee/TVL 0.17%, 1.58%) both
+ * earned $0 in fees; only the reactive 60-minute post-entry gate caught the
+ * second one, after capital sat idle for an hour. Deliberately set low (default
+ * 0.5, vs spot's 2) — bid_ask's job is still to ladder into quiet-but-promising
+ * pools spot's floor would reject; this only blocks the clearly-dead ones.
+ * Pure; returns a new plan.
+ */
+export function applyBidAskFeeFloor(plan, { pool } = {}) {
+  if (plan.strategy !== "bid_ask" || plan.tge || !plan.entry_allowed) return plan;
+  const minFee = Number(config.autoStrategy?.bidAskFeeTvlMin ?? 0.5);
+  if (!Number.isFinite(minFee) || minFee <= 0) return plan;
+  const feeTvl = Number(pool?.fee_active_tvl_ratio ?? pool?.fee_tvl_ratio);
+  if (!Number.isFinite(feeTvl)) {
+    return { ...plan, notes: [...(plan.notes || []), "bid_ask fee floor: fee/TVL unknown — floor skipped (fail-open)"] };
+  }
+  if (feeTvl >= minFee) return plan;
+  return {
+    ...plan,
+    entry_allowed: false,
+    entry_reason: `bid_ask fee floor: fee/TVL ${feeTvl.toFixed(2)} < ${minFee} — fee tier can't pay for LP exposure; skip`,
+    notes: [...(plan.notes || []), `bid_ask fee floor: ${feeTvl.toFixed(2)} < ${minFee} — blocked`],
+  };
+}
+
+/**
  * Dump gate for spot deploys (SEMAN lesson, P1c — SPOT_LOSS_ANALYSIS.md):
  * spot takes immediate two-sided token exposure, so entering while the token
  * is actively dumping eats the drop as real loss from the moment of deploy.
@@ -712,6 +739,7 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   plan = applyTgeOverride(plan, { pool });
 
   plan = applySpotFeeFloor(plan, { pool, volatileRecall });
+  plan = applyBidAskFeeFloor(plan, { pool });
 
   plan = applySpotDumpGate(plan, { priceChange1h });
   plan = applyDropEntryGate(plan, { priceChange1h });

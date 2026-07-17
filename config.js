@@ -213,6 +213,13 @@ export const config = {
     lossRedeployCooldownHours: u.lossRedeployCooldownHours ?? 24,
     // Only stamp loss cooldown when |loss| is meaningful (tiny -0.05% noise should not 24h-ban a pool).
     lossRedeployMinLossPct: Number(u.lossRedeployMinLossPct ?? 0.3),
+    // 2026-07-17 lesson: unc-SOL lost -57% (0.5 SOL), got redeployed 4x bigger (2 SOL) and
+    // lost again — the flat cooldown above didn't scale with how bad the loss was. A loss
+    // past this threshold gets a longer cooldown AND caps the next deploy's size (below).
+    severeLossPct: Number(u.severeLossPct ?? 10),
+    severeLossCooldownHours: Number(u.severeLossCooldownHours ?? 72),
+    severeLossSizeCapFactor: Number(u.severeLossSizeCapFactor ?? 0.5),
+    severeLossSizeCapHours: Number(u.severeLossSizeCapHours ?? 72),
     winOorRedeployCooldownHours: u.winOorRedeployCooldownHours ?? 3, // block redeploy after a win that still went OOR (volatile pool)
     winRedeployCooldownEnabled: boolConfig(u.winRedeployCooldownEnabled, true), // block redeploy after a clean in-range win (trailing TP / take profit)
     winRedeployCooldownHours: u.winRedeployCooldownHours ?? 3,
@@ -498,6 +505,10 @@ export const config = {
     requireEntryConfirm: boolConfig(u.autoStrategyRequireEntryConfirm, false),
     preferSpotHighFee: boolConfig(u.autoStrategyPreferSpotHighFee, true),
     spotFeeTvlMin: Number(u.autoStrategySpotFeeTvlMin ?? 2),
+    // Low bar on purpose: bid_ask (sol_below ladder-buy) is meant to still catch
+    // quiet-but-promising pools spot's fee floor would reject. This only blocks the
+    // clearly-dead cases (e.g. WORLDCUP-SOL @ 0.17%) that had zero fee income twice.
+    bidAskFeeTvlMin: Number(u.autoStrategyBidAskFeeTvlMin ?? 0.5),
     maxOorRisk: Number(u.autoStrategyMaxOorRisk ?? 65), // 0-100; block deploy above this, 0/null disables
     minUpsideCoverPctPump: Number(u.minUpsideCoverPctPump ?? 25), // pump-view deploys need this % of range above active bin
     // Evil Panda entry rule (opt-in): only deploy when token just set a new
@@ -781,6 +792,7 @@ export function reloadAutoStrategyFromUserConfig(fresh) {
   setBool("autoStrategyAllowCurve", "allowCurve", false);
   setBool("autoStrategyPreferSpotHighFee", "preferSpotHighFee", true);
   setNum("autoStrategySpotFeeTvlMin", "spotFeeTvlMin");
+  setNum("autoStrategyBidAskFeeTvlMin", "bidAskFeeTvlMin");
   setNum("autoStrategySpotRatioBelow", "spotRatioBelow");
   setNum("autoStrategyMaxPumpPct1h", "maxPumpPct1h");
   setNum("autoStrategyMaxOorRisk", "maxOorRisk");

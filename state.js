@@ -171,7 +171,8 @@ export function recordClaim(position_address, fees_usd) {
   if (!pos) return;
   pos.last_claim_at = new Date().toISOString();
   pos.total_fees_claimed_usd = (pos.total_fees_claimed_usd || 0) + (fees_usd || 0);
-  pos.notes.push(`Claimed ~$${fees_usd?.toFixed(2) || "?"} fees at ${pos.last_claim_at}`);
+  const feesLabel = Number.isFinite(fees_usd) ? `~$${fees_usd.toFixed(2)}` : "unknown amount (SOL price unavailable)";
+  pos.notes.push(`Claimed ${feesLabel} fees at ${pos.last_claim_at}`);
   save(state);
 }
 

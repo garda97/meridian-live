@@ -26,7 +26,7 @@ import {
   markPartialTpDone,
 } from "../../state.js";
 import { appendDecision } from "../../decision-log.js";
-import { normalizeMint } from "../wallet.js";
+import { normalizeMint, getSolPriceUsd } from "../wallet.js";
 
 export async function resolveStrategyType(strategy) {
   const { StrategyType } = await getDLMM();
@@ -34,6 +34,28 @@ export async function resolveStrategyType(strategy) {
   const type = map[strategy];
   if (type === undefined) throw new Error(`Invalid strategy: ${strategy}. Use spot, curve, or bid_ask.`);
   return type;
+}
+
+/**
+ * recordClaim() was always called with no fees_usd arg — total_fees_claimed_usd
+ * has been stuck at $0 for every position since it was added. Fee amounts sit on
+ * positionData.positionData.{feeX,feeY} until claimSwapFee() zeroes them, so this
+ * must be read BEFORE the claim tx. tokenY here is always WSOL (9 decimals);
+ * tokenX (base token, usually 0 on these single-sided sol_below deploys) is left
+ * out rather than guessing an illiquid-token price — undercounting claimed fees
+ * is the safe direction (see computePnlPct's comment in state.js).
+ */
+async function estimateClaimedFeesUsd(positionData) {
+  try {
+    const feeY = positionData?.positionData?.feeY;
+    if (!feeY) return null;
+    const feeSol = Number(feeY.toString()) / 1e9;
+    if (!(feeSol > 0)) return 0;
+    const solPrice = await getSolPriceUsd();
+    return solPrice != null ? Math.round(feeSol * solPrice * 100) / 100 : null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Claim Fees ────────────────────────────────────────────────
@@ -57,6 +79,7 @@ export async function claimFees({ position_address }) {
     const pool = await getPool(poolAddress);
 
     const positionData = await pool.getPosition(new PublicKey(position_address));
+    const feesUsd = await estimateClaimedFeesUsd(positionData);
     const txs = await pool.claimSwapFee({
       owner: wallet.publicKey,
       position: positionData,
@@ -73,7 +96,7 @@ export async function claimFees({ position_address }) {
     }
     log("claim", `SUCCESS txs: ${txHashes.join(", ")}`);
     invalidatePositionsCache(); // invalidate cache after claim
-    recordClaim(position_address);
+    recordClaim(position_address, feesUsd);
 
     return { success: true, position: position_address, txs: txHashes, base_mint: pool.lbPair.tokenXMint.toString() };
   } catch (error) {
@@ -120,13 +143,14 @@ export async function partialClosePosition({ position_address, close_pct = 50, r
     const claimTxHashes = [];
     try {
       const positionData = await pool.getPosition(positionPubKey);
+      const feesUsd = await estimateClaimedFeesUsd(positionData);
       const claimTxs = await pool.claimSwapFee({ owner: wallet.publicKey, position: positionData });
       for (const tx of claimTxs || []) {
         claimTxHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
       }
       if (claimTxHashes.length) {
         log("partial_close", `Step 1 OK (claim): ${claimTxHashes.join(", ")}`);
-        recordClaim(position_address);
+        recordClaim(position_address, feesUsd);
       }
     } catch (e) {
       log("partial_close_warn", `Step 1 (Claim) failed or nothing to claim: ${e.message}`);
@@ -208,11 +232,12 @@ export async function withdrawLiquidity({ position_address, pool_address, bps = 
     if (claim_fees) {
       try {
         const positionData = await pool.getPosition(positionPubKey);
+        const feesUsd = await estimateClaimedFeesUsd(positionData);
         const claimTxs = await pool.claimSwapFee({ owner: wallet.publicKey, position: positionData });
         for (const tx of claimTxs || []) {
           claimTxHashes.push(await sendAndConfirmTransaction(getConnection(), tx, [wallet]));
         }
-        if (claimTxHashes.length) recordClaim(position_address);
+        if (claimTxHashes.length) recordClaim(position_address, feesUsd);
       } catch (e) {
         log("withdraw_warn", `Claim before withdraw failed or nothing to claim: ${e.message}`);
       }
