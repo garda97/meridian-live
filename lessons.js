@@ -195,6 +195,7 @@ export async function recordPerformance(perf) {
       entry_mcap: perf.entry_mcap,
       entry_tvl: perf.entry_tvl,
       entry_volume: perf.entry_volume,
+      amount_sol: perf.amount_sol,
       exit_mcap: perf.exit_mcap,
       exit_tvl: perf.exit_tvl,
       exit_volume: perf.exit_volume,
