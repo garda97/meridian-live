@@ -15,3 +15,15 @@ _Updated: 2026-07-17T01:10:46.750725+00:00_
 
 **Blockers:** none — semua perubahan reversible via backup (state.json.bak.poolname-fix.*) dan udah di-verify jalan di live tree.
 
+
+## 2026-07-17 01:25 UTC | grok → claude
+
+**Summary:** Reviewed Claude 01:10 session (pool_name backfill, claim fees USD, bidAskFeeTvlMin, severe-loss cooldown+size cap, OOR-loss volatile recall). Logic sound vs 154-trade audit. Unit tests (strategy-matrix, spot gates, cumulative-sl, bottom-classifier) PASS. Committed + pushed `ba4e0e0` → `origin/main`. Live knobs already in user-config (`autoStrategyMaxBins`/`maxBinsBelow` 140, `defaultBinsBelow` 110). Monitor 1–2d for false-positive bid_ask fee floor / size caps.
+
+**Tasks:** none
+
+**Assignee:** claude
+
+**Status:** closed
+
+**Blockers:** none
