@@ -28,6 +28,7 @@ import {
 import { invalidatePositionsCache } from "./positions-cache.js";
 import { lookupPoolForPosition } from "./positions.js";
 import { withdrawLiquidity, reclaimEmptyPositionAccount, resolveStrategyType } from "./liquidity.js";
+import { getMyPositions } from "./positions.js";
 import {
   getTrackedPosition,
   recordClose,
@@ -402,15 +403,23 @@ export async function rebalancePosition({ position_address, plan, reason }) {
       // (same base mint) -> over-cap + double exposure. Only recordClose if the position is
       // truly absent on-chain; otherwise retain it so the manager cycle retries later.
       let stillOpen = false;
+      let verifyFailed = false;
       try {
         const verify = await getMyPositions({ force: true, silent: true });
         stillOpen = Array.isArray(verify?.positions) &&
           verify.positions.some((p) => p.position === position_address);
       } catch (verifyErr) {
+        // 2026-07-17: getMyPositions was never imported here, so this always threw —
+        // and stillOpen's default (false) fell straight to recordClose() below, the
+        // OPPOSITE of "retaining position to avoid false-close". Import fixed above;
+        // this flag is the belt-and-suspenders half — an unknown on-chain state must
+        // retain, not close, or a future verify failure (rate limit, RPC hiccup)
+        // reproduces the same silent-fund-loss-from-tracking bug.
+        verifyFailed = true;
         log("rebalance_error", `On-chain verify failed (${verifyErr.message}) — retaining position to avoid false-close`);
       }
-      if (stillOpen) {
-        log("rebalance_error", `Position ${position_address} still live on-chain after failed re-add — NOT marking closed (retained for manager retry)`);
+      if (stillOpen || verifyFailed) {
+        log("rebalance_error", `Position ${position_address} ${verifyFailed ? "verify failed — unknown state" : "still live on-chain"} after failed re-add — NOT marking closed (retained for manager retry)`);
       } else {
         recordClose(position_address, `rebalance failed after withdraw (${failMsg}) — funds returned to wallet`);
       }
