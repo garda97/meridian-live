@@ -235,6 +235,7 @@ function normalizeConfigValue(key, value) {
     "solMode",
     "darwinEnabled",
     "lpAgentRelayEnabled",
+    "lpAgentDiscoveryEnabled",
     "copyTradeEnabled",
     "copyTradeMirrorExit",
   ]);
@@ -408,6 +409,7 @@ const toolMap = {
       mcapScaledTokenFees: ["screening", "mcapScaledTokenFees"],
       minTokenFeesSolPer100kMcap: ["screening", "minTokenFeesSolPer100kMcap"],
       useDiscordSignals: ["screening", "useDiscordSignals"],
+      lpAgentDiscoveryEnabled: ["screening", "lpAgentDiscoveryEnabled"],
       discordSignalMode: ["screening", "discordSignalMode"],
       avoidPvpSymbols: ["screening", "avoidPvpSymbols"],
       blockPvpSymbols: ["screening", "blockPvpSymbols"],

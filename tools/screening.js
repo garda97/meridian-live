@@ -265,7 +265,14 @@ export function getRawPoolScreeningRejectReason(pool, s) {
 
   if (mcap == null || mcap < s.minMcap) return `mcap ${mcap ?? "unknown"} below minMcap ${s.minMcap}`;
   if (mcap > s.maxMcap) return `mcap ${mcap} above maxMcap ${s.maxMcap}`;
-  if (s.minHolders != null && (holders == null || holders < s.minHolders)) {
+  // LPAgent's token0_stats/token1_stats (source of holders) is documented
+  // nullable and intermittently missing per-request — unlike the primary
+  // discovery source, "unknown" here doesn't mean "verified low/zero", just
+  // "this particular fetch didn't include it". Don't reject LPAgent pools on
+  // missing holder data; a real numeric value below the threshold still
+  // rejects normally.
+  const holdersUnknownFromLpAgent = holders == null && pool?.lp_agent_source === true;
+  if (s.minHolders != null && !holdersUnknownFromLpAgent && (holders == null || holders < s.minHolders)) {
     return `holders ${holders ?? "unknown"} below minHolders ${s.minHolders}`;
   }
   if (volume == null || volume < s.minVolume) return `volume ${volume ?? "unknown"} below minVolume ${s.minVolume}`;
@@ -781,6 +788,199 @@ async function refreshDiscordOnlyPools(pools, timeframe) {
   }
 }
 
+const LPAGENT_API_BASE = "https://api.lpagent.io/open-api/v1";
+
+/**
+ * Map one LPAgent /pools/discover item into the SAME raw pool shape
+ * getRawPoolScreeningRejectReason()/condensePool() expect from the primary
+ * Meteora discovery API — so LPAgent-sourced candidates go through the
+ * identical hard-filter + rugcheck pipeline as every other source, never a
+ * separate/looser path. Several fields LPAgent doesn't expose are
+ * deliberately approximated or left null (documented per-field below);
+ * null-required fields correctly fail the hard filter rather than silently
+ * passing (see getRawPoolScreeningRejectReason's `?? "unknown"` branches).
+ */
+function estimateLpAgentVolatility(p) {
+  // APPROXIMATION: LPAgent doesn't expose the same volatility metric the
+  // primary Meteora discovery API does. Leaving it null made every LPAgent
+  // pool silently fall back to a flat default (2) downstream, masking
+  // genuinely volatile pools. Use recent price-change magnitude (%) as a
+  // proxy instead, preferring the shortest available window since abrupt
+  // recent moves are what the bin-step-widening logic cares about most.
+  const candidates = [p.price_5m_change, p.price_1h_change, p.price_6h_change];
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n)) return Math.abs(n);
+  }
+  return null;
+}
+
+// LPAgent exposes fixed 5m/1h/6h/24h volume windows. Pick whichever is
+// closest to the configured screening timeframe instead of always using
+// 24h — fee_active_tvl_ratio is compared against a threshold calibrated
+// for THAT window, so anchoring to 24h regardless of config produced a
+// ratio up to ~(1440/windowMinutes)x too large whenever timeframe was
+// shorter than 24h. Still an approximation when the nearest available
+// window doesn't exactly match (e.g. config="2h" has no vol_2h), but no
+// longer categorically wrong the way a fixed 24h anchor was.
+function pickLpAgentWindowVolume(p, timeframeMinutes) {
+  const windows = [
+    { minutes: 5, vol: Number(p.vol_5m) },
+    { minutes: 60, vol: Number(p.vol_1h) },
+    { minutes: 360, vol: Number(p.vol_6h) },
+    { minutes: 1440, vol: Number(p.vol_24h) },
+  ].filter((w) => Number.isFinite(w.vol));
+  if (windows.length === 0) return { volume: 0, windowMinutes: null };
+  const target = Number.isFinite(timeframeMinutes) ? timeframeMinutes : 1440;
+  windows.sort((a, b) => Math.abs(a.minutes - target) - Math.abs(b.minutes - target));
+  return { volume: windows[0].vol, windowMinutes: windows[0].minutes };
+}
+
+function mapLpAgentPoolToRawShape(p) {
+  if (p.protocol !== "meteora") return null; // DLMM only — skip meteora_damm_v2 etc, matches our own pool_type=dlmm-only discovery
+  const token0IsSol = p.token0 === SOL_MINT;
+  const token1IsSol = p.token1 === SOL_MINT;
+  if (!token0IsSol && !token1IsSol) return null; // SOL-quoted only — matches isSolQuotePool()/the local SOL-only deploy path
+
+  const base = token0IsSol
+    ? { address: p.token1, symbol: p.token1_symbol, stats: p.token1_stats }
+    : { address: p.token0, symbol: p.token0_symbol, stats: p.token0_stats };
+  const quote = token0IsSol
+    ? { address: p.token0, symbol: p.token0_symbol }
+    : { address: p.token1, symbol: p.token1_symbol };
+
+  const tvl = Number(p.tvl) || null;
+  const vol24h = Number(p.vol_24h) || 0;
+  const feeRate = Number(p.fee) || 0; // LPAgent's "fee" is a RATE (e.g. 0.003 = 0.3%), not $ revenue — DLMM rates can spike much higher dynamically
+  const tfMinutes = TIMEFRAME_MINUTES[config.screening.timeframe];
+  const { volume: windowVol } = pickLpAgentWindowVolume(p, tfMinutes);
+  // Our own fee_active_tvl_ratio = period fee REVENUE / active TVL. LPAgent
+  // doesn't expose period fee revenue directly, so approximate it as
+  // (window volume × current fee rate) / TVL — the same derivation shape as
+  // meridian-rh's analogous GMGN-volume approximation earlier tonight, not
+  // a precision claim. `tvl` stands in for `active_tvl` too (LPAgent
+  // doesn't separate in-range liquidity from total pool TVL).
+  const feeActiveTvlRatio = tvl > 0 ? (windowVol * feeRate) / tvl : null;
+
+  return {
+    pool_address: p.pool,
+    name: `${base.symbol || "?"}-${quote.symbol || "?"}`,
+    pool_type: "dlmm",
+    dlmm_params: { bin_step: Number(p.bin_step) || null },
+    tvl,
+    active_tvl: tvl,
+    volume: vol24h,
+    fee_active_tvl_ratio: feeActiveTvlRatio,
+    base_token_holders: base.stats?.holders ?? null,
+    // NOT mapped from p.mint_freeze — tried this (2026-07-18), then live
+    // cross-checked 30 unique LPAgent-sourced base mints against
+    // rugcheck.xyz's actual on-chain mintAuthority/freezeAuthority: 29/30
+    // disagreed (LPAgent said mint_freeze=true; rugcheck showed both
+    // authorities already null/renounced on-chain). The field is unreliable
+    // for pump.fun-origin tokens and was hard-blocking ~97% of LPAgent
+    // candidates on a false signal. Left false (fail-open) by design — the
+    // universal downstream rugcheck.xyz call is the real backstop for this
+    // and the two supply-concentration checks below (its own on-chain
+    // mint/freeze read + rug score + top10 concentration, all verified
+    // accurate in the same cross-check).
+    base_token_has_critical_warnings: false,
+    quote_token_has_critical_warnings: false,
+    base_token_has_high_supply_concentration: false,
+    base_token_has_high_single_ownership: false,
+    token_x: {
+      symbol: base.symbol,
+      address: base.address,
+      // p.mcap verified live against 5 samples (all SOL=token1) as
+      // base-token-scoped, not token0/token1-positional — consistent with
+      // base_price/quote_price already being semantic base/quote labels
+      // elsewhere in this same payload rather than token0/token1-indexed.
+      // Not exercised against a SOL=token0 sample though, so guard the one
+      // failure mode that would actually matter: mcap is checked FIRST
+      // (before every other hard filter), so if it ever did resolve to
+      // SOL's own ~$80-100B market cap instead, that would silently and
+      // permanently hard-reject the pool. Treat implausibly large values
+      // (no real memecoin reaches this) as unreliable rather than trusting
+      // them blindly.
+      market_cap: (() => {
+        const m = Number(p.mcap);
+        return Number.isFinite(m) && m > 0 && m < 5_000_000_000 ? m : null;
+      })(),
+      // APPROXIMATION, not a fix: LPAgent's organic_score is POOL-level (a
+      // mix of both sides' trading quality), not per-token. We apply it to
+      // the base/memecoin side only, since that's the side minOrganic is
+      // really gauging. It's not equivalent to the primary discovery
+      // source's true per-token organic_score — it's used because nulling
+      // it out would fail-closed-reject nearly every LPAgent pool (the
+      // downstream check treats null as "unknown" and rejects). Kept as an
+      // imperfect proxy on purpose; revisit if LPAgent ever exposes a
+      // per-token score.
+      organic_score: Number(p.organic_score) || 0,
+      created_at: p.first_pool_created_at ? new Date(p.first_pool_created_at).getTime() : null,
+      warnings: [],
+    },
+    token_y: {
+      symbol: quote.symbol,
+      address: quote.address,
+      // SOL as quote is treated as always-organic by construction (same
+      // implicit assumption the primary discovery source's own SOL-quoted
+      // pools carry) — LPAgent has no separate quote-side organic score.
+      organic_score: 100,
+    },
+    volatility: estimateLpAgentVolatility(p),
+    active_positions: null,
+    open_positions: null,
+    // APPROXIMATION: LPAgent doesn't expose LP-position counts. Holder count
+    // isn't the same thing as unique LP count, but degenScore's LP-activity
+    // sub-score is a strict geometric-mean factor — leaving this null (and
+    // positions_created null too) forced sLp to 0 and therefore the whole
+    // score to 0 for every LPAgent pool, unconditionally. Holders is an
+    // imperfect but nonzero, directionally-correct proxy (more holders does
+    // correlate with more LP/trading interest) that stops that structural
+    // zeroing.
+    unique_lps: base.stats?.holders ?? null,
+    lp_agent_source: true,
+    source: "lpagent_discover",
+  };
+}
+
+/**
+ * Additional discovery source (2026-07-18): LPAgent.io's hosted pool
+ * discovery API, merged alongside the primary Meteora discovery API +
+ * Discord signals (see discoverPools() below). Fails soft (empty array,
+ * never throws) on any error or missing API key — this is purely additive,
+ * never a blocker for the existing pipeline.
+ */
+async function discoverPoolsFromLpAgent({ pageSize = 50 } = {}) {
+  const apiKey = process.env.LPAGENT_API_KEY;
+  if (!apiKey || !config.screening.lpAgentDiscoveryEnabled) return [];
+  const s = config.screening;
+  try {
+    const url = new URL(`${LPAGENT_API_BASE}/pools/discover`);
+    url.searchParams.set("chain", "solana");
+    url.searchParams.set("type", "meteora");
+    url.searchParams.set("sortBy", "fee_tvl_ratio");
+    url.searchParams.set("sortOrder", "desc");
+    url.searchParams.set("pageSize", String(pageSize));
+    if (s.minTvl != null) url.searchParams.set("min_liquidity", String(s.minTvl));
+    if (s.maxTvl != null) url.searchParams.set("max_liquidity", String(s.maxTvl));
+    if (s.minMcap != null) url.searchParams.set("min_market_cap", String(s.minMcap));
+    if (s.maxMcap != null) url.searchParams.set("max_market_cap", String(s.maxMcap));
+    if (s.minBinStep != null) url.searchParams.set("min_bin_step", String(s.minBinStep));
+    if (s.maxBinStep != null) url.searchParams.set("max_bin_step", String(s.maxBinStep));
+
+    const res = await fetchWithTimeout(url.toString(), {
+      headers: { "x-api-key": apiKey },
+    }, SCREENING_FETCH_TIMEOUT_MS);
+    if (!res.ok) throw new Error(`LPAgent ${res.status}`);
+    const payload = await res.json();
+    const items = Array.isArray(payload?.data) ? payload.data : [];
+    return items.map(mapLpAgentPoolToRawShape).filter(Boolean);
+  } catch (e) {
+    log("screening", `LPAgent discovery failed (non-fatal, primary discovery still covers screening): ${e.message}`);
+    return [];
+  }
+}
+
 /**
  * Fetch pools from the Meteora Pool Discovery API.
  * Returns condensed data optimized for LLM consumption (saves tokens).
@@ -881,6 +1081,25 @@ export async function discoverPools({
 
   rawPools = await applyVolatilityTimeframe(rawPools, s.timeframe);
   await enrichDiscordSignalLaunchpads(rawPools);
+
+  // LPAgent discovery merge (2026-07-18) — added AFTER volatility/launchpad
+  // enrichment (which are Discord-signal-specific and LPAgent pools don't
+  // need) but BEFORE the hard-filter loop, so LPAgent-sourced candidates go
+  // through the identical getRawPoolScreeningRejectReason()/rugcheck
+  // pipeline as every other pool. Only ADDS pools the primary source
+  // missed — never overrides existing (more complete) primary-source data
+  // on overlap.
+  // discoverPoolsFromLpAgent() already catches every internal error and
+  // returns [] — no outer .catch() needed here.
+  const lpAgentPools = await discoverPoolsFromLpAgent();
+  if (lpAgentPools.length > 0) {
+    const seenAddresses = new Set(rawPools.map((p) => p.pool_address));
+    const newFromLpAgent = lpAgentPools.filter((p) => !seenAddresses.has(p.pool_address));
+    if (newFromLpAgent.length > 0) {
+      log("screening", `LPAgent discovery added ${newFromLpAgent.length} pool(s) not in primary discovery`);
+      rawPools = [...rawPools, ...newFromLpAgent];
+    }
+  }
 
   const filteredExamples = [];
   const thresholdedRawPools = rawPools.filter((pool) => {
@@ -1302,6 +1521,11 @@ function condensePool(p) {
     signal_source: p.signal_source || null,
     signal_note: p.signal_note || null,
     wallet_signal: p.wallet_signal || null,
+    // Self-identifies LPAgent-sourced candidates (mirrors discord_signal above)
+    // so the LLM and any downstream auto-tuning can discount/flag the several
+    // approximated or hardcoded fields this source carries (derived fee ratio,
+    // pool-level organic_score, price-change-derived volatility, etc).
+    lp_agent_source: Boolean(p.lp_agent_source),
 
     // Price action
     price: p.pool_price,

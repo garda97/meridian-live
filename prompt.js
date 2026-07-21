@@ -115,10 +115,13 @@ RISK SIGNALS (guidelines — use judgment):
 - PVP symbol conflict (same exact symbol across multiple mints) → major negative. Avoid unless the setup is exceptional and clearly stronger than the competing symbol variants.
 - no narrative + no smart wallets → skip
 
-NARRATIVE QUALITY (your main judgment call):
-- GOOD: specific origin — real event, viral moment, named entity, active community
-- BAD: generic hype ("next 100x", "community token") with no identifiable subject
-- Smart wallets present → can override weak narrative
+NARRATIVE / THESIS (your main judgment call — 24h quality bar):
+- GOOD thesis: specific origin — real event, viral moment, named entity, product, or active community with a clear "why this token now"
+- BAD thesis: generic FOMO hype ("next 100x", "community token", "CTO soon") with no identifiable subject
+- COMMUNITY: prefer higher organic_score + real holder dispersion; treat high fresh-wallet / bundled / bot % as fake community
+- FOMO CHECK: if 1h pump is extended or price is chasing a spike without fee support → SKIP even if 24h volume looks huge
+- Smart wallets present → can support a weak thesis, not a pure FOMO rug narrative
+- Launchpad flap.fun, flap, flapfun (exact string match only) are hard-blocked upstream — never override. pump.fun and every other launchpad are NOT blocked and are not "aliases" of flap.fun — never invent additional blocked launchpads.
 
 POOL MEMORY: Past losses or problems → strong skip signal.
 
