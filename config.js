@@ -143,6 +143,10 @@ export const config = {
     mcapScaledTokenFees: boolConfig(u.mcapScaledTokenFees, true), // MeteoraFR rule: 10 SOL per $100k mcap
     minTokenFeesSolPer100kMcap: u.minTokenFeesSolPer100kMcap ?? 10,
     useDiscordSignals: boolConfig(u.useDiscordSignals, false),
+    // LPAgent.io pool discovery (2026-07-18) — additional discovery source
+    // merged alongside the primary Meteora discovery API + Discord signals.
+    // Own toggle so it can be killed instantly without touching the API key.
+    lpAgentDiscoveryEnabled: boolConfig(u.lpAgentDiscoveryEnabled, true),
     discordSignalMode: u.discordSignalMode ?? "merge", // merge | only
     avoidPvpSymbols:   boolConfig(u.avoidPvpSymbols, true), // avoid exact-symbol rivals with real active pools
     blockPvpSymbols:   boolConfig(u.blockPvpSymbols, false), // hard-filter PVP rivals before the LLM sees them
@@ -870,6 +874,7 @@ export function reloadScreeningThresholds() {
     if (fresh.minTokenFeesSolPer100kMcap != null) s.minTokenFeesSolPer100kMcap = fresh.minTokenFeesSolPer100kMcap;
     if (fresh.maxTop10Pct      != null) s.maxTop10Pct      = fresh.maxTop10Pct;
     if (fresh.useDiscordSignals !== undefined) s.useDiscordSignals = fresh.useDiscordSignals;
+    if (fresh.lpAgentDiscoveryEnabled !== undefined) s.lpAgentDiscoveryEnabled = fresh.lpAgentDiscoveryEnabled;
     if (fresh.discordSignalMode != null) s.discordSignalMode = fresh.discordSignalMode;
     if (fresh.excludeHighSupplyConcentration !== undefined) s.excludeHighSupplyConcentration = fresh.excludeHighSupplyConcentration;
     if (fresh.minOrganic     != null) s.minOrganic     = fresh.minOrganic;
