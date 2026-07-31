@@ -39,3 +39,648 @@ Only positions with attributable PnL are recorded. No auto config change.
 ## 2026-07-07 10:30 — Post-mortem batch (1 new)
 
 - **drooling-SOL** (bid_ask) — PnL +0.04% | mcap $2.82M | TVL $269K | organic 81 | fee/TVL 0.1215 | reason: unknown
+
+## 2026-07-08 16:00 — Post-mortem batch (1 new)
+
+- **BABYANSEM-SOL** (bid_ask) — PnL +0.27% | mcap $0.85M | TVL $29K | organic 75 | fee/TVL 0.6688 | reason: unknown
+
+## 2026-07-08 16:30 — Post-mortem batch (3 new)
+
+- **ASTEROID-SOL** (spot) — PnL +0.06% | mcap $3.92M | TVL $111K | organic 64 | fee/TVL 0.1828 | reason: unknown
+- **world-SOL** (bid_ask) — PnL -0.00% | mcap $1.70M | TVL $52K | organic 75 | fee/TVL 0.1651 | reason: unknown
+- **Cupsey-SOL** (bid_ask) — PnL -0.00% | mcap $7.56M | TVL $62K | organic 75 | fee/TVL 0.7034 | reason: unknown
+
+## 2026-07-08 16:45 — Post-mortem batch (1 new)
+
+- **Cupsey-SOL** (bid_ask) — PnL +0.08% | mcap $8.54M | TVL $172K | organic 75 | fee/TVL 0.2112 | reason: unknown
+
+## 2026-07-08 17:00 — Post-mortem batch (1 new)
+
+- **world-SOL** (bid_ask) — PnL +0.05% | mcap $1.73M | TVL $53K | organic 75 | fee/TVL 0.143 | reason: unknown
+
+## 2026-07-08 17:15 — Post-mortem batch (1 new)
+
+- **SOLANGELES-SOL** (bid_ask) — PnL +0.11% | mcap $3.02M | TVL $38K | organic 76 | fee/TVL 0.0667 | reason: unknown
+
+## 2026-07-08 17:30 — Post-mortem batch (5 new)
+
+- **ANSEMWIFE-SOL** (spot) — PnL +0.86% | mcap $0.91M | TVL $27K | organic 86 | fee/TVL 2.092 | reason: unknown
+- **NEST-SOL** (curve) — PnL +0.10% | mcap $7.84M | TVL $42K | organic 75 | fee/TVL 0.0947 | reason: unknown
+- **CATWIF-SOL** (curve) — PnL +0.06% | mcap $1.75M | TVL $72K | organic 80 | fee/TVL 0.1197 | reason: unknown
+- **three-SOL** (curve) — PnL -0.13% | mcap $1.31M | TVL $91K | organic 71 | fee/TVL 0.0737 | reason: unknown
+- **SOLANGELES-SOL** (bid_ask) — PnL +0.20% | mcap $3.02M | TVL $38K | organic 76 | fee/TVL 0.0666 | reason: unknown
+
+## 2026-07-08 19:00 — Post-mortem batch (2 new)
+
+- **NEST-SOL** (curve) — PnL +0.05% | mcap $7.81M | TVL $38K | organic 75 | fee/TVL 0.0701 | reason: unknown
+- **Cupsey-SOL** (bid_ask) — PnL +0.01% | mcap $6.22M | TVL $110K | organic 75 | fee/TVL 1.2099 | reason: unknown
+
+## 2026-07-08 19:45 — Post-mortem batch (1 new)
+
+- **Cupsey-SOL** (bid_ask) — PnL +0.11% | mcap $6.17M | TVL $163K | organic 75 | fee/TVL 0.6749 | reason: unknown
+
+## 2026-07-08 20:00 — Post-mortem batch (5 new)
+
+- **BURNIE-SOL** (curve) — PnL +0.07% | mcap $2.23M | TVL $105K | organic 72 | fee/TVL 0.0535 | reason: unknown
+- **drooling-SOL** (bid_ask) — PnL +0.15% | mcap $1.84M | TVL $195K | organic 77 | fee/TVL 0.089 | reason: unknown
+- **SOLANGELES-SOL** (bid_ask) — PnL +0.11% | mcap $2.92M | TVL $38K | organic 76 | fee/TVL 0.0882 | reason: unknown
+- **unc-SOL** (bid_ask) — PnL -0.45% | mcap $0.98M | TVL $83K | organic 75 | fee/TVL 0.0878 | reason: unknown
+- **ASTEROID-SOL** (bid_ask) — PnL +0.06% | mcap $3.53M | TVL $104K | organic 66 | fee/TVL 0.1135 | reason: unknown
+
+## 2026-07-08 21:30 — Post-mortem batch (2 new)
+
+- **HODL-SOL** (bid_ask) — PnL +0.01% | mcap $1.61M | TVL $36K | organic 65 | fee/TVL 0.7695 | reason: unknown
+- **maxxing-SOL** (bid_ask) — PnL +0.31% | mcap $0.66M | TVL $35K | organic 70 | fee/TVL 0.3353 | reason: unknown
+
+## 2026-07-09 11:15 — Post-mortem batch (1 new)
+
+- **CASHCAT-SOL** (spot) — PnL -0.99% | mcap $0.58M | TVL $32K | organic 75 | fee/TVL 1.3348 | reason: unknown
+
+## 2026-07-09 14:30 — Post-mortem batch (1 new)
+
+- **CASHCAT-SOL** (bid_ask) — PnL -0.01% | mcap $0.37M | TVL $29K | organic 75 | fee/TVL 0.708 | reason: unknown
+
+## 2026-07-09 15:00 — Post-mortem batch (2 new)
+
+- **CASHCAT-SOL** (bid_ask) — PnL +0.22% | mcap $0.34M | TVL $24K | organic 75 | fee/TVL 0.88 | reason: unknown
+- **CASHCAT-SOL** (bid_ask) — PnL +0.26% | mcap $0.34M | TVL $23K | organic 75 | fee/TVL 1.0437 | reason: unknown
+
+## 2026-07-09 15:15 — Post-mortem batch (1 new)
+
+- **CASHCAT-SOL** (bid_ask) — PnL -0.22% | mcap $0.34M | TVL $23K | organic 75 | fee/TVL 1.1104 | reason: unknown
+
+## 2026-07-09 16:15 — Post-mortem batch (1 new)
+
+- **maxxing-SOL** (spot) — PnL -0.46% | mcap $0.65M | TVL $24K | organic 69 | fee/TVL 0.2337 | reason: unknown
+
+## 2026-07-09 16:30 — Post-mortem batch (1 new)
+
+- **USDUC-SOL** (bid_ask) — PnL -0.49% | mcap $4.39M | TVL $74K | organic 62 | fee/TVL 0.0579 | reason: unknown
+
+## 2026-07-09 17:30 — Post-mortem batch (1 new)
+
+- **RTM-SOL** (bid_ask) — PnL -0.15% | mcap $1.02M | TVL $24K | organic 74 | fee/TVL 0.062 | reason: unknown
+
+## 2026-07-09 17:45 — Post-mortem batch (1 new)
+
+- **world-SOL** (bid_ask) — PnL -0.01% | mcap $2.39M | TVL $122K | organic 87 | fee/TVL 0.0504 | reason: unknown
+
+## 2026-07-09 19:45 — Post-mortem batch (2 new)
+
+- **LEVI-SOL** (bid_ask) — PnL +3.47% | mcap $1.85M | TVL $33K | organic 85 | fee/TVL 0.1134 | reason: unknown
+- **Jotchua-SOL** (bid_ask) — PnL +0.04% | mcap $4.39M | TVL $360K | organic 84 | fee/TVL 0.05 | reason: unknown
+
+## 2026-07-09 20:30 — Post-mortem batch (1 new)
+
+- **Cupsey-SOL** (bid_ask) — PnL -0.38% | mcap $8.30M | TVL $90K | organic 93 | fee/TVL 0.1944 | reason: unknown
+
+## 2026-07-09 22:45 — Post-mortem batch (1 new)
+
+- **Jotchua-SOL** (bid_ask) — PnL -0.13% | mcap $4.62M | TVL $368K | organic 84 | fee/TVL 0.0916 | reason: unknown
+
+## 2026-07-09 16:39 UTC — Hermes P0 fixes (no Grok/Claude)
+
+1. **Token-2022 pre-filter** in `tools/screening.js` — drop Token-2022 mints BEFORE rugcheck/LLM (cache 6h). Live verified: filtered `pendu-SOL`.
+2. **fee/TVL tier scoring** — scoreCandidate boosts feeSignal >=1.0 / 0.5 / 0.2 (Fase2 learning).
+3. **Rebalance emergency re-add** in `tools/dlmm/rebalance.js` — after ladder fail, try in_place_emergency or migrate_emergency before force-close.
+4. **closedOutcomes dedupe** in `state.js` — recordClose idempotent; skip second outcome per position id.
+
+Daemon restarted live after deploy. TG 409 / copytrade / entry-gate philosophy still open.
+
+## 2026-07-09 16:47 UTC — entry_gate prompt aligned
+
+- Runtime drop zone confirmed: dropEntryGate=true, **[-15%, +10%]** (sideway-friendly).
+- LLM was inventing **-55%..-20%** in no_deploy reasons — prompt hallucination, not config.
+- Fixed: `prompt.js` + `daemon/engine.js` inject live dropEntryMin/Max and forbid inventing other bands; quote entry_reason verbatim.
+- strategy-router comments/notes show actual [min,max] zone.
+- Daemon restarted live. Drop values NOT loosened (profile already -15..+10).
+
+## 2026-07-09 17:06 UTC — loss cooldown loosened + restart
+
+- `lossRedeployCooldownHours`: 24 → **8**
+- NEW `lossRedeployMinLossPct`: **0.3** — dust losses (|pnl|<0.3%) no longer stamp cooldown
+- Reconciled pool-memory: cleared CASHCAT/world/RTM dust loss CDs; USDUC -0.41% capped to 8h
+- timeframe remains **24h**
+- Post-restart: still 0 candidates — bottleneck now Token-2022 mass + Cupsey repeat-deploy CD (not loss CD)
+
+## 2026-07-09 22:24 UTC — Token-2022 misdiagnosis fixed (Hermes)
+
+**Wrong diagnosis (1784f89):** blanket skip Token-2022 as "ATA rent → 0x1".
+
+**Real root cause (KINS-USDC log):**
+- amount_y=0.5 deposited into **tokenY=USDC** (not SOL)
+- Tokenkeg `insufficient funds` 0x1 — wallet had no USDC
+- Token-2022 TransferChecked on base **succeeded**
+
+**Counter-evidence:** Jotchua-SOL (Token-2022 base + SOL quote) deployed live twice same day.
+
+**Fix:**
+1. `tools/dlmm/deploy.js` — require quote mint = WSOL; allow Token-2022 base
+2. `tools/screening.js` — replace T22 pre-filter with non-SOL quote filter
+3. Unit: `test/test-sol-quote-filter.js`
+
+**Result:** candidates ~6 → ~44 (T22 *-SOL pools re-enter shortlist).
+
+## 2026-07-09 23:38 UTC — Hybrid scalp apply (LP Agent wallet lesson)
+
+Source wallet: `5Rc6NgqCUenHp13s2TJf21pr88siak9vTtf1xb7FTENi` (febu bid_ask ~5 SOL, hold median ~3.5m).
+
+**Applied (owner approved):**
+- maxPositions: 3 → **2**
+- autoStrategyMaxBins: 200 → **120**
+- minBinsBelow: 40 → **50**
+- maxBinsBelow: 100 → **120**
+- defaultBinsBelow: stays **100**
+- deploy size: **unchanged 0.5 SOL**
+
+**Not applied (too aggressive for bankroll):**
+- 3–5 SOL size
+- 3-minute auto hold/exit
+- full scalp spam mode
+
+**Open positions at apply:** ok-SOL + ANSEMWIFE (pre-change wide 200-bin deploys) — manage to close naturally; new deploys use tighter bins.
+
+## 2026-07-09 23:52 UTC — SAFE package applied (owner)
+- maxPositions=2 (resume deploy)
+- bins: min50 / default80 / max100 / autoMax100
+- minAgeBeforeYieldCheck=30 (was 45)
+- deploy=0.5 · minFeePerTvl24h=3 · dryRun=false
+- Backup: user-config.json.bak-safe-20260709T235250Z
+
+
+## 2026-07-10 07:00 — Post-mortem batch (2 new)
+
+- **ok-SOL** (bid_ask) — PnL -0.18% | mcap $0.49M | TVL $53K | organic 75 | fee/TVL 12.0211 | reason: unknown
+- **ANSEMWIFE-SOL** (bid_ask) — PnL -0.14% | mcap $0.20M | TVL $7K | organic 75 | fee/TVL 9.6236 | reason: unknown
+
+## 2026-07-10 07:30 — Post-mortem batch (1 new)
+
+- **ok-SOL** (bid_ask) — PnL -0.20% | mcap $0.45M | TVL $51K | organic 75 | fee/TVL 11.9323 | reason: unknown
+
+## 2026-07-10 00:37 UTC — Phase2: rebalanceMinAgeMinutes=8
+Post-open quiet window blocks in-range reseed/drift thrash for first 8m after deploy.
+Confirmed OOR (minutes_out_of_range >= rebalanceMinOorMinutes) bypasses.
+Code: tools/position-router.js positionAgeMinutes + isWithinRebalanceMinAge in shouldRebalance + isRebalanceCandidate.
+Tests: test-rebalance.js + test-volatility-adaptive.js OK. Daemon restarted.
+
+## 2026-07-10 00:42 UTC — Phase2 rebalance quiet (owner)
+- Bug: isWithinRebalanceMinAge allowed rebalance when age_minutes was null → thrash ~16–30s after open
+- Fix: null age treated as young while rebalanceMinAgeMinutes>0; confirmed OOR still bypasses
+- Config reload now includes autoStrategyMaxBins, rebalanceMinAge*, minAgeBeforeYieldCheck
+- rebalanceMinAgeMinutes=**8** (OOR confirmed still allowed)
+
+
+## 2026-07-10 07:45 — Post-mortem batch (1 new)
+
+- **pendu-SOL** (bid_ask) — PnL +0.04% | mcap $0.09M | TVL $7K | organic 75 | fee/TVL 0.01 | reason: unknown
+
+## 2026-07-10 08:00 — Post-mortem batch (1 new)
+
+- **FOMO-SOL** (bid_ask) — PnL +0.14% | mcap $0.24M | TVL $13K | organic 70 | fee/TVL 20.8351 | reason: unknown
+
+## 2026-07-10 08:15 — Post-mortem batch (1 new)
+
+- **LEVI-SOL** (bid_ask) — PnL +0.12% | mcap $0.71M | TVL $27K | organic 75 | fee/TVL 0.75 | reason: unknown
+
+## 2026-07-10 08:30 — Post-mortem batch (1 new)
+
+- **FOMO-SOL** (bid_ask) — PnL +0.49% | mcap $0.24M | TVL $12K | organic 70 | fee/TVL 0.33 | reason: unknown
+
+## 2026-07-10 08:45 — Post-mortem batch (2 new)
+
+- **ANSEMWIFE-SOL** (bid_ask) — PnL +0.54% | mcap $0.22M | TVL $7K | organic 75 | fee/TVL 8.4219 | reason: unknown
+- **Cupsey-SOL** (bid_ask) — PnL +0.12% | mcap $5.73M | TVL $106K | organic 91 | fee/TVL 6.1895 | reason: unknown
+
+## 2026-07-10 09:00 — Post-mortem batch (1 new)
+
+- **febu-SOL** (bid_ask) — PnL +0.04% | mcap $1.52M | TVL $178K | organic 87 | fee/TVL 7.3e-05 | reason: unknown
+
+## 2026-07-10 09:30 — Post-mortem batch (1 new)
+
+- **DONALT-SOL** (bid_ask) — PnL -0.17% | mcap $1.89M | TVL $15K | organic 54 | fee/TVL 0.03 | reason: unknown
+
+## 2026-07-10 09:45 — Post-mortem batch (2 new)
+
+- **Jotchua-SOL** (bid_ask) — PnL -0.02% | mcap $3.29M | TVL $332K | organic 85 | fee/TVL 0.5 | reason: unknown
+- **CASHCAT-SOL** (bid_ask) — PnL -0.55% | mcap $0.21M | TVL $6K | organic 75 | fee/TVL 131.9398 | reason: unknown
+
+## 2026-07-10 10:30 — Post-mortem batch (1 new)
+
+- **febu-SOL** (bid_ask) — PnL +0.14% | mcap $1.33M | TVL $168K | organic 86 | fee/TVL 11.393 | reason: unknown
+
+## 2026-07-10 10:45 — Post-mortem batch (1 new)
+
+- **Goblin-SOL** (bid_ask) — PnL -0.23% | mcap $0.34M | TVL $11K | organic 71 | fee/TVL 8.8182 | reason: unknown
+
+## 2026-07-10 11:00 — Post-mortem batch (1 new)
+
+- **TripleT-SOL** (bid_ask) — PnL +0.07% | mcap $20.93M | TVL $525K | organic 86 | fee/TVL 1.4428 | reason: unknown
+
+## 2026-07-10 11:15 — Post-mortem batch (1 new)
+
+- **Balloon-SOL** (bid_ask) — PnL +0.23% | mcap $0.22M | TVL $7K | organic 65 | fee/TVL 0.127216 | reason: unknown
+
+## 2026-07-10 11:30 — Post-mortem batch (2 new)
+
+- **TripleT-SOL** (bid_ask) — PnL +0.03% | mcap $19.34M | TVL $526K | organic 87 | fee/TVL 1.5125 | reason: unknown
+- **CASHCAT-SOL** (bid_ask) — PnL +2.18% | mcap $0.20M | TVL $6K | organic 75 | fee/TVL 136.7793 | reason: unknown
+
+## 2026-07-10 12:30 — Post-mortem batch (1 new)
+
+- **Balloon-SOL** (bid_ask) — PnL -0.06% | mcap $0.21M | TVL $7K | organic 64 | fee/TVL 0.002252 | reason: unknown
+
+## 2026-07-10 12:45 — Post-mortem batch (1 new)
+
+- **CASHCAT-SOL** (bid_ask) — PnL +0.21% | mcap $0.28M | TVL $6K | organic 75 | fee/TVL 123.0267 | reason: unknown
+
+## 2026-07-10 13:15 — Post-mortem batch (2 new)
+
+- **Goblin-SOL** (bid_ask) — PnL -0.04% | mcap $0.36M | TVL $11K | organic 71 | fee/TVL 8.7805 | reason: unknown
+- **RTM-SOL** (bid_ask) — PnL +0.09% | mcap $0.76M | TVL $21K | organic 74 | fee/TVL 7.1524 | reason: unknown
+
+## 2026-07-10 13:30 — Post-mortem batch (1 new)
+
+- **reptilecoin-SOL** (bid_ask) — PnL -0.04% | mcap $0.27M | TVL $9K | organic 75 | fee/TVL 8.2614 | reason: unknown
+
+## 2026-07-10 13:45 — Post-mortem batch (1 new)
+
+- **KINS-SOL** (bid_ask) — PnL -0.01% | mcap $9.88M | TVL $321K | organic 89 | fee/TVL 1.0359 | reason: unknown
+
+## 2026-07-10 14:00 — Post-mortem batch (1 new)
+
+- **CASHCAT-SOL** (bid_ask) — PnL -0.11% | mcap $0.22M | TVL $5K | organic 75 | fee/TVL 76.8063 | reason: unknown
+
+## 2026-07-10 14:30 — Post-mortem batch (1 new)
+
+- **world-SOL** (bid_ask) — PnL +0.09% | mcap $2.54M | TVL $156K | organic 79 | fee/TVL 0.037732 | reason: unknown
+
+## 2026-07-10 14:45 — Post-mortem batch (1 new)
+
+- **Joby-SOL** (bid_ask) — PnL +0.09% | mcap $2.77M | TVL $46K | organic 63 | fee/TVL 0.034 | reason: unknown
+
+## 2026-07-10 15:15 — Post-mortem batch (2 new)
+
+- **CHANCE-SOL** (bid_ask) — PnL -0.22% | mcap $1.25M | TVL $66K | organic 71 | fee/TVL 0.047666 | reason: unknown
+- **Bullscan-SOL** (bid_ask) — PnL -0.12% | mcap $0.44M | TVL $5K | organic 82 | fee/TVL 40.7189 | reason: unknown
+
+## 2026-07-10 15:45 — Post-mortem batch (1 new)
+
+- **drooling-SOL** (bid_ask) — PnL +40.80% | mcap $1.08M | TVL $146K | organic 76 | fee/TVL 2.9858 | reason: unknown
+
+## 2026-07-10 16:00 — Post-mortem batch (3 new)
+
+- **Bullscan-SOL** (bid_ask) — PnL +0.48% | mcap $0.48M | TVL $6K | organic 82 | fee/TVL 39.0079 | reason: unknown
+- **AgenC-SOL** (bid_ask) — PnL +0.05% | mcap $1.08M | TVL $12K | organic 65 | fee/TVL 5.4382 | reason: unknown
+- **drooling-SOL** (bid_ask) — PnL +0.04% | mcap $1.08M | TVL $146K | organic 76 | fee/TVL 2.9856 | reason: unknown
+
+## 2026-07-10 18:15 — Post-mortem batch (2 new)
+
+- **AgenC-SOL** (bid_ask) — PnL +0.06% | mcap $1.04M | TVL $12K | organic 65 | fee/TVL 0.392 | reason: unknown
+- **drooling-SOL** (bid_ask) — PnL -0.00% | mcap $1.05M | TVL $140K | organic 76 | fee/TVL 0.0225 | reason: unknown
+
+## 2026-07-10 18:45 — Post-mortem batch (1 new)
+
+- **CATWIF-SOL** (bid_ask) — PnL +0.13% | mcap $1.19M | TVL $73K | organic 77 | fee/TVL 0.03 | reason: unknown
+
+## 2026-07-10 19:00 — Post-mortem batch (1 new)
+
+- **AgenC-SOL** (bid_ask) — PnL +0.19% | mcap $1.06M | TVL $12K | organic 66 | fee/TVL 0.05 | reason: unknown
+
+## 2026-07-10 19:45 — Post-mortem batch (3 new)
+
+- **drooling-SOL** (bid_ask) — PnL +0.20% | mcap $1.05M | TVL $142K | organic 76 | fee/TVL 0.0229 | reason: unknown
+- **SQUIRE-SOL** (bid_ask) — PnL +0.04% | mcap $2.81M | TVL $110K | organic 72 | fee/TVL 2.8618 | reason: unknown
+- **unc-SOL** (bid_ask) — PnL +0.09% | mcap $0.99M | TVL $43K | organic 71 | fee/TVL 5.38e-05 | reason: unknown
+
+## 2026-07-10 20:45 — Post-mortem batch (2 new)
+
+- **Bullscan-SOL** (bid_ask) — PnL +0.20% | mcap $0.28M | TVL $16K | organic 75 | fee/TVL 23.7998 | reason: unknown
+- **traindog-SOL** (bid_ask) — PnL +0.16% | mcap $0.56M | TVL $53K | organic 71 | fee/TVL 2.6465 | reason: unknown
+
+## 2026-07-10 22:15 — Post-mortem batch (1 new)
+
+- **LEVI-SOL** (bid_ask) — PnL -1.29% | mcap $0.61M | TVL $7K | organic 75 | fee/TVL 83.2942 | reason: unknown
+
+## 2026-07-10 23:15 — Post-mortem batch (1 new)
+
+- **GINNAN-SOL** (bid_ask) — PnL +0.06% | mcap $0.14M | TVL $7K | organic 77 | fee/TVL 38.0663 | reason: unknown
+
+## 2026-07-11 00:45 — Post-mortem batch (1 new)
+
+- **mogdog-SOL** (bid_ask) — PnL +0.02% | mcap $0.27M | TVL $18K | organic 75 | fee/TVL 35.3345 | reason: unknown
+
+## 2026-07-11 03:30 — Post-mortem batch (1 new)
+
+- **world-SOL** (bid_ask) — PnL +0.07% | mcap $2.45M | TVL $18K | organic 79 | fee/TVL 1.2643 | reason: unknown
+
+## 2026-07-11 04:00 — Post-mortem batch (1 new)
+
+- **reptilecoin-SOL** (bid_ask) — PnL -0.09% | mcap $0.28M | TVL $8K | organic 75 | fee/TVL 21.7945 | reason: unknown
+
+## 2026-07-11 05:15 — Post-mortem batch (1 new)
+
+- **CASHCAT-SOL** (bid_ask) — PnL +0.13% | mcap $0.28M | TVL $7K | organic 81 | fee/TVL 34.8044 | reason: unknown
+
+## 2026-07-11 08:45 — Post-mortem batch (1 new)
+
+- **mogdog-SOL** (spot) — PnL +0.97% | mcap $0.38M | TVL $24K | organic 84 | fee/TVL 59.5672 | reason: unknown
+
+## 2026-07-11 11:30 — Post-mortem batch (1 new)
+
+- **LEVI-SOL** (bid_ask) — PnL -0.08% | mcap $0.43M | TVL $8K | organic 74 | fee/TVL 7.5961 | reason: unknown
+
+## 2026-07-11 15:45 — Post-mortem batch (1 new)
+
+- **reptilecoin-SOL** (spot) — PnL +2.33% | mcap $0.79M | TVL $18K | organic 85 | fee/TVL 16.8789 | reason: unknown
+
+## 2026-07-11 17:45 — Post-mortem batch (1 new)
+
+- **reptilecoin-SOL** (spot) — PnL +0.84% | mcap $0.62M | TVL $14K | organic 85 | fee/TVL 23.3482 | reason: unknown
+
+## 2026-07-11 18:45 — Post-mortem batch (1 new)
+
+- **ok-SOL** (bid_ask) — PnL +0.02% | mcap $0.55M | TVL $30K | organic 75 | fee/TVL 15.3088 | reason: unknown
+
+## 2026-07-11 19:45 — Post-mortem batch (1 new)
+
+- **CASHCAT-SOL** (spot) — PnL -0.34% | mcap $0.34M | TVL $17K | organic 75 | fee/TVL 27.84 | reason: unknown
+
+## 2026-07-11 21:00 — Post-mortem batch (1 new)
+
+- **Loom-SOL** (spot) — PnL +2.82% | mcap $0.95M | TVL $17K | organic 86 | fee/TVL 4.5496 | reason: unknown
+
+## 2026-07-11 21:45 — Post-mortem batch (1 new)
+
+- **mogdog-SOL** (spot) — PnL +1.88% | mcap $0.20M | TVL $11K | organic 75 | fee/TVL 170.8039 | reason: unknown
+
+## 2026-07-11 23:30 — Post-mortem batch (1 new)
+
+- **Loom-SOL** (bid_ask) — PnL -0.26% | mcap $0.76M | TVL $21K | organic 86 | fee/TVL 5.7318 | reason: unknown
+
+## 2026-07-12 00:45 — Post-mortem batch (1 new)
+
+- **Hoppy-SOL** (spot) — PnL +2.53% | mcap $0.33M | TVL $12K | organic 73 | fee/TVL 12.0281 | reason: unknown
+
+## 2026-07-12 01:45 — Post-mortem batch (1 new)
+
+- **unc-SOL** (spot) — PnL +0.17% | mcap $1.21M | TVL $26K | organic 71 | fee/TVL 1.5797 | reason: unknown
+
+## 2026-07-12 02:00 — Post-mortem batch (1 new)
+
+- **Hoppy-SOL** (spot) — PnL +1.45% | mcap $0.44M | TVL $17K | organic 74 | fee/TVL 15.8534 | reason: unknown
+
+## 2026-07-12 02:15 — Post-mortem batch (1 new)
+
+- **reptilecoin-SOL** (spot) — PnL +0.68% | mcap $0.15M | TVL $15K | organic 75 | fee/TVL 83.1769 | reason: unknown
+
+## 2026-07-12 02:30 — Post-mortem batch (1 new)
+
+- **reptilecoin-SOL** (bid_ask) — PnL -0.01% | mcap $0.15M | TVL $16K | organic 75 | fee/TVL 80.882 | reason: unknown
+
+## 2026-07-12 03:45 — Post-mortem batch (1 new)
+
+- **SOLANGELES-SOL** (spot) — PnL +0.33% | mcap $2.38M | TVL $31K | organic 70 | fee/TVL 1.8348 | reason: unknown
+
+## 2026-07-12 04:30 — Post-mortem batch (1 new)
+
+- **unc-SOL** (spot) — PnL +0.08% | mcap $1.20M | TVL $27K | organic 72 | fee/TVL 1.5609 | reason: unknown
+
+## 2026-07-12 05:00 — Post-mortem batch (1 new)
+
+- **Hoppy-SOL** (bid_ask) — PnL +0.07% | mcap $0.16M | TVL $12K | organic 75 | fee/TVL 43.9548 | reason: unknown
+
+## 2026-07-12 07:00 — Post-mortem batch (1 new)
+
+- **reptilecoin-SOL** (spot) — PnL +0.51% | mcap $0.13M | TVL $9K | organic 75 | fee/TVL 144.7002 | reason: unknown
+
+## 2026-07-12 07:15 — Post-mortem batch (1 new)
+
+- **reptilecoin-SOL** (bid_ask) — PnL -0.13% | mcap $0.11M | TVL $8K | organic 75 | fee/TVL 166.5813 | reason: unknown
+
+## 2026-07-12 07:45 — Post-mortem batch (1 new)
+
+- **ok-SOL** (bid_ask) — PnL -0.26% | mcap $0.13M | TVL $11K | organic 75 | fee/TVL 49.3785 | reason: unknown
+
+## 2026-07-12 08:45 — Post-mortem batch (1 new)
+
+- **unc-SOL** (bid_ask) — PnL +973.74% | mcap $1.06M | TVL $26K | organic 71 | fee/TVL 1.6101 | reason: unknown
+
+## 2026-07-12 09:15 — Post-mortem batch (1 new)
+
+- **unc-SOL** (bid_ask) — PnL +0.03% | mcap $1.07M | TVL $26K | organic 71 | fee/TVL 1.5739 | reason: unknown
+
+## 2026-07-14 12:45 — Post-mortem batch (1 new)
+
+- **CATWIF-SOL** (bid_ask) — PnL +0.34% | mcap $0.22M | TVL $17K | organic 71 | fee/TVL 9.2237 | reason: unknown
+
+## 2026-07-14 13:30 — Post-mortem batch (1 new)
+
+- **SCAM-SOL** (bid_ask) — PnL -0.06% | mcap $0.36M | TVL $20K | organic 72 | fee/TVL 3.69 | reason: unknown
+
+## 2026-07-14 14:00 — Post-mortem batch (1 new)
+
+- **world-SOL** (bid_ask) — PnL -0.21% | mcap $2.30M | TVL $18K | organic 75 | fee/TVL 0.95 | reason: unknown
+
+## 2026-07-14 15:15 — Post-mortem batch (1 new)
+
+- **LEVI-SOL** (bid_ask) — PnL -0.48% | mcap $1.02M | TVL $28K | organic 77 | fee/TVL 7.3045 | reason: unknown
+
+## 2026-07-14 16:45 — Post-mortem batch (1 new)
+
+- **brain-SOL** (spot) — PnL +2.33% | mcap $0.61M | TVL $28K | organic 75 | fee/TVL 18.9904 | reason: unknown
+
+## 2026-07-14 18:15 — Post-mortem batch (1 new)
+
+- **CATWIF-SOL** (spot) — PnL -44.26% | mcap $0.20M | TVL $13K | organic 72 | fee/TVL 14.0641 | reason: unknown
+
+## 2026-07-14 19:15 — Post-mortem batch (1 new)
+
+- **TrumpCoin-SOL** (bid_ask) — PnL -0.01% | mcap $1.86M | TVL $57K | organic 89 | fee/TVL 1.6202 | reason: unknown
+
+## 2026-07-14 19:30 — Post-mortem batch (1 new)
+
+- **three-SOL** (spot) — PnL +0.53% | mcap $3.35M | TVL $49K | organic 82 | fee/TVL 0.6284 | reason: unknown
+
+## 2026-07-14 19:45 — Post-mortem batch (2 new)
+
+- **three-SOL** (bid_ask) — PnL -0.01% | mcap $2.80M | TVL $18K | organic 84 | fee/TVL 0.2612 | reason: unknown
+- **brain-SOL** (bid_ask) — PnL -0.19% | mcap $1.07M | TVL $28K | organic 87 | fee/TVL 0.9192 | reason: unknown
+
+## 2026-07-14 20:00 — Post-mortem batch (1 new)
+
+- **three-SOL** (bid_ask) — PnL +0.54% | mcap $2.54M | TVL $19K | organic 84 | fee/TVL 0.3313 | reason: unknown
+
+## 2026-07-14 20:30 — Post-mortem batch (1 new)
+
+- **three-SOL** (bid_ask) — PnL +0.59% | mcap $2.63M | TVL $19K | organic 84 | fee/TVL 0.3686 | reason: unknown
+
+## 2026-07-14 20:45 — Post-mortem batch (1 new)
+
+- **P0-SOL** (spot) — PnL +3.89% | mcap $2.14M | TVL $15K | organic 72 | fee/TVL 0.3156 | reason: unknown
+
+## 2026-07-14 21:15 — Post-mortem batch (1 new)
+
+- **three-SOL** (curve) — PnL +0.60% | mcap $2.56M | TVL $30K | organic 85 | fee/TVL 0.3971 | reason: unknown
+
+## 2026-07-14 21:45 — Post-mortem batch (2 new)
+
+- **febu-SOL** (bid_ask) — PnL -0.16% | mcap $3.74M | TVL $24K | organic 90 | fee/TVL 0.5747 | reason: unknown
+- **Trump Coin-SOL** (bid_ask) — PnL -0.09% | mcap $0.51M | TVL $16K | organic 83 | fee/TVL 1.5241 | reason: unknown
+
+## 2026-07-14 22:00 — Post-mortem batch (1 new)
+
+- **TrumpCoin-SOL** (bid_ask) — PnL +0.60% | mcap $0.93M | TVL $50K | organic 75 | fee/TVL 1.0516 | reason: unknown
+
+## 2026-07-14 22:15 — Post-mortem batch (1 new)
+
+- **three-SOL** (bid_ask) — PnL +0.52% | mcap $2.69M | TVL $17K | organic 85 | fee/TVL 0.2663 | reason: unknown
+
+## 2026-07-14 23:00 — Post-mortem batch (1 new)
+
+- **Cupsey-SOL** (bid_ask) — PnL -0.08% | mcap $2.77M | TVL $52K | organic 84 | fee/TVL 0.1451 | reason: unknown
+
+## 2026-07-15 00:00 — Post-mortem batch (1 new)
+
+- **Clude-SOL** (bid_ask) — PnL -0.39% | mcap $1.72M | TVL $30K | organic 82 | fee/TVL 0.2092 | reason: unknown
+
+## 2026-07-15 00:15 — Post-mortem batch (1 new)
+
+- **three-SOL** (bid_ask) — PnL -0.08% | mcap $2.24M | TVL $20K | organic 75 | fee/TVL 0.191 | reason: unknown
+
+## 2026-07-15 01:15 — Post-mortem batch (1 new)
+
+- **testicle-SOL** (bid_ask) — PnL +0.51% | mcap $2.00M | TVL $29K | organic 71 | fee/TVL 0.1795 | reason: unknown
+
+## 2026-07-15 02:00 — Post-mortem batch (1 new)
+
+- **HBULL-SOL** (bid_ask) — PnL +0.50% | mcap $2.91M | TVL $6K | organic 88 | fee/TVL 1.5423 | reason: unknown
+
+## 2026-07-15 02:30 — Post-mortem batch (1 new)
+
+- **SCAM-SOL** (spot) — PnL +0.97% | mcap $0.34M | TVL $17K | organic 73 | fee/TVL 0.2048 | reason: unknown
+
+## 2026-07-15 03:45 — Post-mortem batch (1 new)
+
+- **LEVI-SOL** (bid_ask) — PnL -0.31% | mcap $0.59M | TVL $16K | organic 73 | fee/TVL 0.2117 | reason: unknown
+
+## 2026-07-15 04:15 — Post-mortem batch (1 new)
+
+- **HBULL-SOL** (spot) — PnL -0.02% | mcap $3.12M | TVL $6K | organic 87 | fee/TVL 1.6846 | reason: unknown
+
+## 2026-07-15 04:30 — Post-mortem batch (1 new)
+
+- **HBULL-SOL** (bid_ask) — PnL +0.14% | mcap $2.86M | TVL $7K | organic 88 | fee/TVL 0.3804 | reason: unknown
+
+## 2026-07-15 05:00 — Post-mortem batch (1 new)
+
+- **Flea-SOL** (spot) — PnL +2.66% | mcap $0.12M | TVL $8K | organic 75 | fee/TVL 1.0053 | reason: unknown
+
+## 2026-07-15 05:15 — Post-mortem batch (1 new)
+
+- **world-SOL** (bid_ask) — PnL -0.05% | mcap $2.11M | TVL $17K | organic 75 | fee/TVL 0.1835 | reason: unknown
+
+## 2026-07-15 05:45 — Post-mortem batch (1 new)
+
+- **brain-SOL** (bid_ask) — PnL +0.37% | mcap $0.76M | TVL $20K | organic 89 | fee/TVL 3.2884 | reason: unknown
+
+## 2026-07-15 18:30 — Post-mortem batch (1 new)
+
+- **febu-SOL** (bid_ask) — PnL -0.02% | mcap $2.78M | TVL $34K | organic 89 | fee/TVL 0.168 | reason: unknown
+
+## 2026-07-15 19:30 — Post-mortem batch (2 new)
+
+- **three-SOL** (curve) — PnL +0.32% | mcap $2.92M | TVL $8K | organic 88 | fee/TVL 0.149 | reason: unknown
+- **Robbinghood-SOL** (curve) — PnL +3.62% | mcap $0.33M | TVL $20K | organic 83 | fee/TVL 0.5137 | reason: unknown
+
+## 2026-07-15 20:45 — Post-mortem batch (1 new)
+
+- **Flea-SOL** (bid_ask) — PnL +1.14% | mcap $0.73M | TVL $10K | organic 86 | fee/TVL 0.2072 | reason: unknown
+
+## 2026-07-15 21:00 — Post-mortem batch (1 new)
+
+- **Robbinghood-SOL** (spot) — PnL +1.40% | mcap $0.30M | TVL $26K | organic 83 | fee/TVL 1.344 | reason: unknown
+
+## 2026-07-15 21:15 — Post-mortem batch (1 new)
+
+- **BULLCAT-SOL** (bid_ask) — PnL -0.03% | mcap $1.51M | TVL $47K | organic 85 | fee/TVL 0.3153 | reason: unknown
+
+## 2026-07-15 21:30 — Post-mortem batch (1 new)
+
+- **brain-SOL** (spot) — PnL -0.22% | mcap $0.00M | TVL $0K | organic None | fee/TVL None | reason: unknown
+
+## 2026-07-15 23:30 — Post-mortem batch (1 new)
+
+- **SCAM-SOL** (spot) — PnL -0.19% | mcap $0.38M | TVL $16K | organic 70 | fee/TVL 0.3136 | reason: unknown
+
+## 2026-07-16 00:15 — Post-mortem batch (1 new)
+
+- **WORLDCUP-SOL** (bid_ask) — PnL +0.18% | mcap $0.93M | TVL $55K | organic 75 | fee/TVL 0.2831 | reason: unknown
+
+## 2026-07-16 00:30 — Post-mortem batch (1 new)
+
+- **CATWIF-SOL** (bid_ask) — PnL -0.01% | mcap $0.22M | TVL $7K | organic 71 | fee/TVL 0.811 | reason: unknown
+
+## 2026-07-16 06:30 — Post-mortem batch (1 new)
+
+- **BULLCAT-SOL** (bid_ask) — PnL +0.06% | mcap $1.06M | TVL $45K | organic 86 | fee/TVL 0.7974 | reason: unknown
+
+## 2026-07-16 07:45 — Post-mortem batch (1 new)
+
+- **BULLCAT-SOL** (bid_ask) — PnL -0.11% | mcap $0.88M | TVL $14K | organic 75 | fee/TVL 0.1765 | reason: unknown
+
+## 2026-07-16 08:00 — Post-mortem batch (1 new)
+
+- **?** (spot) — PnL +4.06% | mcap $1.42M | TVL $26K | organic None | fee/TVL None | reason: unknown
+
+## 2026-07-16 08:15 — Post-mortem batch (2 new)
+
+- **Flea-SOL** (bid_ask) — PnL -98.99% | mcap $0.15M | TVL $9K | organic 75 | fee/TVL 0.5202 | reason: unknown
+- **febu-SOL** (bid_ask) — PnL -88.34% | mcap $1.83M | TVL $41K | organic 75 | fee/TVL 0.1508 | reason: unknown
+
+## 2026-07-16 08:30 — Post-mortem batch (2 new)
+
+- **Cupsey-SOL** (bid_ask) — PnL -0.01% | mcap $2.69M | TVL $98K | organic 78 | fee/TVL 0.1192 | reason: unknown
+- **Cupsey-SOL** (bid_ask) — PnL +0.07% | mcap $2.68M | TVL $98K | organic 78 | fee/TVL 0.1192 | reason: unknown
+
+## 2026-07-16 09:00 — Post-mortem batch (2 new)
+
+- **Cupsey-SOL** (bid_ask) — PnL -99.99% | mcap $2.69M | TVL $98K | organic 78 | fee/TVL 0.1203 | reason: unknown
+- **febu-SOL** (bid_ask) — PnL +0.18% | mcap $1.73M | TVL $47K | organic 75 | fee/TVL 0.1984 | reason: unknown
+
+## 2026-07-16 09:15 — Post-mortem batch (1 new)
+
+- **WORLDCUP-SOL** (bid_ask) — PnL -0.08% | mcap $0.74M | TVL $33K | organic 73 | fee/TVL 0.1655 | reason: unknown
+
+## 2026-07-16 10:00 — Post-mortem batch (1 new)
+
+- **febu-SOL** (bid_ask) — PnL +0.18% | mcap $1.83M | TVL $50K | organic 75 | fee/TVL 0.1019 | reason: unknown
+
+## 2026-07-16 12:30 — Post-mortem batch (1 new)
+
+- **drooling-SOL** (bid_ask) — PnL +0.34% | mcap $0.46M | TVL $62K | organic 72 | fee/TVL 0.1225 | reason: unknown
+
+## 2026-07-16 14:15 — Post-mortem batch (1 new)
+
+- **Flea-SOL** (bid_ask) — PnL +0.04% | mcap $0.22M | TVL $6K | organic 75 | fee/TVL 0.5974 | reason: unknown
+
+## 2026-07-20 18:30 — Post-mortem batch (19 new)
+
+- **Cupsey-SOL** (bid_ask) — PnL +7506.10% | mcap $2.53M | TVL $103K | organic 78 | fee/TVL 0.1064 | reason: unknown
+- **manlet-SOL** (bid_ask) — PnL +0.11% | mcap $0.95M | TVL $44K | organic 79 | fee/TVL 0.2139 | reason: unknown
+- **BULLCAT-SOL** (bid_ask) — PnL +0.50% | mcap $1.11M | TVL $41K | organic 85 | fee/TVL 0.331 | reason: unknown
+- **BULLCAT-SOL** (bid_ask) — PnL +0.05% | mcap $1.09M | TVL $37K | organic None | fee/TVL None | reason: unknown
+- **WORLDCUP-SOL** (bid_ask) — PnL +0.53% | mcap $0.82M | TVL $27K | organic None | fee/TVL None | reason: unknown
+- **WORLDCUP-SOL** (bid_ask) — PnL -0.41% | mcap $0.78M | TVL $25K | organic None | fee/TVL None | reason: unknown
+- **HBULL-SOL** (curve) — PnL -0.68% | mcap $4.08M | TVL $38K | organic 83 | fee/TVL 0.3224 | reason: unknown
+- **manlet-SOL** (bid_ask) — PnL -0.01% | mcap $1.32M | TVL $28K | organic 83 | fee/TVL 0.2643 | reason: unknown
+- **drooling-SOL** (bid_ask) — PnL -0.17% | mcap $0.59M | TVL $55K | organic 74 | fee/TVL 0.1718 | reason: unknown
+- **BULLCAT-SOL** (spot) — PnL +0.06% | mcap $0.92M | TVL $33K | organic None | fee/TVL None | reason: unknown
+- **reptilecoin-SOL** (bid_ask) — PnL -0.45% | mcap $0.25M | TVL $6K | organic 78 | fee/TVL 0.5748 | reason: unknown
+- **SOLdiers-SOL** (bid_ask) — PnL -0.04% | mcap $0.83M | TVL $79K | organic None | fee/TVL 0.5205 | reason: unknown
+- **SOLdiers-SOL** (bid_ask) — PnL -0.00% | mcap $0.74M | TVL $85K | organic 75 | fee/TVL 0.8889 | reason: unknown
+- **SOLdiers-SOL** (bid_ask) — PnL +0.09% | mcap $0.74M | TVL $85K | organic 75 | fee/TVL 0.8889 | reason: unknown
+- **bet-SOL** (bid_ask) — PnL -0.05% | mcap $0.18M | TVL $6K | organic None | fee/TVL None | reason: unknown
+- **SOLdiers-SOL** (bid_ask) — PnL -25.55% | mcap $0.65M | TVL $10K | organic 75 | fee/TVL 0.5358 | reason: unknown
+- **Cupsey-SOL** (bid_ask) — PnL -0.07% | mcap $1.63M | TVL $38K | organic None | fee/TVL None | reason: unknown
+- **febu-SOL** (bid_ask) — PnL -31.13% | mcap $1.47M | TVL $38K | organic None | fee/TVL None | reason: unknown
+- **febu-SOL** (bid_ask) — PnL -0.09% | mcap $1.37M | TVL $14K | organic None | fee/TVL None | reason: unknown

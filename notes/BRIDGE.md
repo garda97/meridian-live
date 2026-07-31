@@ -1,6 +1,6 @@
 # BRIDGE — Hermes ↔ Grok ↔ Claude (Meridian)
 
-_Updated: 2026-07-15T14:52:03.702065+00:00 by **agent_sync**_
+_Updated: 2026-07-17T14:15:59.758326+00:00 by **agent_sync**_
 
 ## Quick status
 
@@ -8,8 +8,8 @@ _Updated: 2026-07-15T14:52:03.702065+00:00 by **agent_sync**_
 |------|-------|
 | Phase | `Evil Panda strict live` |
 | Git branch | `github-main` |
-| Uncommitted files | 86 |
-| Last commit | 62bafc5 handoff: fix header so agent_sync bridge parses claude→grok entry (21 seconds ago) |
+| Uncommitted files | 59 |
+| Last commit | 14748b9 fix(rebalance): untracked-position bug + unbounded downside_pct range (11 hours ago) |
 | DRY_RUN | `False` |
 | user-config.json | yes |
 | .env | yes |
@@ -17,10 +17,19 @@ _Updated: 2026-07-15T14:52:03.702065+00:00 by **agent_sync**_
 
 ## Latest handoff
 
-**2026-07-15 15:05 UTC** | `claude` → `grok`
-> Tuning dispatch P0–P2 selesai. P0: `test/test-tuning-fixtures.js` baru — 6 fixture (FABLE, SEMAN, BABYANSEM, DR TRUMP, brain-SOL wide, P0-SOL) **pass semua dengan gate live saat ini**; full suite 40/40 pass. P1: retro-sim 166 closes ber-PnL (trim |pnl|>20% → 162) — **kesimpulan: pertahankan semua nilai live, tidak ada perubahan config yang diusulkan**. P2: gacor regime hints align dengan playbook bot, no matrix change. `strategy-router.js` TIDAK diubah (tidak perlu — semua expected outcome sudah dihasilkan gate yang ada). Daemon TIDAK di-restart (perubahan test-only).
+**2026-07-17 13:56 UTC** | `grok` → `claude`
+> Owner request: review readiness of meridian-rh (Robinhood Uniswap LP bot) at /opt/meridian-rh. Ensure no errors/misses before any live deploy. Daemon is DRY_RUN=true, LLM wired, GMGN+analyze/screen-lp SOP added. Do NOT start Meridian Solana (owner stop still open).
 
-Tasks: `P0 fixture tests merged (`test/test-tuning-fixtures.js` baru; fix kecil `test/test-rebalance.js` — pin `config.flip/reshape.enabled` yang membuat testPreGate gagal sejak reshape dinyalakan live, pre-existing). P1/P2 = proposal only, **zero** perubahan `user-config.json`, zero perubahan runtime code.`
+Tasks: `READINESS REVIEW — /opt/meridian-rh (NOT /opt/meridian Solana)`
+
+## Pending for grok
+
+- [high] Review 7 file uncommitted (config.js, lessons.js, pool-memory.js, state.js, tools/dlmm/deploy.js, tools/dlmm/liquidity.js, tools/strategy-router.js) + user-config.example.json — semua udah LIVE di daemon (restart bersih, 13 test suite existing pass + logic sanity-check manual buat bagian yang gak ke-cover test), tapi belum di-commit/push. Putusin commit ke github-main + push origin/main kalau owner OK. Monitor 1-2 hari: apakah bidAskFeeTvlMin/severeLoss gate kena trigger false-positive di kondisi live yang gak kena-cover 154 sample trade historis.
+- [high] JANGAN start/restart meridian-daemon, meridian-watch-wallets, atau nyalain lagi early-bird-scanner cron sampai ada perintah eksplisit dari owner. Kalau kamu abis apply config change dan biasanya auto-restart daemon buat apply — tahan dulu, cek handoff/owner command dulu sebelum restart.
+
+## Pending for claude
+
+- [P1] READINESS REVIEW — /opt/meridian-rh (NOT /opt/meridian Solana)
 
 ## Read next
 
@@ -29,3 +38,7 @@ Tasks: `P0 fixture tests merged (`test/test-tuning-fixtures.js` baru; fix kecil 
 3. `notes/CURRENT.md` — fase project
 4. `notes/HANDOFF.md` — task queue
 5. `CLAUDE.md` — engineering manual Meridian
+
+
+### 2026-07-26 Hermes → Claude
+Owner chose **A1**: Meridian Solana R:R redesign + clean preset. Full brief: `notes/HANDOFF_CLAUDE_MERIDIAN_RR_V1.md`. Daemon stays OFF.

@@ -89,10 +89,9 @@ async function getWalletBalancesViaRpc(walletAddress) {
     source: `rpc_fallback_${rpcSource}`,
   };
 }
-const DEFAULT_JUPITER_API_KEY = "***REDACTED***";
-
+// No hardcoded key — set config.jupiter.apiKey or JUPITER_API_KEY in .env
 function getJupiterApiKey() {
-  return config.jupiter.apiKey || process.env.JUPITER_API_KEY || DEFAULT_JUPITER_API_KEY;
+  return config.jupiter.apiKey || process.env.JUPITER_API_KEY || "";
 }
 
 function getJupiterReferralParams() {

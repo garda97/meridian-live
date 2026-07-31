@@ -78,3 +78,48 @@ venv_yt/
 # Scratch debug scripts and ad-hoc file backups from agent editing sessions
 debug_*.js
 *.bak.*
+# Added by code-review-graph
+.code-review-graph/
+
+# ── Extra secret / runtime hardening (public repo) ───────────────────────────
+# Env backups & room bots
+.room-telegram.env
+*.env.bak*
+.env.bak*
+
+# User-config backups (often contain RPC/LLM keys)
+user-config.json.bak*
+user-config.json.bak-*
+
+# Local wallet playbooks / copytrade / metlex runtime
+wallet-playbook.json
+copytrade-state.json
+metlex-signals.json
+metlex-state.json
+sol-regime-snapshots.json
+
+# Health / recovery runtime
+.health_snapshot.json
+.postmortem_seen.json
+.recovery_seen.json
+
+# Claude local settings & MCP (may hold paths/tokens)
+.claude/settings.json
+.claude/settings.json.bak
+.mcp.json
+
+# Decision log backups
+decision-log.json.bak
+*.json.bak
+
+# Notes local ban/state
+notes/_gmgn_ban_state.json
+notes/*_session.jsonl
+notes/lp_outcome_analysis.json
+notes/open_position_experience.jsonl
+notes/position_watch_session.jsonl
+notes/video-analysis/*.mp4
+
+# Local secrets dir if any
+secrets/
+.secrets/

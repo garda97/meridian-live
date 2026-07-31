@@ -4,3 +4,288 @@ Detects open positions that went OUT OF RANGE (price dropped) and proposes a
 RECOVERY position BELOW (bid-ask down), per @Heavymetalcook6 / @met_lparmy.
 
 DRY-RUN ONLY — owner must approve before any deploy. Never auto-deployed.
+
+## 2026-07-08 16:45 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **CATWIF-SOL** (bid_ask) OOR since 2026-07-08T09:42:57
+  - orig range: [-482, -382] → recovery range: [-582, -482]
+  - mcap $1.75M | TVL $72K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-09 20:00 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **Cupsey-SOL** (bid_ask) OOR since 2026-07-09T12:50:50
+  - orig range: [-488, -432] → recovery range: [-588, -488]
+  - mcap $8.30M | TVL $90K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 08:15 — Recovery proposals (2 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **FOMO-SOL** (bid_ask) OOR since 2026-07-10T01:01:33
+  - orig range: [-680, -580] → recovery range: [-780, -680]
+  - mcap $0.24M | TVL $12K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+- **ANSEMWIFE-SOL** (bid_ask) OOR since 2026-07-10T01:11:20
+  - orig range: [-576, -476] → recovery range: [-676, -576]
+  - mcap $0.22M | TVL $7K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 09:15 — Recovery proposals (2 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **DONALT-SOL** (bid_ask) OOR since 2026-07-10T02:04:23
+  - orig range: [-475, -375] → recovery range: [-575, -475]
+  - mcap $1.89M | TVL $15K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+- **Jotchua-SOL** (bid_ask) OOR since 2026-07-10T02:11:18
+  - orig range: [-736, -636] → recovery range: [-836, -736]
+  - mcap $3.29M | TVL $332K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 10:30 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **TripleT-SOL** (bid_ask) OOR since 2026-07-10T03:28:48
+  - orig range: [-267, -167] → recovery range: [-367, -267]
+  - mcap $20.93M | TVL $525K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 11:15 — Recovery proposals (2 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **TripleT-SOL** (bid_ask) OOR since 2026-07-10T04:00:28
+  - orig range: [-278, -178] → recovery range: [-378, -278]
+  - mcap $19.34M | TVL $526K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+- **CASHCAT-SOL** (bid_ask) OOR since 2026-07-10T04:11:49
+  - orig range: [-645, -595] → recovery range: [-745, -645]
+  - mcap $0.20M | TVL $6K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 12:15 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **Balloon-SOL** (bid_ask) OOR since 2026-07-10T05:14:27
+  - orig range: [-647, -597] → recovery range: [-747, -647]
+  - mcap $0.21M | TVL $7K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 12:30 — Recovery proposals (2 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **CASHCAT-SOL** (bid_ask) OOR since 2026-07-10T05:26:08
+  - orig range: [-625, -569] → recovery range: [-725, -625]
+  - mcap $0.28M | TVL $6K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+- **Goblin-SOL** (bid_ask) OOR since 2026-07-10T05:29:02
+  - orig range: [-782, -632] → recovery range: [-882, -782]
+  - mcap $0.36M | TVL $11K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 12:45 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **RTM-SOL** (bid_ask) OOR since 2026-07-10T05:43:33
+  - orig range: [-516, -366] → recovery range: [-616, -516]
+  - mcap $0.76M | TVL $21K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 13:15 — Recovery proposals (2 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **CASHCAT-SOL** (bid_ask) OOR since 2026-07-10T06:07:22
+  - orig range: [-639, -589] → recovery range: [-739, -639]
+  - mcap $0.22M | TVL $5K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+- **reptilecoin-SOL** (bid_ask) OOR since 2026-07-10T06:12:17
+  - orig range: [-669, -569] → recovery range: [-769, -669]
+  - mcap $0.27M | TVL $9K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 13:30 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **KINS-SOL** (bid_ask) OOR since 2026-07-10T06:21:23
+  - orig range: [-566, -416] → recovery range: [-666, -566]
+  - mcap $9.88M | TVL $321K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 15:45 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **AgenC-SOL** (bid_ask) OOR since 2026-07-10T08:41:10
+  - orig range: [-583, -433] → recovery range: [-683, -583]
+  - mcap $1.08M | TVL $12K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 17:30 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **drooling-SOL** (bid_ask) OOR since 2026-07-10T10:20:08
+  - orig range: [-583, -433] → recovery range: [-683, -583]
+  - mcap $1.05M | TVL $140K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 17:45 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **AgenC-SOL** (bid_ask) OOR since 2026-07-10T10:39:35
+  - orig range: [-584, -434] → recovery range: [-684, -584]
+  - mcap $1.04M | TVL $12K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-10 21:30 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **LEVI-SOL** (bid_ask) OOR since 2026-07-10T14:19:08
+  - orig range: [-688, -488] → recovery range: [-788, -688]
+  - mcap $0.61M | TVL $7K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-11 18:15 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **ok-SOL** (bid_ask) OOR since 2026-07-11T11:14:51
+  - orig range: [-697, -497] → recovery range: [-797, -697]
+  - mcap $0.55M | TVL $30K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-12 02:15 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **reptilecoin-SOL** (bid_ask) OOR since 2026-07-11T19:14:37
+  - orig range: [-840, -640] → recovery range: [-940, -840]
+  - mcap $0.15M | TVL $16K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-14 13:45 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **world-SOL** (bid_ask) OOR since 2026-07-14T06:44:36
+  - orig range: [-824, -699] → recovery range: [-924, -824]
+  - mcap $2.30M | TVL $18K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-14 20:30 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **febu-SOL** (bid_ask) OOR since 2026-07-14T13:29:38
+  - orig range: [-367, -242] → recovery range: [-467, -367]
+  - mcap $3.74M | TVL $24K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-14 21:45 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **three-SOL** (bid_ask) OOR since 2026-07-14T14:44:28
+  - orig range: [-871, -671] → recovery range: [-971, -871]
+  - mcap $2.69M | TVL $17K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-14 22:45 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **Cupsey-SOL** (bid_ask) OOR since 2026-07-14T15:42:06
+  - orig range: [-868, -668] → recovery range: [-968, -868]
+  - mcap $2.77M | TVL $52K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-15 04:15 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **HBULL-SOL** (bid_ask) OOR since 2026-07-14T21:10:24
+  - orig range: [-430, -330] → recovery range: [-530, -430]
+  - mcap $2.86M | TVL $7K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-15 18:15 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **febu-SOL** (bid_ask) OOR since 2026-07-15T11:13:40
+  - orig range: [-467, -267] → recovery range: [-567, -467]
+  - mcap $2.78M | TVL $34K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-15 21:00 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **BULLCAT-SOL** (bid_ask) OOR since 2026-07-15T13:59:08
+  - orig range: [-458, -321] → recovery range: [-558, -458]
+  - mcap $1.51M | TVL $47K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-16 05:30 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **?** (bid_ask) OOR since 2026-07-15T22:28:50
+  - orig range: [-631, -501] → recovery range: [-731, -631]
+  - mcap $1.42M | TVL $26K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+
+
+## 2026-07-16 07:30 — Recovery proposals (1 new)
+
+> DRY-RUN: owner must approve before deploy. Not auto-deployed.
+
+- **BULLCAT-SOL** (bid_ask) OOR since 2026-07-16T00:21:19
+  - orig range: [-546, -360] → recovery range: [-646, -546]
+  - mcap $0.88M | TVL $14K
+  - action: open recovery bid-ask BELOW, compound fees to upper
+

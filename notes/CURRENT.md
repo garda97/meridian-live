@@ -2,34 +2,52 @@
 
 ## Phase
 
-**Evil Panda strict live** (2026-07-04) — preset `evil-panda.strict`, ATH gate ON, deploy 2 SOL × max 2. Hold sampai fresh ATH breakout. Verifikasi `dryRun` di `user-config.json` tiap sesi.
+**garda-rr-v1 (evaluation / dry-run)** — applied 2026-07-26 by Claude per Hermes handoff A1.
 
-**Trio aktif:** Hermes (monitor+analisis) · Grok (infra+daemon) · Claude (review agent loop, on-demand)
+- Preset: `presets/garda-rr-v1.json`
+- `dryRun: true` (forced)
+- Daemon / discord / watch-wallets: **OFF** (do not start without owner)
+- Wallet SOL: **0.0** — live deploy impossible until topup ≥ 0.8–1.0 SOL
 
-## Startup ritual (sesi baru)
+Evil Panda strict (2026-07-04) and compounding.draft live claims are **obsolete**.
 
-1. Baca `notes/SESSION_START.md`
-2. Hermes: skill `meridian-session-startup`
-3. Claude: slash `/session-start`
+## Live R:R (garda-rr-v1)
 
-## Owner decisions
+| Knob | Value |
+|------|------:|
+| takeProfitPct | 7 |
+| stopLossPct | -6 |
+| maxLossPct | -9 |
+| trailingTrigger / drop | 2 / 1.5 |
+| minAgeBeforeTP | 15m |
+| OOR wait | 15m |
+| athEntryGate | ON |
+| solRegimeGate | ON (−3%/1h) |
+| sprayMode | OFF |
+| copyTrade | OFF |
+| filterAutotune / autoRecovery / darwin | OFF |
+| deployAmountSol / maxPositions | 0.5 / 1 |
+| dailyLossLimitUsd | 18 |
+| strategy base | spot (autoStrategy still ON) |
+| defaultBinsBelow / maxBins | 90 / 140 |
 
-- screening_g97 di-decommission; backup ada di GitHub (`garda97/screening_g97`) + `/root/screening_g97_final_backup/`
-- Project: fork [yunus-0x/meridian](https://github.com/yunus-0x/meridian) di `/root/meridian`
-- Phase 2: `dryRun: false`, `athEntryGateEnabled: true`, `solRegimeGateEnabled: true`
-- Trio agent: Hermes (otak) + Grok (eksekutor) + Claude (ace card, on-demand)
-- X scrape harian: cron 05:00 UTC → `notes/x-scrape/`
+## Thesis (Claude audit)
 
-## Perubahan terbaru (Jul 2026)
+Negative expectancy dominated by **few tail rugs/dumps**, not the old TP band. Redesign: tighter entry gates + suppress tails + let fee-hold/trailing work; TP raised to act as spike cap.
 
-- **2026-07-04 ~11:00 UTC** — Owner apply `evil-panda.strict` preset (Grok): ATH+ST entry, `evil_panda_exit`, 2 SOL deploy, filter ketat, autotune OFF. FABLE SL -12.28%. `minVolume` 15k (owner). `dailyLossLimitUsd` 30. **0 posisi — hold, jangan paksa deploy.** Watch: BABYANSEM.
-- `presets/evil-panda.strict.json` + `scripts/apply-preset.js` (`npm run preset:evil-panda`)
-- `SESSION_START.md` — ritual awal sesi seragam Hermes + Claude
-- `METEORA_LP.md` + x-scrape pipeline untuk belajar LP dari X
-- Gates: ATH entry ON, SOL dump 1h ≤ -3%, minTokenFeesSol 30, no deploy after 18:00
+Full writeup: `notes/RR_V1_REDESIGN.md` (if present) + `/root/shared-telegram/REPORT_CLAUDE_MERIDIAN_RR_V1.md`
 
-## Next steps
+## Startup ritual
 
-1. Hermes: jalankan startup ritual tiap `hermes chat` baru dari `/root/meridian`
-2. Claude: `/session-start` saat sesi on-demand dibuka
-3. Owner: pantau screening cycle + posisi live via Hermes report
+1. Read this file + `notes/SESSION_START.md`
+2. Confirm `dryRun: true` and daemon inactive
+3. Only after owner topup + dry-run cycles: flip dryRun and start daemon **explicitly**
+
+## Owner next
+
+1. Review report / preset notes
+2. Topup wallet when ready
+3. Dry-run N cycles
+4. Explicit command to go live
+
+_Updated: 2026-07-26 05:38 UTC — Hermes closeout after Claude A1 apply_

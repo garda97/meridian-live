@@ -11,6 +11,7 @@ This is the "monitor terus" layer — independent of the daemon so it still
 fires if the daemon crashes.
 """
 import json
+import os
 import time
 import subprocess
 from pathlib import Path
@@ -36,8 +37,18 @@ def send_telegram(msg):
         import urllib.parse
         import urllib.request
         cfg = load_json(CONFIG) or {}
-        chat = cfg.get("telegramChatId")
-        token = cfg.get("telegramBotToken")
+        chat = cfg.get("telegramChatId") or os.environ.get("TELEGRAM_GROUP_CHAT_ID")
+        token = cfg.get("telegramBotToken") or os.environ.get("TELEGRAM_BOT_TOKEN")
+        # fallback: room Grok bot + group (ops room)
+        if not token:
+            env_path = Path("/root/grok-telegram-bot/.env")
+            if env_path.exists():
+                for line in env_path.read_text().splitlines():
+                    if line.startswith("TELEGRAM_BOT_TOKEN="):
+                        token = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if line.startswith("TELEGRAM_GROUP_CHAT_ID="):
+                        chat = chat or line.split("=", 1)[1].strip()
+        chat = chat or "-1003979208199"
         if not chat or not token:
             return
         url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={chat}&text={urllib.parse.quote(msg)}"
@@ -51,6 +62,20 @@ def daemon_active():
         r = subprocess.run(["systemctl", "is-active", "meridian-daemon"],
                            capture_output=True, text=True, timeout=10)
         return r.stdout.strip() == "active"
+    except Exception:
+        return False
+
+
+def daemon_enabled():
+    """True only if unit is enabled/static — inactive+disabled is intentional."""
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-enabled", "meridian-daemon"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return r.stdout.strip() in ("enabled", "static", "enabled-runtime")
     except Exception:
         return False
 
@@ -91,10 +116,12 @@ def main():
     snap = load_json(SNAP) or {}
     alerts = []
 
-    # 1. daemon alive
+    # 1. daemon alive — only alert if it *should* be running (enabled)
     active = daemon_active()
-    if not active:
-        alerts.append("🚨 DAEMON DOWN — meridian-daemon not active!")
+    enabled = daemon_enabled()
+    if not active and enabled:
+        alerts.append("🚨 DAEMON DOWN — meridian-daemon not active (unit is enabled)!")
+    # inactive + disabled = intentional off (ops room design)
 
     # 2. balance drain
     bal = get_balance_sol()
@@ -113,7 +140,13 @@ def main():
     json.dump(snap, open(SNAP, "w"), indent=2)
 
     # write health log
-    line = f"\n## {datetime.now():%Y-%m-%d %H:%M} — daemon={'OK' if active else 'DOWN'} sol={bal} cron_stale={len(stale)}"
+    if active:
+        daemon_label = "OK"
+    elif enabled:
+        daemon_label = "DOWN"
+    else:
+        daemon_label = "OFF"  # disabled by design
+    line = f"\n## {datetime.now():%Y-%m-%d %H:%M} — daemon={daemon_label} sol={bal} cron_stale={len(stale)}"
     with open(HEALTH, "a") as f:
         f.write(line + "\n")
 
@@ -122,7 +155,7 @@ def main():
         print(msg)
         send_telegram(msg)
     else:
-        print(f"[{datetime.now():%H:%M}] All healthy. daemon=OK sol={bal}")
+        print(f"[{datetime.now():%H:%M}] All healthy. daemon={daemon_label} sol={bal}")
 
 
 if __name__ == "__main__":

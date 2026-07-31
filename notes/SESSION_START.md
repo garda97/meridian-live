@@ -8,14 +8,17 @@
 | **Grok** | Eksekutor | Infra VPS, fix bug, monitor daemon, deploy kode |
 | **Claude** | Ace card | Analisis arsitektur mendalam, refactor berat (on-demand) |
 
-Project: `/root/meridian` · screening_g97 **decommissioned** (backup di GitHub saja).
+Project: `/opt/meridian` (REPO UTAMA — cd ke sini). Config `user-config.json` ada di situ.
+screening_g97 **decommissioned** (backup di GitHub saja).
+⚠️ `/root/meridian` SEKARANG HANYA SISA/stale (isi: `find_dlmm_x.py` + `notes/x-scrape`).
+JANGAN pakai `/root/meridian` sebagai working dir — pakai `/opt/meridian`.
 
 ---
 
 ## Langkah 0 — Semua agent (WAJIB)
 
 ```bash
-cd /root/meridian
+cd /opt/meridian
 
 # Bridge + handoff
 python3 scripts/hermes_bridge.py connect

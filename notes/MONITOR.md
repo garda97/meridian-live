@@ -491,3 +491,31 @@ Alerts sent: 2
 ## Monitor Run: 2026-07-02T21:26:13.871856
 Positions checked: 4
 Alerts sent: 0
+
+## [2026-07-22T15:48:51.769062Z] Monitor Cycle
+
+- Open positions: 0
+- Closed positions: 19
+- Material changes: 19
+- Alert status: 🚨 ALERTS
+
+**Alerts:**
+- ❌ [Cupsey-SOL] Position CLOSED | Closed at 2026-07-16T09:46:44.996Z: Trailing TP: peak 7507.25% → current 7506.10% (dropped 1.15% >= 1%)
+- ❌ [manlet-SOL] Position CLOSED | Closed at 2026-07-16T11:01:47.751Z: Low yield: fee/TVL 0.01% < min 2.5% (age: 60m)
+- ❌ [BULLCAT-SOL] Position CLOSED | Closed at 2026-07-16T14:10:41.598Z: Chart exit (supertrend_break): supertrend_break confirmed on 15_MINUTE
+- ❌ [BULLCAT-SOL] Position CLOSED | Closed at 2026-07-16T14:35:19.262Z: Out of range for 10m (limit: 10m)
+- ❌ [WORLDCUP-SOL] Position CLOSED | Closed at 2026-07-16T15:54:32.362Z: Chart exit (supertrend_break): supertrend_break confirmed on 15_MINUTE
+- ❌ [WORLDCUP-SOL] Position CLOSED | Closed at 2026-07-16T17:11:10.668Z: Low yield: fee/TVL 1.58% < min 2.5% (age: 60m)
+- ❌ [HBULL-SOL] Position CLOSED | Closed at 2026-07-16T18:35:50.834Z: Low yield: fee/TVL 0.00% < min 2.5% (age: 60m)
+- ❌ [manlet-SOL] Position CLOSED | Closed at 2026-07-16T19:24:07.818Z: pumped far above range
+- ❌ [drooling-SOL] Position CLOSED | Closed at 2026-07-16T20:55:45.059Z: Low yield: fee/TVL 0.08% < min 2.5% (age: 60m)
+- ❌ [BULLCAT-SOL] Position CLOSED | Closed at 2026-07-16T22:10:56.179Z: Low yield: fee/TVL 0.26% < min 2.5% (age: 60m)
+- ❌ [reptilecoin-SOL] Position CLOSED | Closed at 2026-07-16T22:29:55.830Z: Out of range for 10m (limit: 10m)
+- ❌ [SOLdiers-SOL] Position CLOSED | Closed at 2026-07-17T00:45:25.667Z: Chart exit (supertrend_break): supertrend_break confirmed on 15_MINUTE
+- ❌ [SOLdiers-SOL] Position CLOSED | Closed at 2026-07-17T03:05:45.642Z: Low yield: fee/TVL 0.15% < min 2.5% (age: 60m)
+- ❌ [SOLdiers-SOL] Position CLOSED | Closed at 2026-07-17T03:16:06.144Z: Low yield: fee/TVL 0.16% < min 2.5% (age: 60m)
+- ❌ [bet-SOL] Position CLOSED | Closed at 2026-07-17T03:36:43.307Z: Out of range for 10m (limit: 10m)
+- ❌ [SOLdiers-SOL] Position CLOSED | Closed at 2026-07-17T05:40:57.038Z: Chart exit (supertrend_break): supertrend_break confirmed on 15_MINUTE
+- ❌ [Cupsey-SOL] Position CLOSED | Closed at 2026-07-18T05:55:00.358Z: Out of range for 10m (limit: 10m)
+- ❌ [febu-SOL] Position CLOSED | Closed at 2026-07-18T06:45:56.318Z: agent decision
+- ❌ [febu-SOL] Position CLOSED | Closed at 2026-07-18T07:06:08.326Z: Out of range for 10m (limit: 10m)
