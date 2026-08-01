@@ -266,7 +266,14 @@ export async function runScreeningCycle({ silent = false } = {}) {
     for (const { pool, ti } of passing) {
       const mint = pool.base?.mint || ti?.mint;
       if (!mint) continue;
-      const stats = await getGmgnTokenTopHolders(mint, { limit: 100 }).catch(() => null);
+      // reserve holds back the tail of the daily holders budget for the
+      // pre-deploy holder gate (utils/holder-quality-gate.js), which spends it
+      // on a pool the agent is actually entering rather than on a candidate
+      // that usually gets filtered out anyway.
+      const stats = await getGmgnTokenTopHolders(mint, {
+        limit: 100,
+        reserve: config.gmgn.holdersReserveForDeploy,
+      }).catch(() => null);
       if (stats) gmgnHolderStatsByMint.set(mint, stats);
     }
 

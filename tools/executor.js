@@ -47,6 +47,8 @@ const TIMEFRAME_MINUTES = {
   "24h": 1440,
 };
 import { log, logAction } from "../logger.js";
+import { getGmgnTokenTopHolders } from "./gmgn.js";
+import { checkHolderQuality } from "../utils/holder-quality-gate.js";
 import { notifyDeploy, notifyClose, notifySwap, sendMessage as sendTelegramMessage } from "../telegram.js";
 import { atomicWriteFileSync } from "../utils/atomic-write.js";
 
@@ -962,6 +964,29 @@ async function runSafetyChecks(name, args, context = {}) {
       if (autoPlan) {
         const gate = validateDeployPlanGate(autoPlan);
         if (!gate.pass) return gate;
+      }
+
+      // Holder quality is checked here, not in the screening fan-out: the GMGN
+      // holders budget is 3/day and screening burned it on candidates that
+      // mostly never reach a deploy. reserve=0 so this call may use the slots
+      // screening held back.
+      {
+        const mint = autoPlan?.base_mint ?? args.base_mint ?? null;
+        if (!mint) {
+          // Never fail silently here: without a mint the gate is a no-op, and a
+          // no-op risk control that looks installed is worse than none.
+          log("gmgn", `deploy holder gate skipped for ${String(args.pool_address ?? "?").slice(0, 8)}: no base mint on args or plan`);
+        } else {
+          const stats = await getGmgnTokenTopHolders(mint, { limit: 100, reserve: 0 }).catch(() => null);
+          const holderCount = Number(
+            autoPlan?.base_token_holders ?? args.base_token_holders ?? args.holders,
+          ) || null;
+          const verdict = checkHolderQuality(stats, holderCount, config.gmgn ?? {});
+          if (!verdict.pass) return { pass: false, reason: verdict.reason };
+          if (!verdict.checked) {
+            log("gmgn", `deploy holder gate ran blind for ${String(mint).slice(0, 8)}: ${verdict.reason}`);
+          }
+        }
       }
 
       const poolThresholds = await validateDeployPoolThresholds(args);

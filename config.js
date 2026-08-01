@@ -490,6 +490,13 @@ export const config = {
     // (METEORA_LP checklist points 10-11). null = off.
     maxFreshWalletHolderPct: gmgnUserConfig.maxFreshWalletHolderPct ?? u.maxFreshWalletHolderPct ?? null,
     maxBundledWalletHolderPct: gmgnUserConfig.maxBundledWalletHolderPct ?? u.maxBundledWalletHolderPct ?? null,
+    // How many of the daily holders calls screening must leave unspent for the
+    // pre-deploy holder gate (utils/holder-quality-gate.js). Screening enriches
+    // every surviving candidate each cycle and would otherwise consume the
+    // quota before the agent reaches a deploy decision.
+    holdersReserveForDeploy: Math.max(0, Number(
+      gmgnUserConfig.holdersReserveForDeploy ?? u.holdersReserveForDeploy ?? 2,
+    )),
   },
 
   jupiter: {

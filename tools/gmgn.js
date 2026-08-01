@@ -227,9 +227,23 @@ function gmgnDailyResetIfNeeded() {
     _gmgnDaily.resetAt = Date.now();
   }
 }
-function gmgnBudgetAllows(type) {
+/**
+ * `reserve` holds back the last N calls of the day for a higher-value caller.
+ * Screening enriches every surviving candidate each cycle and would otherwise
+ * consume the whole holders budget on pools that mostly never get deployed
+ * into, leaving the pre-deploy holder gate with nothing. Screening passes a
+ * reserve; the deploy gate passes none.
+ */
+function gmgnBudgetAllows(type, { reserve = 0 } = {}) {
   gmgnDailyResetIfNeeded();
-  return _gmgnDaily[type] < (GMGN_DAILY_CAP[type] ?? 0);
+  const cap = (GMGN_DAILY_CAP[type] ?? 0) - Math.max(0, Number(reserve) || 0);
+  return _gmgnDaily[type] < cap;
+}
+
+/** Remaining calls today, ignoring any reserve. Diagnostics only. */
+export function gmgnBudgetRemaining(type) {
+  gmgnDailyResetIfNeeded();
+  return Math.max(0, (GMGN_DAILY_CAP[type] ?? 0) - (_gmgnDaily[type] ?? 0));
 }
 function gmgnBudgetConsume(type) {
   gmgnDailyResetIfNeeded();
@@ -280,7 +294,7 @@ export async function getGmgnTokenSecurity(mint) {
   }
 }
 
-export async function getGmgnTokenTopHolders(mint, { limit = 100 } = {}) {
+export async function getGmgnTokenTopHolders(mint, { limit = 100, reserve = 0 } = {}) {
   if (!mint || !hasGmgnApiKey()) return null;
   // Cache hit (same day) -> no quota cost. Note: limit only affects how many we keep,
   // but we cache the full top-100 list so any limit can be served from cache.
@@ -290,9 +304,9 @@ export async function getGmgnTokenTopHolders(mint, { limit = 100 } = {}) {
     return { ...cached.holders, holders: list.slice(0, Math.min(Math.max(limit, 1), 100)) };
   }
   // Budget exhausted -> return stale cache if any, else null (CPO fails closed safely)
-  if (!gmgnBudgetAllows("holders")) {
+  if (!gmgnBudgetAllows("holders", { reserve })) {
     if (cached?.holders) return cached.holders;
-    log("gmgn", `daily holders budget exhausted; skipping ${String(mint).slice(0, 8)}`);
+    log("gmgn", `daily holders budget exhausted${reserve ? ` (reserve ${reserve} held for deploy gate)` : ""}; skipping ${String(mint).slice(0, 8)}`);
     return null;
   }
   try {

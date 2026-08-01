@@ -793,6 +793,30 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   return plan;
 }
 
+/**
+ * Copy the candidate identity the pre-deploy holder gate needs onto its plan.
+ *
+ * base_token_holders is carried so the gate can compute tagged-wallet ratios
+ * without re-fetching token info: GMGN's holder payload reports only how many
+ * holders it fetched (<=100), never the token's total holder count. Without it
+ * the fresh-wallet and bundled-wallet rules silently disable themselves.
+ *
+ * Extracted from resolveDeployPlansForCandidates so it can be tested without a
+ * chart-indicator fetch.
+ */
+export function attachCandidateIdentity(plan, entry) {
+  if (!plan) return plan;
+  plan.base_mint = plan.base_mint
+    || entry?.pool?.base?.mint
+    || entry?.pool?.base_mint
+    || null;
+  plan.base_token_holders = plan.base_token_holders
+    ?? entry?.ti?.holders
+    ?? entry?.pool?.base_token_holders
+    ?? null;
+  return plan;
+}
+
 export async function resolveDeployPlansForCandidates(candidates) {
 //  clearPendingDeployPlans(); // Hermes: Removed - plans should persist until consumed by deploy_position
   // Bounded rather than an unbounded Promise.all: each plan pulls chart
@@ -806,7 +830,7 @@ export async function resolveDeployPlansForCandidates(candidates) {
         tokenInfo: entry.ti,
       });
       if (entry.pool?.pool) {
-        plan.base_mint = plan.base_mint || entry.pool.base?.mint || entry.pool.base_mint || null;
+        attachCandidateIdentity(plan, entry);
         setPendingDeployPlan(entry.pool.pool, plan);
       }
       return { entry, plan };
