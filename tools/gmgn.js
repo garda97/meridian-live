@@ -6,18 +6,26 @@ import { log } from "../logger.js";
 // Force IPv4 — GMGN OpenAPI does not support IPv6
 setDefaultResultOrder("ipv4first");
 
-let lastGmgnRequestAt = 0;
+let gmgnNextRequestAt = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function paceGmgnRequest() {
+export async function paceGmgnRequest() {
   const delayMs = Math.max(0, Number(config.gmgn?.requestDelayMs ?? 2500));
   if (!delayMs) return;
-  const elapsed = Date.now() - lastGmgnRequestAt;
-  if (elapsed < delayMs) await sleep(delayMs - elapsed);
-  lastGmgnRequestAt = Date.now();
+  // Reserve this caller's slot synchronously, before any await. Reading a
+  // "last request" stamp, sleeping, then writing it afterwards let concurrent
+  // callers all observe the same value, sleep the same amount, and fire
+  // together — the pacer collapsed exactly when it was needed. Screening
+  // reaches GMGN through getTokenInfo, so enriching candidates in parallel
+  // now routes through here.
+  const now = Date.now();
+  const startAt = Math.max(now, gmgnNextRequestAt);
+  gmgnNextRequestAt = startAt + delayMs;
+  const wait = startAt - now;
+  if (wait > 0) await sleep(wait);
 }
 
 function getApiKey() {

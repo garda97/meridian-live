@@ -173,6 +173,15 @@ export const config = {
       concentrationParadoxMinSmCount: Number(u.security?.concentrationParadoxMinSmCount ?? 8),
       concentrationParadoxMinSmInflowRatio: Number(u.security?.concentrationParadoxMinSmInflowRatio ?? 0.5),
     },
+    // Fan-out width for the screening I/O stages (utils/map-limit.js). Candidates
+    // carry no data between each other, so these cap parallelism for provider
+    // rate limits, not for correctness. enrichSpacingMs replaces the old hardcoded
+    // sleep(150) between candidates: concurrency caps in-flight requests, spacing
+    // caps requests per second, and the DataAPI limiter cares about the latter.
+    enrichConcurrency: Math.max(1, Number(u.enrichConcurrency ?? 5)),
+    enrichSpacingMs:   Math.max(0, Number(u.enrichSpacingMs ?? 50)),
+    rpcConcurrency:    Math.max(1, Number(u.rpcConcurrency ?? 6)),  // getActiveBin (Helius)
+    planConcurrency:   Math.max(1, Number(u.planConcurrency ?? 4)), // resolveDeployPlansForCandidates (chart indicators)
     solRegimeGateEnabled: boolConfig(u.solRegimeGateEnabled, true),
     solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
     // SOL/BTC relative strength (LP Army "Deep Winter" doctrine, notes/GETXAPI research

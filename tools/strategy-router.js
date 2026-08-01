@@ -8,6 +8,7 @@ import { config } from "../config.js";
 import { log } from "../logger.js";
 import { fetchChartIndicatorsForMint, buildSignalSummary, evaluateAthEntryGate } from "./chart-indicators.js";
 import { hasRecentVolatileOorClose } from "../pool-memory.js";
+import { mapLimit, settledValues } from "../utils/map-limit.js";
 
 const pendingPlans = new Map();
 
@@ -794,8 +795,12 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
 
 export async function resolveDeployPlansForCandidates(candidates) {
 //  clearPendingDeployPlans(); // Hermes: Removed - plans should persist until consumed by deploy_position
-  const plans = await Promise.all(
-    candidates.map(async (entry) => {
+  // Bounded rather than an unbounded Promise.all: each plan pulls chart
+  // indicators, so a wide candidate set used to burst that provider at once.
+  const settled = await mapLimit(
+    candidates,
+    config.screening?.planConcurrency ?? 4,
+    async (entry) => {
       const plan = await resolveDeployStrategyForCandidate({
         pool: entry.pool,
         tokenInfo: entry.ti,
@@ -805,9 +810,15 @@ export async function resolveDeployPlansForCandidates(candidates) {
         setPendingDeployPlan(entry.pool.pool, plan);
       }
       return { entry, plan };
-    }),
+    },
   );
-  return plans;
+  // Keep Promise.all's all-or-nothing contract. A rejected plan aborted the
+  // screening cycle before; degrading it to a null plan would instead hand the
+  // SCREENER a candidate with no deploy_plan block while the prompt still says
+  // to follow that block exactly.
+  const failed = settled.find((r) => r.status === "rejected");
+  if (failed) throw failed.reason;
+  return settledValues(settled);
 }
 
 export function formatDeployPlanBlock(plan) {

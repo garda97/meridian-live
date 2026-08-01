@@ -30,6 +30,7 @@ import { agentLoop } from "../../agent.js";
 import { recordScreeningOutcome } from "../../filter-autotune.js";
 import { formatWalletSignalNote } from "../../utils/wallet-signal-enrich.js";
 import { getBlockedThemeRejectReason } from "../../utils/blocked-theme.js";
+import { mapLimit, settledValues } from "../../utils/map-limit.js";
 
 export async function runScreeningCycle({ silent = false } = {}) {
   if (engineState.screeningBusy) {
@@ -187,23 +188,31 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const candidates = (topCandidates?.candidates || topCandidates?.pools || []).slice(0, 15);
     const earlyFilteredExamples = topCandidates?.filtered_examples || [];
 
-    const allCandidates = [];
-    for (const pool of candidates) {
-      const mint = pool.base?.mint;
-      const [smartWallets, narrative, tokenInfo] = await Promise.allSettled([
-        checkSmartWalletsOnPool({ pool_address: pool.pool }),
-        mint ? getTokenNarrative({ mint }) : Promise.resolve(null),
-        mint ? getTokenInfo({ query: mint }) : Promise.resolve(null),
-      ]);
-      allCandidates.push({
-        pool,
-        sw: smartWallets.status === "fulfilled" ? smartWallets.value : null,
-        n: narrative.status === "fulfilled" ? narrative.value : null,
-        ti: tokenInfo.status === "fulfilled" ? tokenInfo.value?.results?.[0] : null,
-        mem: recallForPool(pool.pool),
-      });
-      await new Promise(r => setTimeout(r, 150)); // avoid 429s
-    }
+    // One candidate's recon feeds nothing into the next, so the old serial loop
+    // billed 15x the slowest API call for work with no ordering dependency; its
+    // sleep(150) was rate limiting, which mapLimit keeps as spacingMs. GMGN is
+    // reached underneath getTokenInfo and stays serialised by its own pacer.
+    const enriched = await mapLimit(
+      candidates,
+      config.screening.enrichConcurrency,
+      async (pool) => {
+        const mint = pool.base?.mint;
+        const [smartWallets, narrative, tokenInfo] = await Promise.allSettled([
+          checkSmartWalletsOnPool({ pool_address: pool.pool }),
+          mint ? getTokenNarrative({ mint }) : Promise.resolve(null),
+          mint ? getTokenInfo({ query: mint }) : Promise.resolve(null),
+        ]);
+        return {
+          pool,
+          sw: smartWallets.status === "fulfilled" ? smartWallets.value : null,
+          n: narrative.status === "fulfilled" ? narrative.value : null,
+          ti: tokenInfo.status === "fulfilled" ? tokenInfo.value?.results?.[0] : null,
+          mem: recallForPool(pool.pool),
+        };
+      },
+      { spacingMs: config.screening.enrichSpacingMs },
+    );
+    const allCandidates = settledValues(enriched).filter(Boolean);
 
     // Hard filters after token recon — block launchpads and excessive Jupiter bot holders
     const filteredOut = [];
@@ -359,9 +368,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
       }
     }
 
-    // Pre-fetch active_bin for all passing candidates in parallel
-    const activeBinResults = await Promise.allSettled(
-      finalPassing.map(({ pool }) => getActiveBin({ pool_address: pool.pool }))
+    // Pre-fetch active_bin for all passing candidates in parallel, bounded so a
+    // wide candidate set can't burst the RPC provider in one shot.
+    const activeBinResults = await mapLimit(
+      finalPassing,
+      config.screening.rpcConcurrency,
+      ({ pool }) => getActiveBin({ pool_address: pool.pool }),
     );
 
     const deployPlanResults = config.autoStrategy?.enabled
