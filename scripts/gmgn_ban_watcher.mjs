@@ -13,15 +13,14 @@
 // reality. Auth failures are now reported as configuration errors and never
 // change the ban state.
 
-import { readFileSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { pathToFileURL } from "url";
+import { readBanState, writeBanState } from "../utils/gmgn-ban-state.js";
 // Imported for its side effect: envcrypt calls loadEnv() at module load and
 // decrypts the envrypt-managed values into process.env. Calling loadEnv() again
 // here would run the decryption a second time over already-plaintext values.
 import "../envcrypt.js";
 
-const STATE_FILE = "/opt/meridian/notes/_gmgn_ban_state.json";
 const TEST_MINT = "5asSNpLpxzZpkbqZkeuT3tCPPqWtZBQivbbrQHMcpump";
 const API_BASE = "https://openapi.gmgn.ai";
 
@@ -32,11 +31,8 @@ function loadGmgnKey() {
   return process.env.GMGN_API_KEY || null;
 }
 
-function readState() {
-  try { return JSON.parse(readFileSync(STATE_FILE, "utf8")); }
-  catch { return { banned: false, since: null, freedAt: null }; }
-}
-function writeState(s) { writeFileSync(STATE_FILE, JSON.stringify(s, null, 2) + "\n"); }
+const readState = readBanState;
+const writeState = writeBanState;
 
 /**
  * Classify one probe response. Kept separate and exported so the branch that
@@ -77,6 +73,17 @@ async function probe() {
 
 async function main() {
   const state = readState();
+
+  // The probe spends the same GMGN daily quota the bot does — a raw fetch skips
+  // the in-process counter, not the account limit. Polling on a timer would
+  // consume the quota this watchdog exists to protect, so it stays idle unless
+  // tools/gmgn.js has recorded a ban. During a ban the bot cannot spend quota
+  // anyway, which is exactly when a probe is free to make.
+  if (!state.banned) {
+    console.log(`GMGN normal — tidak ada ban tercatat, probe dilewati (${new Date().toISOString()}).`);
+    return;
+  }
+
   const result = await probe();
   const now = new Date().toISOString();
 

@@ -47,4 +47,46 @@ assert(classifyProbe(500, "server error") === "unknown", "500 must classify as u
 assert(classifyProbe(0, "") === "unknown", "no status must classify as unknown");
 
 console.log("  gmgn-ban-watcher: auth vs banned vs free vs unknown OK");
+
+// --- ban state transitions -------------------------------------------------
+// These touch the real state file, so snapshot and restore it.
+{
+  const { readFileSync, writeFileSync, existsSync } = await import("fs");
+  const { markBanned, markFreed, readBanState, STATE_FILE } =
+    await import("../utils/gmgn-ban-state.js");
+
+  const had = existsSync(STATE_FILE);
+  const snapshot = had ? readFileSync(STATE_FILE, "utf8") : null;
+
+  try {
+    writeFileSync(STATE_FILE, JSON.stringify({ banned: false, since: null, freedAt: null }));
+
+    const first = markBanned("2026-01-01T00:00:00.000Z");
+    assert(first.banned && first.since === "2026-01-01T00:00:00.000Z",
+      "markBanned must record the ban and its start");
+
+    // Idempotent: a second ban report must not restart the clock, or the
+    // watcher would misreport how long the ban has run.
+    const second = markBanned("2026-01-02T00:00:00.000Z");
+    assert(second.since === "2026-01-01T00:00:00.000Z",
+      `markBanned must keep the original since, got ${second.since}`);
+
+    const freed = markFreed("2026-01-03T00:00:00.000Z");
+    assert(!freed.banned && freed.freedAt === "2026-01-03T00:00:00.000Z",
+      "markFreed must clear the ban and stamp freedAt");
+    assert(freed.since === "2026-01-01T00:00:00.000Z",
+      "markFreed must preserve since so ban duration stays recoverable");
+
+    assert(readBanState().banned === false, "readBanState must reflect the last write");
+
+    // A missing file must read as healthy, not as banned — a watchdog that
+    // fails to "banned" would make the bot look broken on a fresh install.
+    writeFileSync(STATE_FILE, "not json at all");
+    assert(readBanState().banned === false, "unparseable state must default to healthy");
+  } finally {
+    if (snapshot != null) writeFileSync(STATE_FILE, snapshot);
+  }
+}
+
+console.log("  gmgn-ban-state: mark/clear/idempotent-since/corrupt-defaults OK");
 console.log("test-gmgn-ban-watcher: OK");

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { setDefaultResultOrder } from "dns";
 import { config } from "../config.js";
 import { log } from "../logger.js";
+import { markBanned } from "../utils/gmgn-ban-state.js";
 
 // Force IPv4 — GMGN OpenAPI does not support IPv6
 setDefaultResultOrder("ipv4first");
@@ -95,6 +96,10 @@ async function gmgnFetch(pathname, { method = "GET", params = {}, body = null } 
     const message = payload?.message || payload?.error || payload?.raw || `GMGN ${pathname} ${res.status}`;
     const rateLimited = res.status === 429 || /rate limit|temporarily banned/i.test(String(message));
     if (res.ok) return payload;
+    // Record the ban so the watcher knows to start probing for recovery. It
+    // stays idle otherwise, because its probe spends the same daily quota this
+    // request just exhausted.
+    if (/temporarily banned/i.test(String(message))) markBanned();
     if (rateLimited && attempt < maxRetries) {
       const retryAfter = Number(res.headers.get("retry-after"));
       const backoffMs = Number.isFinite(retryAfter)
