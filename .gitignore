@@ -122,4 +122,12 @@ notes/video-analysis/*.mp4
 
 # Local secrets dir if any
 secrets/
+
+# Handoff docs are internal notes between the on-VPS agents (hermes/grok/claude).
+# They carry operational state — wallet status, live config, risk-gap notes — that
+# does not belong in a public repo. Kept local; not tracked going forward.
+/HANDOFF.md
+notes/handoff-archive/
+notes/HANDOFF*.md
+notes/GROK_SESSION_HANDOFF*.md
 .secrets/
