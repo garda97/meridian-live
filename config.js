@@ -182,6 +182,14 @@ export const config = {
     enrichSpacingMs:   Math.max(0, Number(u.enrichSpacingMs ?? 50)),
     rpcConcurrency:    Math.max(1, Number(u.rpcConcurrency ?? 6)),  // getActiveBin (Helius)
     planConcurrency:   Math.max(1, Number(u.planConcurrency ?? 4)), // resolveDeployPlansForCandidates (chart indicators)
+    // Adversarial review (utils/adversarial-review.js): a second model argues
+    // against the SCREENER's pick just before deploy_position executes. Off by
+    // default — it adds an LLM round-trip to a time-sensitive path, so the
+    // active bin can move between the decision and the transaction. Measure the
+    // effect on win rate with `meridian performance` before leaving it on.
+    adversarialReviewEnabled: boolConfig(u.adversarialReviewEnabled, false),
+    adversarialReviewModel: u.adversarialReviewModel ?? null, // null = screening model
+    adversarialReviewTimeoutMs: Math.max(1000, Number(u.adversarialReviewTimeoutMs ?? 25_000)),
     solRegimeGateEnabled: boolConfig(u.solRegimeGateEnabled, true),
     solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
     // SOL/BTC relative strength (LP Army "Deep Winter" doctrine, notes/GETXAPI research

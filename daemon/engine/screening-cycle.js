@@ -23,7 +23,7 @@ import { checkSmartWalletsOnPool } from "../../smart-wallets.js";
 import { getTokenInfo, getTokenNarrative } from "../../tools/token.js";
 import { recallForPool } from "../../pool-memory.js";
 import { computeHolderRatios, getGmgnTokenTopHolders } from "../../tools/gmgn.js";
-import { formatDeployPlanBlock, resolveDeployPlansForCandidates } from "../../tools/strategy-router.js";
+import { formatDeployPlanBlock, resolveDeployPlansForCandidates, setPendingCandidateBlock } from "../../tools/strategy-router.js";
 import { stageSignals } from "../../signal-tracker.js";
 import { getWeightsSummary } from "../../signal-weights.js";
 import { agentLoop } from "../../agent.js";
@@ -432,6 +432,11 @@ export async function runScreeningCycle({ silent = false } = {}) {
         plan ? formatDeployPlanBlock(plan) : null,
         `  deploy_amount_sol: ${candDeployAmount} SOL (for strategy ${plan?.strategy ?? config.strategy.strategy}) — USE THIS EXACT AMOUNT`,
       ].filter(Boolean).join("\n");
+
+      // Stash the block so the pre-deploy adversarial reviewer argues against
+      // the same evidence the SCREENER saw. Kept out of the plan itself: the
+      // plan is copied into deploy args and logged verbatim.
+      setPendingCandidateBlock(pool.pool, block);
 
       // Stage signals — Darwinian weighting + holder-audit snapshot for the
       // deploy decision log. Always staged (not just darwin) so the deploy

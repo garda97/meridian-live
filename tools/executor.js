@@ -49,6 +49,51 @@ const TIMEFRAME_MINUTES = {
 import { log, logAction } from "../logger.js";
 import { getGmgnTokenTopHolders } from "./gmgn.js";
 import { checkHolderQuality } from "../utils/holder-quality-gate.js";
+import { buildReviewPrompt, parseReviewVerdict } from "../utils/adversarial-review.js";
+
+/**
+ * Second opinion on a deploy, with the opposite job to the SCREENER's.
+ * Fails open on every infrastructure fault — a timeout or a bad key says
+ * nothing about the trade, and blocking on one would halt trading. Each such
+ * case is logged, because passing without a verdict is not passing on one.
+ */
+async function runAdversarialReview({ args, plan }) {
+  const timeoutMs = Math.max(1000, Number(config.screening?.adversarialReviewTimeoutMs ?? 25_000));
+  try {
+    // completeOnce, not agentLoop: the reviewer has no tools, and agentLoop
+    // forces a tool call whenever the prompt contains an action word like
+    // "open" — which this prompt necessarily does.
+    const { completeOnce } = await import("../agent.js");
+    const { getPendingCandidateBlock } = await import("./strategy-router.js");
+    const prompt = buildReviewPrompt({
+      candidateBlock: getPendingCandidateBlock(args?.pool_address) ?? getPendingCandidateBlock(plan?.base_mint),
+      plan,
+      args,
+    });
+    const run = completeOnce(prompt, {
+      model: config.screening?.adversarialReviewModel || config.llm.screeningModel,
+      maxTokens: 512,
+      timeoutMs,
+    });
+    const timer = new Promise((resolve) =>
+      setTimeout(() => resolve({ _timedOut: true }), timeoutMs));
+    const result = await Promise.race([run, timer]);
+    if (result && typeof result === "object" && result._timedOut) {
+      log("safety_block", `adversarial review timed out after ${timeoutMs}ms — deploy allowed`);
+      return { block: false, reason: "review timed out" };
+    }
+    const verdict = parseReviewVerdict(result);
+    if (!verdict.parsed) {
+      log("safety_block", `adversarial review unparseable — deploy allowed: ${verdict.reason}`);
+    } else {
+      log("safety_block", `adversarial review ${verdict.block ? "BLOCK" : "PASS"}: ${verdict.reason}`);
+    }
+    return verdict;
+  } catch (error) {
+    log("safety_block", `adversarial review failed — deploy allowed: ${error.message}`);
+    return { block: false, reason: `review error: ${error.message}` };
+  }
+}
 import { notifyDeploy, notifyClose, notifySwap, sendMessage as sendTelegramMessage } from "../telegram.js";
 import { atomicWriteFileSync } from "../utils/atomic-write.js";
 
@@ -1167,6 +1212,23 @@ async function runSafetyChecks(name, args, context = {}) {
             pass: false,
             reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
           };
+        }
+      }
+
+      // Last gate on purpose: every check above is cheaper and more reliable,
+      // so the extra LLM round-trip is only spent on a candidate that already
+      // survived all of them.
+      if (config.screening?.adversarialReviewEnabled) {
+        const verdict = await runAdversarialReview({ args, plan: autoPlan });
+        if (verdict.block) {
+          appendDecision({
+            type: "no_deploy",
+            actor: "REVIEWER",
+            summary: "Adversarial review blocked the deploy",
+            reason: verdict.reason,
+            pool: args.pool_address,
+          });
+          return { pass: false, reason: `Adversarial review: ${verdict.reason}` };
         }
       }
 

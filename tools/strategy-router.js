@@ -12,6 +12,20 @@ import { mapLimit, settledValues } from "../utils/map-limit.js";
 
 const pendingPlans = new Map();
 
+// Candidate evidence for the pre-deploy adversarial reviewer, kept beside the
+// plan rather than on it: applyPendingPlanToDeployArgs copies the plan into
+// deploy args, and executeTool logs args verbatim — a block of candidate text
+// riding along would bloat every entry in actions-*.jsonl.
+const pendingCandidateBlocks = new Map();
+
+export function setPendingCandidateBlock(poolAddress, block) {
+  if (poolAddress && block) pendingCandidateBlocks.set(poolAddress, block);
+}
+
+export function getPendingCandidateBlock(poolAddress) {
+  return pendingCandidateBlocks.get(poolAddress) ?? null;
+}
+
 export function clearPendingDeployPlans() {
   pendingPlans.clear();
 }

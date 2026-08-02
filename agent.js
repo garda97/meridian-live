@@ -213,6 +213,58 @@ function isThinkingModeToolChoiceError(error) {
 }
 
 /**
+ * One-shot completion with no tools, for callers that need the model to reason
+ * over supplied data rather than act on it.
+ *
+ * agentLoop is the wrong vehicle for that: its ACTION_INTENTS heuristic forces
+ * tool_choice="required" on step 0 whenever the goal text contains an action
+ * word, so a prompt that merely *discusses* opening a position gets a forced
+ * tool call instead of a text answer, and returns "Max steps reached".
+ *
+ * Returns the assistant text, including providers that leave `content` empty
+ * and put the answer under reasoning.
+ */
+export async function completeOnce(prompt, {
+  model = null,
+  maxTokens = 512,
+  timeoutMs = null,
+  retries = 2,
+  temperature = null,
+} = {}) {
+  const primary = model || DEFAULT_MODEL;
+  const fallback = resolveFallbackModel(primary);
+  let text = "";
+
+  // These router combos intermittently return an empty message with no error —
+  // measured at roughly a third of calls. agentLoop handles that with a retry
+  // ladder plus a fallback model; a single-shot caller needs the same, or a
+  // silent empty reply reads as a real (and wrong) answer.
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const usedModel = attempt > 0 && attempt === retries ? fallback : primary;
+    try {
+      const response = await client.chat.completions.create(
+        {
+          model: usedModel,
+          messages: [{ role: "user", content: prompt }],
+          temperature: temperature ?? config.llm.temperature,
+          max_tokens: maxTokens,
+          stream: false,
+        },
+        timeoutMs ? { timeout: timeoutMs } : undefined,
+      );
+      text = getAssistantText(response?.choices?.[0]?.message);
+    } catch (error) {
+      if (attempt === retries) throw error;
+      log("agent", `completeOnce attempt ${attempt + 1} failed: ${error.message}`);
+      continue;
+    }
+    if (String(text || "").trim()) return text;
+    log("agent", `completeOnce returned empty (attempt ${attempt + 1}/${retries + 1})`);
+  }
+  return text;
+}
+
+/**
  * Core ReAct agent loop.
  *
  * @param {string} goal - The task description for the agent
