@@ -26,6 +26,14 @@ export function getPendingCandidateBlock(poolAddress) {
   return pendingCandidateBlocks.get(poolAddress) ?? null;
 }
 
+// Blocks live a single screening cycle. Unlike pendingPlans (deliberately kept
+// until a deploy consumes them), these are only read by the pre-deploy
+// adversarial reviewer, so the screening cycle drops the whole set each pass
+// rather than letting one entry per pool accumulate for the daemon's lifetime.
+export function clearPendingCandidateBlocks() {
+  pendingCandidateBlocks.clear();
+}
+
 export function clearPendingDeployPlans() {
   pendingPlans.clear();
 }

@@ -66,7 +66,7 @@ async function runAdversarialReview({ args, plan }) {
     const { completeOnce } = await import("../agent.js");
     const { getPendingCandidateBlock } = await import("./strategy-router.js");
     const prompt = buildReviewPrompt({
-      candidateBlock: getPendingCandidateBlock(args?.pool_address) ?? getPendingCandidateBlock(plan?.base_mint),
+      candidateBlock: getPendingCandidateBlock(args?.pool_address),
       plan,
       args,
     });
@@ -1016,11 +1016,19 @@ async function runSafetyChecks(name, args, context = {}) {
       // mostly never reach a deploy. reserve=0 so this call may use the slots
       // screening held back.
       {
-        const mint = autoPlan?.base_mint ?? args.base_mint ?? null;
+        // CLI (`cli.js deploy --pool`) and recovery_manager auto-deploys pass
+        // only pool_address — no plan, no base_mint — so resolve the base mint
+        // from pool detail to keep the holder gate covering those paths too,
+        // not just the autonomous-agent deploy.
+        let mint = autoPlan?.base_mint ?? args.base_mint ?? null;
+        if (!mint && args.pool_address) {
+          const pd = await getPoolDetail({ pool_address: args.pool_address }).catch(() => null);
+          mint = pd?.token_x?.address ?? pd?.base?.mint ?? null;
+        }
         if (!mint) {
           // Never fail silently here: without a mint the gate is a no-op, and a
           // no-op risk control that looks installed is worse than none.
-          log("gmgn", `deploy holder gate skipped for ${String(args.pool_address ?? "?").slice(0, 8)}: no base mint on args or plan`);
+          log("gmgn", `deploy holder gate skipped for ${String(args.pool_address ?? "?").slice(0, 8)}: base mint unresolved from args, plan, or pool detail`);
         } else {
           const stats = await getGmgnTokenTopHolders(mint, { limit: 100, reserve: 0 }).catch(() => null);
           const holderCount = Number(

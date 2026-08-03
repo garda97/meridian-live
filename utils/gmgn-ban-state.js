@@ -15,6 +15,7 @@
 import fs from "fs";
 import path from "path";
 import { repoPath } from "../repo-root.js";
+import { atomicWriteFileSync } from "./atomic-write.js";
 
 const STATE_FILE = repoPath(path.join("notes", "_gmgn_ban_state.json"));
 
@@ -32,7 +33,10 @@ export function readBanState() {
 export function writeBanState(state) {
   try {
     fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-    fs.writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`);
+    // Atomic tmp+rename: the bot and the ban watcher are separate processes on
+    // this file, so a plain writeFileSync could hand a reader a torn JSON that
+    // parses as the default (not-banned) state mid-write.
+    atomicWriteFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`);
     return true;
   } catch {
     return false; // state tracking must never break a live API path

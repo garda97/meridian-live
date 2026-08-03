@@ -23,7 +23,7 @@ import { checkSmartWalletsOnPool } from "../../smart-wallets.js";
 import { getTokenInfo, getTokenNarrative } from "../../tools/token.js";
 import { recallForPool } from "../../pool-memory.js";
 import { computeHolderRatios, getGmgnTokenTopHolders } from "../../tools/gmgn.js";
-import { formatDeployPlanBlock, resolveDeployPlansForCandidates, setPendingCandidateBlock } from "../../tools/strategy-router.js";
+import { formatDeployPlanBlock, resolveDeployPlansForCandidates, setPendingCandidateBlock, clearPendingCandidateBlocks } from "../../tools/strategy-router.js";
 import { stageSignals } from "../../signal-tracker.js";
 import { getWeightsSummary } from "../../signal-weights.js";
 import { agentLoop } from "../../agent.js";
@@ -387,7 +387,9 @@ export async function runScreeningCycle({ silent = false } = {}) {
       ? await resolveDeployPlansForCandidates(finalPassing)
       : finalPassing.map((entry) => ({ entry, plan: null }));
 
-    // Build compact candidate blocks
+    // Build compact candidate blocks. Drop last cycle's blocks first so the map
+    // holds only this cycle's candidates, not every pool ever screened.
+    clearPendingCandidateBlocks();
     const candidateBlocks = finalPassing.map(({ pool, sw, n, ti, mem }, i) => {
       const plan = deployPlanResults[i]?.plan ?? null;
       const mint = pool.base?.mint || ti?.mint;

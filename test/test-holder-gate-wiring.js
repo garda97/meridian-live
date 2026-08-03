@@ -84,6 +84,23 @@ assert(
   assert(verdict.checked, "verdict must report checked=true when data was present");
 }
 
+// CLI (`cli.js deploy --pool`) and recovery deploys carry no plan and no
+// base_mint, so the executor resolves the mint from pool detail — base is
+// token_x — keeping that path gated instead of silently skipped. Mirrors the
+// executor's `pd?.token_x?.address ?? pd?.base?.mint ?? null` resolution.
+{
+  const pd = { token_x: { address: MINT }, token_y: { address: "So11111111111111111111111111111111111111112" } };
+  assert((pd?.token_x?.address ?? pd?.base?.mint ?? null) === MINT, "pool-detail fallback must resolve base mint from token_x");
+
+  // Old-shape safety: a pool object exposing base.mint still resolves.
+  const pdBase = { base: { mint: MINT } };
+  assert((pdBase?.token_x?.address ?? pdBase?.base?.mint ?? null) === MINT, "pool-detail fallback must also accept base.mint shape");
+
+  // Nothing resolvable stays null so the gate logs a skip, never a silent pass.
+  const pdEmpty = {};
+  assert((pdEmpty?.token_x?.address ?? pdEmpty?.base?.mint ?? null) === null, "unresolvable pool detail must be null");
+}
+
 // Missing holder count must not silently disable the supply-share rule.
 {
   const verdict = checkHolderQuality({ bundlers_pct_in_top_100: 90 }, null, { maxBundlerTop100Pct: 25 });
