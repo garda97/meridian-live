@@ -205,7 +205,7 @@ async function validateDeployPoolThresholds(args) {
   // FIX (Hermes): entry-timing guard — reject extreme volatility spikes. A pool whose
   // volatility is far above the historical norm (avg ~2.34 across closed outcomes) is
   // usually in a pump/dump leg; deploying then -> immediate OOR. maxVolatility caps entry.
-  const maxVol = numberOrNull(config.screening?.maxVolatility ?? config.maxVolatility);
+  const maxVol = numberOrNull(config.screening.maxVolatility);
   if (maxVol != null && volatility > maxVol) {
     return {
       pass: false,

@@ -1,6 +1,6 @@
 import { log } from "../../logger.js";
 import { config } from "../../config.js";
-import { getTrackedPosition, canFireTakeProfit, checkIlGapExit } from "../../state.js";
+import { getTrackedPosition, canFireTakeProfit, checkIlGapExit, isPnlOutOfSanityBand } from "../../state.js";
 
 /**
  * Daemon-side deterministic close rules 1-7 (SL, TP, pumped-above, OOR,
@@ -15,6 +15,10 @@ export function getDeterministicCloseRule(position, managementConfig) {
     // Couldn't-price-this-tick flag (e.g. Jupiter outage) — never act on PnL rules.
     if (position.pnl_pct_suspicious) return true;
     if (position.pnl_pct == null) return false;
+    // Outside the believable band the reading is a pricing artifact, not a
+    // result — never close (or take profit) on it. Silent on purpose: the 3s
+    // poller re-evaluates this every tick and would flood the log.
+    if (isPnlOutOfSanityBand(position.pnl_pct)) return true;
     if (position.pnl_pct > -90) return false;
     if (tracked?.amount_sol && (position.total_value_usd ?? 0) > 0.01) {
       log("cron_warn", `Suspect PnL for ${position.pair}: ${position.pnl_pct}% but position still has value — skipping PnL rules`);

@@ -393,8 +393,27 @@ export function canFireTakeProfit(position = {}, tracked, mgmtConfig = {}) {
   return true;
 }
 
+/**
+ * Believable live-PnL band. A DLMM position can't truthfully read outside it —
+ * anything that does is a pricing/deposit-cache artifact (observed: a 7507%
+ * trailing peak on Cupsey-SOL, a -44% tick on a position that realized +0.55%).
+ * Such a tick is untrustworthy: it may never raise a peak and may never close a
+ * position. It is NOT clamped — we simply refuse to act on it.
+ */
+export const PNL_SANITY_MIN_PCT = -95;
+export const PNL_SANITY_MAX_PCT = 200;
+
+/** True when a PnL reading is outside the believable band (non-numeric = untrusted). */
+export function isPnlOutOfSanityBand(pnlPct) {
+  const n = Number(pnlPct);
+  if (!Number.isFinite(n)) return true;
+  return n < PNL_SANITY_MIN_PCT || n > PNL_SANITY_MAX_PCT;
+}
+
 export function confirmPeak(position_address, candidatePnlPct, confirmTicks = 2, warmupMinutes = 0) {
   if (candidatePnlPct == null) return false;
+  // An artifact reading must never become the peak that arms trailing TP.
+  if (isPnlOutOfSanityBand(candidatePnlPct)) return false;
   const state = load();
   const pos = state.positions[position_address];
   if (!pos || pos.closed) return false;
@@ -632,6 +651,10 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   // the ORIGINAL entry (initial_value_usd survives the migrate re-key), so
   // stop-loss, peaks and trailing all stay on one continuous series.
   const currentPnlPct = computeLifecyclePnlPct(pos, positionData) ?? rawPnlPct;
+  // Out-of-band readings are artifacts, not PnL — same treatment as the
+  // upstream pnl_pct_suspicious flag: no stop loss, no trailing exit on them.
+  // (The raw persist below keeps its own guards so a stale value still updates.)
+  const pnlUntrusted = pnl_pct_suspicious || isPnlOutOfSanityBand(currentPnlPct);
   if (currentPnlPct !== rawPnlPct && Number.isFinite(rawPnlPct) && Math.abs(currentPnlPct - rawPnlPct) >= 5) {
     log("state", `Position ${position_address} lifecycle PnL ${currentPnlPct.toFixed(2)}% (per-account tick ${rawPnlPct.toFixed(2)}% — basis reset by ${pos.rebalance_count} rebalance(s))`);
   }
@@ -685,7 +708,7 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   if (changed) save(state);
 
   // ── Stop loss ──────────────────────────────────────────────────
-  if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct) {
+  if (!pnlUntrusted && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct) {
     return {
       action: "STOP_LOSS",
       reason: `Stop loss: PnL ${currentPnlPct.toFixed(2)}% <= ${mgmtConfig.stopLossPct}%`,
@@ -693,7 +716,7 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   }
 
   // ── Trailing TP ────────────────────────────────────────────────
-  if (!pnl_pct_suspicious && pos.trailing_active) {
+  if (!pnlUntrusted && pos.trailing_active) {
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
     if (dropFromPeak >= mgmtConfig.trailingDropPct) {
       return {

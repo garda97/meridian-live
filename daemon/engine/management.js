@@ -10,7 +10,7 @@ import { runScreeningCycle } from "./screening-cycle.js";
 import { stripThink, timers } from "../runtime.js";
 import { log } from "../../logger.js";
 import { config, reloadUserConfigFromDisk } from "../../config.js";
-import { getTrackedPosition, confirmPeakFromTick, updatePnlAndCheckExits } from "../../state.js";
+import { getTrackedPosition, confirmPeakFromTick, updatePnlAndCheckExits, registerExitSignal } from "../../state.js";
 import { isRebalanceCandidate, resolveRebalancePlanForPosition, shouldRebalance, computeTvlDilution, checkTvlDilutionExit } from "../../tools/position-router.js";
 import { executeTool } from "../../tools/executor.js";
 import { observeOpenPosition } from "../../lessons.js";
@@ -23,6 +23,13 @@ import { getPoolDetail } from "../../tools/screening.js";
 import { checkPositionChartExit } from "../../tools/chart-indicators.js";
 import { recordPositionSnapshot, recallForPool } from "../../pool-memory.js";
 import { withTimeout } from "../../utils/fetch-timeout.js";
+
+// Exits/close rules that are decided purely from pnl_pct — these are the ones
+// that must survive `config.pnl.confirmTicks` agreeing ticks before closing
+// (the fast poller already gates every signal this way; this cron is the other
+// close path). OOR / low yield / TGE max-hold read no PnL and stay immediate.
+const PNL_EXIT_ACTIONS = new Set(["STOP_LOSS", "TRAILING_TP"]);
+const PNL_CLOSE_RULES = new Set([0, 1, 2, 7]);
 
 /**
  * Per-phase guard + instrumentation for runManagementCycle. Bounds each awaited
@@ -248,7 +255,7 @@ export async function runManagementCycle({ silent = false } = {}) {
         );
       }
       if (exit) {
-        exitMap.set(p.position, exit.reason);
+        exitMap.set(p.position, exit);
         log("state", `Exit alert for ${p.pair}: ${exit.reason}`);
       }
     })), 30000);
@@ -256,6 +263,7 @@ export async function runManagementCycle({ silent = false } = {}) {
     // ── Deterministic rule checks (no LLM) ──────────────────────────
     // action: CLOSE | CLAIM | STAY | INSTRUCTION (needs LLM)
     const actionMap = new Map();
+    const pnlConfirmTicks = Math.max(1, Number(config.pnl.confirmTicks ?? 2));
 
     // POWER MODE plan resolution is read-only (pool detail + chart indicators +
     // token-info fetches, then a pure plan compute) and independent per position,
@@ -292,9 +300,27 @@ export async function runManagementCycle({ silent = false } = {}) {
         fee_tvl_ratio: p.fee_tvl_ratio,
         organic_score: p.organic_score,
       });
+      // Any PnL-driven close needs `confirmTicks` agreeing evaluations before it
+      // fires — a single bad reading (observed: -44% on a position that realized
+      // +0.55%) must not close a winner. The streak is shared with the 3s PnL
+      // poller, so a genuine exit still fires within seconds. Non-PnL exits
+      // (OOR, low yield, chart, dilution) stay immediate as before.
+      const exit = exitMap.get(p.position) ?? null;
+      const closeRule = exit ? null : getDeterministicCloseRule(p, config.management);
+      const pnlSignal = exit && PNL_EXIT_ACTIONS.has(exit.action)
+        ? exit.action
+        : closeRule && PNL_CLOSE_RULES.has(closeRule.rule)
+          ? `RULE_${closeRule.rule}`
+          : null;
+      const pnlUnconfirmed = pnlSignal != null
+        && !registerExitSignal(p.position, pnlSignal, pnlConfirmTicks).fire;
+      if (pnlUnconfirmed) {
+        log("state", `Holding ${p.pair}: PnL exit ${pnlSignal} awaiting ${pnlConfirmTicks} agreeing ticks`);
+      }
+
       // Hard exit — highest priority
-      if (exitMap.has(p.position)) {
-        actionMap.set(p.position, { action: "CLOSE", rule: "exit", reason: exitMap.get(p.position) });
+      if (exit && !pnlUnconfirmed) {
+        actionMap.set(p.position, { action: "CLOSE", rule: "exit", reason: exit.reason });
         continue;
       }
       // POWER MODE: re-analyze + reposition BEFORE the OOR close rule gets a
@@ -312,8 +338,7 @@ export async function runManagementCycle({ silent = false } = {}) {
         continue;
       }
 
-      const closeRule = getDeterministicCloseRule(p, config.management);
-      if (closeRule) {
+      if (closeRule && !pnlUnconfirmed) {
         actionMap.set(p.position, closeRule);
         continue;
       }

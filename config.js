@@ -11,9 +11,24 @@ const DEFAULT_AGENT_MERIDIAN_API_URL = "https://api.agentmeridian.xyz/api";
 const DEFAULT_AGENT_MERIDIAN_PUBLIC_KEY = "bWVyaWRpYW4taXMtdGhlLWJlc3QtYWdlbnRz";
 const DEFAULT_HIVEMIND_API_KEY = DEFAULT_AGENT_MERIDIAN_PUBLIC_KEY;
 
-const u = fs.existsSync(USER_CONFIG_PATH)
-  ? JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"))
-  : {};
+/**
+ * user-config.json carries screening thresholds two ways: legacy flat top-level
+ * keys (minBinStep, maxBinStep, …) and a nested `screening: { … }` block written
+ * by newer presets. Only the flat keys were ever read, so a nested block did
+ * nothing at all (nested minBinStep 50 silently lost to the flat 10). Flatten
+ * nested onto the top level — the more specific spelling wins — so every reader
+ * below (and both reload paths) sees one shape.
+ */
+function flattenScreeningBlock(raw) {
+  if (raw?.screening && typeof raw.screening === "object") Object.assign(raw, raw.screening);
+  return raw;
+}
+
+const u = flattenScreeningBlock(
+  fs.existsSync(USER_CONFIG_PATH)
+    ? JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"))
+    : {},
+);
 export const MIN_SAFE_BINS_BELOW = 35;
 
 function numericConfig(value) {
@@ -134,6 +149,10 @@ export const config = {
     maxMcap:           u.maxMcap           ?? 10_000_000,
     minBinStep:        u.minBinStep        ?? 80,
     maxBinStep:        u.maxBinStep        ?? 125,
+    // Entry-timing guard consumed by runSafetyChecks: refuse deploys into a
+    // pool whose volatility is far above the norm (pump/dump leg → instant
+    // OOR). null = off.
+    maxVolatility:     u.maxVolatility     ?? null,
     // Volatility-aware bin-step screening (opt-in): volatile pools accept a
     // wider [minBinStep, maxBinStep] window than the static bounds alone.
     binStepVolatilityScalingEnabled: boolConfig(u.binStepVolatilityScalingEnabled, false),
@@ -870,7 +889,7 @@ export function reloadUserConfigFromDisk() {
   reloadScreeningThresholds();
   try {
     if (!fs.existsSync(USER_CONFIG_PATH)) return;
-    const fresh = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+    const fresh = flattenScreeningBlock(JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8")));
     reloadAutoStrategyFromUserConfig(fresh);
     for (const key of [
       "maxPositions", "maxDeployAmount", "deployAmountSol", "strategyDeployAmountSol", "lossRedeployMinLossPct", "stopLossPct", "maxLossPct", "gasReserve", "minSolToOpen",
@@ -890,7 +909,7 @@ export function reloadUserConfigFromDisk() {
 export function reloadScreeningThresholds() {
   try {
     if (!fs.existsSync(USER_CONFIG_PATH)) return;
-    const fresh = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+    const fresh = flattenScreeningBlock(JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8")));
     const s = config.screening;
     if (fresh.minFeeActiveTvlRatio != null) s.minFeeActiveTvlRatio = fresh.minFeeActiveTvlRatio;
     if (fresh.minTokenFeesSol  != null) s.minTokenFeesSol  = fresh.minTokenFeesSol;
@@ -911,6 +930,7 @@ export function reloadScreeningThresholds() {
     if (fresh.minVolume      != null) s.minVolume      = fresh.minVolume;
     if (fresh.minBinStep     != null) s.minBinStep     = fresh.minBinStep;
     if (fresh.maxBinStep     != null) s.maxBinStep     = fresh.maxBinStep;
+    if (fresh.maxVolatility  !== undefined) s.maxVolatility = fresh.maxVolatility;
     if (fresh.timeframe         != null) s.timeframe         = fresh.timeframe;
     if (fresh.category          != null) s.category          = fresh.category;
     if (fresh.minTokenAgeHours  !== undefined) s.minTokenAgeHours = fresh.minTokenAgeHours;
