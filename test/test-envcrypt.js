@@ -42,6 +42,19 @@ const legacyXor = Buffer.from(
 ).toString("base64");
 assert(envryptDecrypt(legacyXor, KEY) === "legacy-secret", "legacy XOR values must still decrypt");
 
+// A value marked "# encrypted" but stored as PLAINTEXT must come back verbatim.
+// The old fallback ran it through legacy XOR regardless: base64-decoding
+// `lpagent_…` yields U+FFFD runs, XORing those produces codepoints > 255, and
+// undici's latin1 header encoder then threw "Cannot convert argument to a
+// ByteString … value of 65452" from inside LPAgent discovery (2026-08-06).
+{
+  const plaintextKey = `lpagent_${"a1B2c3D4".repeat(6)}`; // 56 chars, '_' is outside base64
+  const got = envryptDecrypt(plaintextKey, KEY, "LPAGENT_API_KEY");
+  assert(got === plaintextKey, `plaintext marked-encrypted value must pass through, got ${JSON.stringify(got)}`);
+  assert(!/[^\x00-\xff]/.test(got), "decrypt must never emit non-latin1 codepoints for a plaintext value");
+  new Headers({ "x-api-key": got }); // throws if the ByteString bug regresses
+}
+
 // Unicode survives the round-trip
 const unicode = "kunci-rahasia-◎-émoji-密钥";
 assert(envryptDecrypt(envryptEncrypt(unicode, KEY), KEY) === unicode, "unicode round-trip");
