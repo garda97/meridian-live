@@ -6,7 +6,9 @@
  * Run: node test/test-config-bool.js
  */
 
-import { boolConfig } from "../config.js";
+import fs from "fs";
+import { execFileSync } from "child_process";
+import { boolConfig, REPO_ROOT, repoPath } from "../config.js";
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -54,9 +56,42 @@ function testUnrecognizedFailsSafeToDefault() {
   console.log("  unrecognized values: fail safe to default (no blind Boolean() cast) OK");
 }
 
+// DRY_RUN is a safety gate: the stricter of `.env` DRY_RUN and user-config
+// dryRun must win. The old `process.env.DRY_RUN ||= String(u.dryRun)` only
+// filled an *unset* DRY_RUN, so `.env` DRY_RUN=false beat `dryRun: true` and
+// ran LIVE against owner intent (2026-08-06). config.js applies this once at
+// import, so each case needs a fresh process.
+function testDryRunStricterSourceWins() {
+  const userDryRun = fs.existsSync(repoPath("user-config.json"))
+    ? JSON.parse(fs.readFileSync(repoPath("user-config.json"), "utf8")).dryRun
+    : undefined;
+  const fromUser = String(boolConfig(userDryRun, false));
+
+  const effective = (envValue) => {
+    const env = { ...process.env };
+    delete env.DRY_RUN;
+    if (envValue !== undefined) env.DRY_RUN = envValue;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", 'import "./config.js"; process.stdout.write("<<"+process.env.DRY_RUN+">>");'],
+      { cwd: REPO_ROOT, env, encoding: "utf8" },
+    );
+    return out.match(/<<(.*)>>/)[1];
+  };
+
+  assert(effective("true") === "true", "env DRY_RUN=true must force dry-run whatever user-config says");
+  // The regression itself: a live-looking .env must not override a dry-run user-config.
+  assert(effective("false") === fromUser,
+    `env DRY_RUN=false must not beat user-config dryRun=${userDryRun} (expected ${fromUser})`);
+  assert(effective(undefined) === fromUser,
+    `unset env DRY_RUN must take user-config dryRun=${userDryRun} (expected ${fromUser})`);
+  console.log(`  DRY_RUN precedence: stricter source wins (user-config dryRun=${userDryRun}) OK`);
+}
+
 testUnsetFallsThroughToDefault();
 testRealBooleansPassThrough();
 testNumbers();
 testStringCoercionBugFix();
 testUnrecognizedFailsSafeToDefault();
+testDryRunStricterSourceWins();
 console.log("test-config-bool: OK");

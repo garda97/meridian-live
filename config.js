@@ -81,10 +81,24 @@ if (u.walletKey) process.env.WALLET_PRIVATE_KEY ||= u.walletKey;
 if (u.llmModel)  process.env.LLM_MODEL          ||= u.llmModel;
 if (u.llmBaseUrl) process.env.LLM_BASE_URL      ||= u.llmBaseUrl;
 if (u.llmApiKey)  process.env.LLM_API_KEY       ||= u.llmApiKey;
-if (u.dryRun !== undefined) process.env.DRY_RUN ||= String(u.dryRun);
 if (u.publicApiKey) process.env.PUBLIC_API_KEY ||= u.publicApiKey;
 if (u.agentMeridianApiUrl) process.env.AGENT_MERIDIAN_API_URL ||= u.agentMeridianApiUrl;
 if (u.telegramChatId) process.env.TELEGRAM_CHAT_ID ||= String(u.telegramChatId);
+
+/**
+ * DRY_RUN is a safety gate, so the STRICTER of the two sources wins: if either
+ * `user-config.json` → dryRun or `.env` → DRY_RUN asks for dry-run, we run dry.
+ * The old `process.env.DRY_RUN ||= String(u.dryRun)` did the opposite — it only
+ * filled in an *unset* DRY_RUN, so `.env` DRY_RUN=false silently beat
+ * `dryRun: true` in user-config and ran LIVE against owner intent (2026-08-06).
+ * Same one-directional rule as envcrypt.loadEnv(): dry-run always wins, live
+ * never sneaks in. Both sources go through boolConfig so the *string* "false"
+ * can't read as truthy. Unset on both sides still means LIVE, as before.
+ */
+export const dryRunSources = { userConfig: u.dryRun, envPre: process.env.DRY_RUN };
+process.env.DRY_RUN = String(
+  boolConfig(dryRunSources.envPre, false) || boolConfig(dryRunSources.userConfig, false),
+);
 
 const indicatorUserConfig = u.chartIndicators ?? {};
 const copyTradeUserConfig = u.copyTrade ?? {};
