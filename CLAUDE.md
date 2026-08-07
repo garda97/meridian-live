@@ -35,6 +35,23 @@ Autonomous DLMM liquidity provider agent for Meteora pools on Solana.
 
 ---
 
+## Commands
+
+```bash
+npm test              # == test:syntax — node --check on every .js. NOT a unit-test run.
+node test/test-<x>.js # individual unit test; ~57 files in test/, no framework, no fixtures
+npm run dev           # DRY_RUN=true node index.js — no on-chain tx
+npm run pm2:restart   # restart the live daemon (--update-env)
+npm run pm2:logs      # last 100 lines
+npm run dashboard     # web/dashboard (python3, PYTHONPATH=.)
+npm run preset:list   # presets in presets/
+```
+
+**`npm test` does not run anything in `test/`** — it is a syntax check only.
+Run the relevant `test/test-*.js` by hand before `pm2:restart`.
+
+---
+
 ## Architecture
 
 ```
@@ -78,71 +95,71 @@ Autonomous DLMM liquidity provider agent for Meteora pools on Solana.
 
 ### Module responsibilities (read me before editing)
 
-| File | Lines | Purpose |
-|---|---:|---|
-| **Entry / orchestration** | | |
-| `index.js` | ~480 | Daemon entrypoint: bootstrap, REPL, graceful shutdown, crash handlers. Re-exports the public cycle API from `daemon/engine.js`. |
-| `daemon/engine.js` | ~377 | Engine **facade** (refactored 2026-07-10): imports + re-exports the public cycle API and holds the cron wiring (`startCronJobs`, cron-control `isEngineBusy`/`ensureCronStarted`/`stopCronJobs`, `runBriefing`/`maybeRunMissedBriefing`, PnL/opportunity pollers). The heavy logic lives in `daemon/engine/*` submodules below. **Grep the submodules, not this file, for cycle/rule logic.** |
-| `daemon/engine/screening-cycle.js` | ~591 | `runScreeningCycle` + `getLoneCandidateSkipReason`. The multi-stage screening pipeline. |
-| `daemon/engine/management.js` | ~345 | `runManagementCycle` + `executeManagementActions` + `maybeResolveRebalance` (last two also used by `startCronJobs` pollers). |
-| `daemon/engine/close-rules.js` | ~77 | `getDeterministicCloseRule` — daemon close rules 1-7 (private; distinct from the generic one in `tools/dlmm/rules.js`). |
-| `daemon/engine/recovery.js` | ~160 | Recovery Strat: `filterRecoveryCandidates`, `computeRecoveryBinsBelow` (pure, unit-tested), `maybeAutoRecovery`. |
-| `daemon/engine/engine-state.js` | ~12 | Shared mutable `engineState` object (cronTasks + busy flags). Replaced the old module-private `let _cronTasks/_managementBusy/…`; property mutation works cross-module. Busy state read via `isEngineBusy()`. |
-| `daemon/telegram-ui.js` | ~775 | Telegram slash commands, inline settings menu, message queue, deterministic /screen → /deploy N flow. |
-| `daemon/runtime.js` | ~107 | Shared daemon state: cycle timers, interactive busy flag, session history, latest-candidates store, prompt helpers. |
-| `agent.js` | 416 | `agentLoop(goal, maxSteps, history, agentType, model, maxOut, opts)`. The ReAct loop. Provider fallback, JSON repair, once-per-session tool locks, no-tool retries, `onToolStart`/`onToolFinish` callbacks for live Telegram messages. |
-| `cli.js` | 676 | One-shot CLI; every tool exposed as a subcommand. Also writes a `~/.meridian/SKILL.md` at startup for agent discovery. Loads `.env`/`user-config.json` from `~/.meridian/` if present, else from cwd. |
-| `setup.js` | ~750 | Interactive first-run wizard. Three presets (degen/moderate/safe) + custom. Covers strategy, screening filters, position sizing, trailing TP, per-role models. |
-| **Config & state** | | |
-| `config.js` | 278 | Loads `user-config.json` → live `config` object. Sections: `risk`, `screening`, `management`, `strategy`, `schedule`, `llm`, `darwin`, `tokens`, `hiveMind`, `api`, `jupiter`, `indicators`. Exposes `computeDeployAmount(walletSol)`, `reloadScreeningThresholds()`. `MIN_SAFE_BINS_BELOW = 35` (exported). |
-| `prompt.js` | 176 | `buildSystemPrompt(agentType, …)`. Three role-specific prompts. MANAGER is intentionally lean (positions pre-loaded into goal). SCREENER gets bins_below formula. |
-| **Tools layer** | | |
-| `tools/definitions.js` | 1124 | OpenAI-format tool schemas. **Source of truth for what the LLM sees.** All 40+ tool names listed. |
-| `tools/executor.js` | 844 | `executeTool(name, args)`. Pre-flight safety checks for `PROTECTED_TOOLS = {deploy, claim, close, swap, self_update}`. Validates pool thresholds via fresh pool discovery call before deploy. Post-tool side-effects: telegram notifications, pool-memory auto-annotation on `low yield` close, auto-swap base→SOL on close. |
-| `tools/dlmm.js` (facade over `tools/dlmm/*`: sdk, positions-cache, tx-safety, rules, positions, deploy, liquidity, rebalance, close) | ~42 + 9 modules | Meteora DLMM SDK wrapper. **Lazy-loads** `@meteora-ag/dlmm` to avoid CJS-import-time crash in DRY_RUN/test. Pool cache (5 min), metadata cache (15 min), positions cache (5 min TTL + inflight dedup). `deployPosition`, `getMyPositions`, `getPositionPnl`, `getActiveBin`, `closePosition`, `claimFees`, `searchPools`, `getWalletPositions`, `addLiquidity`, `withdrawLiquidity`. Also has relay-mode (zap-in via LPAgent) and wide-range path (multi-tx `createExtendedEmptyPosition` + `addLiquidityByStrategyChunkable` for >69 bin ranges). Asserts Meteora bin-array initialization rent never charged. |
-| `tools/screening.js` | 862 | `discoverPools`, `getTopCandidates` (hard filter + enrich + score), `getPoolDetail`. Scoring = `fee_tvl*1000 + organic*10 + vol/100 + holders/100`. Has Discord signal merge/only modes, PVP-rival detection. |
-| `tools/wallet.js` | 251 | `getWalletBalances` (Helius), `swapToken` (Jupiter Swap V2). `normalizeMint` collapses "SOL"/"native"/any So1-prefixed token to wrapped-SOL. Built-in referral: 50 bps to a fixed address (configurable). |
-| `tools/token.js` | 209 | `getTokenInfo` (Jupiter datapi), `getTokenHolders` (top 100 + filter pool-tagged), `getTokenNarrative` (Jupiter ChainInsight). Cross-references smart wallets from `smart-wallets.json`. |
-| `tools/study.js` | 152 | `studyTopLPers` → Agent Meridian `/top-lp` + `/study-top-lp`. Returns ranked LPer patterns (avg hold, win rate, preferred strategy). |
-| `tools/agent-meridian.js` | 110 | `agentMeridianJson(path, opts)` with retry/backoff. Default base = `https://api.agentmeridian.xyz/api`. |
-| `tools/chart-indicators.js` | 299 | `confirmIndicatorPreset({mint, side})`. Eight presets: `supertrend_break`, `rsi_reversal`, `bollinger_reversion`, `rsi_plus_supertrend`, `supertrend_or_rsi`, `bb_plus_rsi`, `fibo_reclaim`, `fibo_reject`. Fetches from Agent Meridian `/chart-indicators/{mint}`. |
-| **Persistence (all `.json` at repo root)** | | |
-| `state.js` | 513 | `trackPosition`, `markOutOfRange/InRange`, `recordClaim`, `recordClose`, `setPositionInstruction`, `updatePnlAndCheckExits` (the deterministic rules: STOP_LOSS, TRAILING_TP, OUT_OF_RANGE, LOW_YIELD), `getStateSummary`. `syncOpenPositions` reconciles local state with on-chain after 5 min grace. |
-| `pool-memory.js` | 405 | Per-pool deploy history + rolling 48-snapshot trend (5min × 4h). Computes `avg_pnl_pct`, `win_rate`, `adjusted_win_rate` (excludes OOR pumps). Cooldown logic: low yield → 4h pool cooldown, 3× OOR closes → 12h pool+token cooldown, optional repeat-deploy cooldown (configurable trigger count/hours/min fee yield/scope). `recordPositionSnapshot`, `recallForPool` for prompt injection. |
-| `lessons.js` | 765 | `recordPerformance(perf)` called by executor after `close_position`. Builds lesson string (PREFER/AVOID/WORKED/FAILED). Pinned + role-tagged lesson injection (3-tier cap: PINNED, ROLE, RECENT) with `ROLE_TAGS` map. `evolveThresholds` adjusts `minOrganic` (auto), and writes `[AUTO-EVOLVED @ N]` lesson + applies to live `config`. **Known bug: also references `maxVolatility` and `minFeeTvlRatio` which don't exist in config — no-op for those keys.** `pushHiveLesson`/`pushHivePerformanceEvent` are fire-and-forget. |
-| `decision-log.js` | 68 | Rolling 100-entry log. Types: `deploy` / `close` / `skip` / `no_deploy`. Each entry: actor, pool, summary, reason, risks[], metrics{}, rejected[]. Surfaced via `get_recent_decisions` tool and `getDecisionSummary()` in the prompt. |
-| `signal-tracker.js` | 87 | In-memory 10-min staging for screening-time signals (`organic_score`, `fee_tvl_ratio`, …). Cleared on deploy or TTL. **Not persisted** — fine because the staged snapshot is also written to `state.json` via `trackPosition({ signal_snapshot })`. |
-| `signal-weights.js` | 330 | Darwinian signal weighting. Recalculates every 5 closes (or 10-sample min). Splits signals into quartiles; top → `weight*1.05`, bottom → `weight*0.95`. Persists `signal-weights.json`. `getWeightsSummary()` injected into SCREENER prompt. |
-| `strategy-library.js` | 227 | Saved LP strategies. Five defaults preloaded: `custom_ratio_spot`, `single_sided_reseed`, `fee_compounding`, `multi_layer`, `partial_harvest`. `getActiveStrategy()` → used in SCREENER prompt. |
-| `smart-wallets.js` | 103 | Tracked KOL/alpha wallets. `type: "lp"` (default) checks positions; `type: "holder"` only checks token holdings; `type: "copytrade"` (see below) is excluded from `check_smart_wallets_on_pool`'s confidence-boost scan. 5-min position cache. |
-| `copytrade.js` | ~230 | Copy-trade (off by default, `config.copyTrade.enabled`). Polls `type: "copytrade"` wallets' live positions via `getWalletPositions` (pure on-chain, no external API), diffs against the last poll, and mirrors newly-opened entries through the normal `deploy_position` safety gates (actor `"COPYTRADE"` — duplicate-pool guard stays ON, unlike Recovery Strat's bypass). A wallet's *pre-existing* positions at first-tracked time are never mirrored — the first poll only takes a baseline snapshot. Exit stays on Meridian's own SL/TP/OOR/rebalance rules unless `copyTrade.mirrorExit` is on. Wallets are added via `node cli.js copytrade add <name> <addr>` — deliberately CLI-only, not LLM-reachable (`add_smart_wallet`'s `type` enum excludes `"copytrade"`), since tracking a wallet here moves real money automatically. Persists `copytrade-state.json` (`{ wallets: { [address]: { lastPositions[], mirrors: { [theirPosition]: { ourPosition, pool, openedAt } } } } }`). |
-| `token-blacklist.js` | 103 | Mint → reason. Hard-filtered before LLM in `getTopCandidates`. |
-| `dev-blocklist.js` | 66 | Deployer wallet → reason. Hard-filtered before LLM, fetched from Jupiter dev field. |
-| `hivemind.js` | 346 | Agent Meridian shared learning. `bootstrapHiveMind` on startup, `startHiveMindBackgroundSync` every 15 min. Pushes lessons + performance events; pulls shared lessons + presets. `getSharedLessonsForPrompt` → injected under `── HIVEMIND ──` in prompt. Failures are non-blocking. |
-| **Integrations** | | |
-| `telegram.js` | 494 | `startPolling(onMessage)`, `stopPolling()`. Long-poll with 35s abort. `createLiveMessage` returns a handle with `toolStart/toolFinish/note/finalize/fail` for live progress. Sends deploy/close/swap/OOR notifications. Auth: `isAuthorizedIncomingMessage` (chatId match + group→allowed user IDs). Registers `/help` `/status` `/positions` `/close` `/closeall` `/set` `/settings` `/setcfg` `/screen` `/candidates` `/deploy` `/briefing` `/hive` `/pause` `/resume` `/stop` via `setMyCommands`. |
-| `discord-listener/index.js` | 152 | Selfbot (uses `discord.js-selfbot-v13`). Listens to `DISCORD_CHANNEL_IDS` for `Metlex Pool Bot`, extracts Solana addresses, runs pre-check pipeline, appends to `discord-signals.json`. |
-| `discord-listener/pre-checks.js` | 205 | Pipeline: dedup (10min) → blacklist → pool resolution (Meteora direct → DexScreener) → rugcheck.xyz (score>50000 OR top10>60% reject) → deployer blacklist → Jupiter global fees check (`minTokenFeesSol`). |
-| `briefing.js` | 71 | HTML daily report. 24h activity, performance, lessons, current portfolio. Sent at 1:00 UTC. |
-| `envcrypt.js` | ~180 | AES-256-GCM (`v2:` prefix; legacy XOR values still decrypt) with a key from `.envrypt`/`ENVRYPT_KEY`. Encrypts `*_KEY`, `*_KEYS`, `RPC_URL`, `*SECRET*`, `*TOKEN*`, `*MNEMONIC*`, etc. The `# encrypted` marker precedes encrypted lines; in-place .env writers must use `formatEnvAssignment()`. An explicit `DRY_RUN=true` in the caller's env is never downgraded by `.env`. |
-| `logger.js` | 75 | Daily-rotating `logs/agent-YYYY-MM-DD.log`. `logAction({tool, args, result, duration_ms, success})` writes JSONL `actions-YYYY-MM-DD.jsonl` audit trail. Level via `LOG_LEVEL` env. |
-| **Other** | | |
-| `discord-listener/`, `test/`, `scripts/`, `utils/` | | Discord listener (above), syntax-checked tests, envcrypt CLI, `safeNumber`. |
-| `.claude/agents/{screener,manager}.md` | | Claude Code sub-agent configs — used when you run `claude` inside the repo. |
-| `.claude/commands/*.md` | | Slash commands (`/screen`, `/manage`, `/balance`, `/candidates`, `/pool-ohlcv`, etc.) that wrap `cli.js`. |
-| `.claude/settings.json` | | Denies `rm -rf`, `wget`, `Read(./.env*)`. **Forbids `run_in_background: true` via a PreToolUse hook.** |
+| File | Purpose |
+|---|---|
+| **Entry / orchestration** | |
+| `index.js` | Daemon entrypoint: bootstrap, REPL, graceful shutdown, crash handlers. Re-exports the public cycle API from `daemon/engine.js`. |
+| `daemon/engine.js` | Engine **facade** (refactored 2026-07-10): imports + re-exports the public cycle API and holds the cron wiring (`startCronJobs`, cron-control `isEngineBusy`/`ensureCronStarted`/`stopCronJobs`, `runBriefing`/`maybeRunMissedBriefing`, PnL/opportunity pollers). The heavy logic lives in `daemon/engine/*` submodules below. **Grep the submodules, not this file, for cycle/rule logic.** |
+| `daemon/engine/screening-cycle.js` | `runScreeningCycle` + `getLoneCandidateSkipReason`. The multi-stage screening pipeline. |
+| `daemon/engine/management.js` | `runManagementCycle` + `executeManagementActions` + `maybeResolveRebalance` (last two also used by `startCronJobs` pollers). |
+| `daemon/engine/close-rules.js` | `getDeterministicCloseRule` — daemon close rules 0-7 (private; distinct from the generic one in `tools/dlmm/rules.js`). |
+| `daemon/engine/recovery.js` | Recovery Strat: `filterRecoveryCandidates`, `computeRecoveryBinsBelow` (pure, unit-tested), `maybeAutoRecovery`. |
+| `daemon/engine/engine-state.js` | Shared mutable `engineState` object (cronTasks + busy flags). Replaced the old module-private `let _cronTasks/_managementBusy/…`; property mutation works cross-module. Busy state read via `isEngineBusy()`. |
+| `daemon/telegram-ui.js` | Telegram slash commands, inline settings menu, message queue, deterministic /screen → /deploy N flow. |
+| `daemon/runtime.js` | Shared daemon state: cycle timers, interactive busy flag, session history, latest-candidates store, prompt helpers. |
+| `agent.js` | `agentLoop(goal, maxSteps, history, agentType, model, maxOut, opts)`. The ReAct loop. Provider fallback, JSON repair, once-per-session tool locks, no-tool retries, `onToolStart`/`onToolFinish` callbacks for live Telegram messages. |
+| `cli.js` | One-shot CLI; every tool exposed as a subcommand. Also writes a `~/.meridian/SKILL.md` at startup for agent discovery. Loads `.env`/`user-config.json` from `~/.meridian/` if present, else from cwd. |
+| `setup.js` | Interactive first-run wizard. Three presets (degen/moderate/safe) + custom. Covers strategy, screening filters, position sizing, trailing TP, per-role models. |
+| **Config & state** | |
+| `config.js` | Loads `user-config.json` → live `config` object. Sections: `risk`, `screening`, `management`, `strategy`, `schedule`, `llm`, `darwin`, `tokens`, `hiveMind`, `api`, `jupiter`, `indicators`. Exposes `computeDeployAmount(walletSol)`, `reloadScreeningThresholds()`. `MIN_SAFE_BINS_BELOW = 35` (exported). |
+| `prompt.js` | `buildSystemPrompt(agentType, …)`. Three role-specific prompts. MANAGER is intentionally lean (positions pre-loaded into goal). SCREENER gets bins_below formula. |
+| **Tools layer** | |
+| `tools/definitions.js` | OpenAI-format tool schemas. **Source of truth for what the LLM sees.** All 40+ tool names listed. |
+| `tools/executor.js` | `executeTool(name, args)`. Pre-flight safety checks for `PROTECTED_TOOLS = {deploy, claim, close, swap, self_update}`. Validates pool thresholds via fresh pool discovery call before deploy. Post-tool side-effects: telegram notifications, pool-memory auto-annotation on `low yield` close, auto-swap base→SOL on close. |
+| `tools/dlmm.js` (facade over `tools/dlmm/*`: sdk, positions-cache, positions, position-utils, deploy, liquidity, rebalance, reshape, close, rules, tx-safety, balance-delta) | Meteora DLMM SDK wrapper. **Lazy-loads** `@meteora-ag/dlmm` to avoid CJS-import-time crash in DRY_RUN/test. Pool cache (5 min), metadata cache (15 min), positions cache (5 min TTL + inflight dedup). `deployPosition`, `getMyPositions`, `getPositionPnl`, `getActiveBin`, `closePosition`, `claimFees`, `searchPools`, `getWalletPositions`, `addLiquidity`, `withdrawLiquidity`. Also has relay-mode (zap-in via LPAgent) and wide-range path (multi-tx `createExtendedEmptyPosition` + `addLiquidityByStrategyChunkable` for >69 bin ranges). Asserts Meteora bin-array initialization rent never charged. |
+| `tools/screening.js` | `discoverPools`, `getTopCandidates` (hard filter + enrich + score), `getPoolDetail`. Scoring = `fee_tvl*1000 + organic*10 + vol/100 + holders/100`. Has Discord signal merge/only modes, PVP-rival detection. |
+| `tools/wallet.js` | `getWalletBalances` (Helius), `swapToken` (Jupiter Swap V2). `normalizeMint` collapses "SOL"/"native"/any So1-prefixed token to wrapped-SOL. Built-in referral: 50 bps to a fixed address (configurable). |
+| `tools/token.js` | `getTokenInfo` (Jupiter datapi), `getTokenHolders` (top 100 + filter pool-tagged), `getTokenNarrative` (Jupiter ChainInsight). Cross-references smart wallets from `smart-wallets.json`. |
+| `tools/study.js` | `studyTopLPers` → Agent Meridian `/top-lp` + `/study-top-lp`. Returns ranked LPer patterns (avg hold, win rate, preferred strategy). |
+| `tools/agent-meridian.js` | `agentMeridianJson(path, opts)` with retry/backoff. Default base = `https://api.agentmeridian.xyz/api`. |
+| `tools/chart-indicators.js` | `confirmIndicatorPreset({mint, side})`. Eight presets: `supertrend_break`, `rsi_reversal`, `bollinger_reversion`, `rsi_plus_supertrend`, `supertrend_or_rsi`, `bb_plus_rsi`, `fibo_reclaim`, `fibo_reject`. Fetches from Agent Meridian `/chart-indicators/{mint}`. |
+| **Persistence (all `.json` at repo root)** | |
+| `state.js` | `trackPosition`, `markOutOfRange/InRange`, `recordClaim`, `recordClose`, `setPositionInstruction`, `updatePnlAndCheckExits` (the deterministic rules: STOP_LOSS, TRAILING_TP, OUT_OF_RANGE, LOW_YIELD), `getStateSummary`. `syncOpenPositions` reconciles local state with on-chain after 5 min grace. |
+| `pool-memory.js` | Per-pool deploy history + rolling 48-snapshot trend (5min × 4h). Computes `avg_pnl_pct`, `win_rate`, `adjusted_win_rate` (excludes OOR pumps). Cooldown logic: low yield → 4h pool cooldown, 3× OOR closes → 12h pool+token cooldown, optional repeat-deploy cooldown (configurable trigger count/hours/min fee yield/scope). `recordPositionSnapshot`, `recallForPool` for prompt injection. |
+| `lessons.js` | `recordPerformance(perf)` called by executor after `close_position`. Builds lesson string (PREFER/AVOID/WORKED/FAILED). Pinned + role-tagged lesson injection (3-tier cap: PINNED, ROLE, RECENT) with `ROLE_TAGS` map. `evolveThresholds` adjusts `minFeeActiveTvlRatio`, `minOrganic`, and `stopLossPct`, writes an `[AUTO-EVOLVED @ N]` lesson, and applies changes to the live `config`. `pushHiveLesson`/`pushHivePerformanceEvent` are fire-and-forget. |
+| `decision-log.js` | Rolling 100-entry log. Types: `deploy` / `close` / `skip` / `no_deploy`. Each entry: actor, pool, summary, reason, risks[], metrics{}, rejected[]. Surfaced via `get_recent_decisions` tool and `getDecisionSummary()` in the prompt. |
+| `signal-tracker.js` | In-memory 10-min staging for screening-time signals (`organic_score`, `fee_tvl_ratio`, …). Cleared on deploy or TTL. **Not persisted** — fine because the staged snapshot is also written to `state.json` via `trackPosition({ signal_snapshot })`. |
+| `signal-weights.js` | Darwinian signal weighting. Recalculates every 5 closes (or 10-sample min). Splits signals into quartiles; top → `weight*1.05`, bottom → `weight*0.95`. Persists `signal-weights.json`. `getWeightsSummary()` injected into SCREENER prompt. |
+| `strategy-library.js` | Saved LP strategies. Five defaults preloaded: `custom_ratio_spot`, `single_sided_reseed`, `fee_compounding`, `multi_layer`, `partial_harvest`. `getActiveStrategy()` → used in SCREENER prompt. |
+| `smart-wallets.js` | Tracked KOL/alpha wallets. `type: "lp"` (default) checks positions; `type: "holder"` only checks token holdings; `type: "copytrade"` (see below) is excluded from `check_smart_wallets_on_pool`'s confidence-boost scan. 5-min position cache. |
+| `copytrade.js` | Copy-trade (off by default, `config.copyTrade.enabled`). Polls `type: "copytrade"` wallets' live positions via `getWalletPositions` (pure on-chain, no external API), diffs against the last poll, and mirrors newly-opened entries through the normal `deploy_position` safety gates (actor `"COPYTRADE"` — duplicate-pool guard stays ON, unlike Recovery Strat's bypass). A wallet's *pre-existing* positions at first-tracked time are never mirrored — the first poll only takes a baseline snapshot. Exit stays on Meridian's own SL/TP/OOR/rebalance rules unless `copyTrade.mirrorExit` is on. Wallets are added via `node cli.js copytrade add <name> <addr>` — deliberately CLI-only, not LLM-reachable (`add_smart_wallet`'s `type` enum excludes `"copytrade"`), since tracking a wallet here moves real money automatically. Persists `copytrade-state.json` (`{ wallets: { [address]: { lastPositions[], mirrors: { [theirPosition]: { ourPosition, pool, openedAt } } } } }`). |
+| `token-blacklist.js` | Mint → reason. Hard-filtered before LLM in `getTopCandidates`. |
+| `dev-blocklist.js` | Deployer wallet → reason. Hard-filtered before LLM, fetched from Jupiter dev field. |
+| `hivemind.js` | Agent Meridian shared learning. `bootstrapHiveMind` on startup, `startHiveMindBackgroundSync` every 15 min. Pushes lessons + performance events; pulls shared lessons + presets. `getSharedLessonsForPrompt` → injected under `── HIVEMIND ──` in prompt. Failures are non-blocking. |
+| **Integrations** | |
+| `telegram.js` | `startPolling(onMessage)`, `stopPolling()`. Long-poll with 35s abort. `createLiveMessage` returns a handle with `toolStart/toolFinish/note/finalize/fail` for live progress. Sends deploy/close/swap/OOR notifications. Auth: `isAuthorizedIncomingMessage` (chatId match + group→allowed user IDs). Registers `/help` `/status` `/positions` `/close` `/closeall` `/set` `/settings` `/setcfg` `/screen` `/candidates` `/deploy` `/briefing` `/hive` `/pause` `/resume` `/stop` via `setMyCommands`. |
+| `discord-listener/index.js` | Selfbot (uses `discord.js-selfbot-v13`). Listens to `DISCORD_CHANNEL_IDS` for `Metlex Pool Bot`, extracts Solana addresses, runs pre-check pipeline, appends to `discord-signals.json`. |
+| `discord-listener/pre-checks.js` | Pipeline: dedup (10min) → blacklist → pool resolution (Meteora direct → DexScreener) → rugcheck.xyz (score>50000 OR top10>60% reject) → deployer blacklist → Jupiter global fees check (`minTokenFeesSol`). |
+| `briefing.js` | HTML daily report. 24h activity, performance, lessons, current portfolio. Sent at 1:00 UTC. |
+| `envcrypt.js` | AES-256-GCM (`v2:` prefix; legacy XOR values still decrypt) with a key from `.envrypt`/`ENVRYPT_KEY`. Encrypts `*_KEY`, `*_KEYS`, `RPC_URL`, `*SECRET*`, `*TOKEN*`, `*MNEMONIC*`, etc. The `# encrypted` marker precedes encrypted lines; in-place .env writers must use `formatEnvAssignment()`. An explicit `DRY_RUN=true` in the caller's env is never downgraded by `.env`. |
+| `logger.js` | Daily-rotating `logs/agent-YYYY-MM-DD.log`. `logAction({tool, args, result, duration_ms, success})` writes JSONL `actions-YYYY-MM-DD.jsonl` audit trail. Level via `LOG_LEVEL` env. |
+| **Other** | |
+| `discord-listener/`, `test/`, `scripts/`, `utils/` | Discord listener (above), syntax-checked tests, envcrypt CLI, `safeNumber`. |
+| `.claude/agents/{screener,manager}.md` | Claude Code sub-agent configs — used when you run `claude` inside the repo. |
+| `.claude/commands/*.md` | Slash commands (`/screen`, `/manage`, `/balance`, `/candidates`, `/pool-ohlcv`, etc.) that wrap `cli.js`. |
+| `.claude/settings.json` | Denies `rm -rf`, `wget`, `Read(./.env*)`. **Forbids `run_in_background: true` via a PreToolUse hook.** |
 
 ---
 
 ## Agent roles & tool access
 
-Three roles (`agent.js:7-8`):
+Three roles (`MANAGER_TOOLS` / `SCREENER_TOOLS` / `INTENT_TOOLS` in `agent.js`):
 
 | Role | Tool set (filter on `MANAGER_TOOLS` / `SCREENER_TOOLS` / `INTENT_TOOLS`) | Prompt source |
 |---|---|---|
-| `SCREENER` | `deploy_position, get_active_bin, get_top_candidates, check_smart_wallets_on_pool, get_token_holders, get_token_narrative, get_token_info, search_pools, get_pool_memory, get_wallet_balance, get_my_positions` | `prompt.js:104` — strict regime, "no hallucination" hard rule, must call `deploy_position` to claim success. |
-| `MANAGER` | `close_position, claim_fees, swap_token, get_position_pnl, get_my_positions, get_wallet_balance` | `prompt.js:18` — *mechanical rule-application*; positions + management config pre-loaded in goal. |
-| `GENERAL` | Intent-pattern matched (see `INTENT_PATTERNS` in `agent.js:51`). 17 intents: decisions, deploy, close, claim, swap, selfupdate, blocklist, config, balance, positions, strategy, screen, memory, smartwallet, study, performance, lessons. | `prompt.js:156` — full instruction-following. |
+| `SCREENER` | `deploy_position, get_active_bin, get_top_candidates, check_smart_wallets_on_pool, get_token_holders, get_token_narrative, get_token_info, search_pools, get_pool_memory, get_wallet_balance, get_my_positions` | `prompt.js` SCREENER branch — strict regime, "no hallucination" hard rule, must call `deploy_position` to claim success. |
+| `MANAGER` | `close_position, claim_fees, swap_token, rebalance_position, get_position_pnl, get_my_positions, get_wallet_balance` | `prompt.js` MANAGER branch — *mechanical rule-application*; positions + management config pre-loaded in goal. |
+| `GENERAL` | Intent-pattern matched (see `INTENT_PATTERNS` in `agent.js`). 17 intents: decisions, deploy, close, claim, swap, selfupdate, blocklist, config, balance, positions, strategy, screen, memory, smartwallet, study, performance, lessons. | `prompt.js` GENERAL branch — full instruction-following. |
 
 Some tools are explicitly **never** sent to GENERAL unless the goal matches an intent: `self_update`, `update_config`, all `add/remove_*` and `pin_/unpin_` tools, `clear_lessons`, `set_active_strategy` (see `GENERAL_INTENT_ONLY_TOOLS`).
 
@@ -155,7 +172,7 @@ Some tools are explicitly **never** sent to GENERAL unless the goal matches an i
 
 ---
 
-## The ReAct loop (`agent.js:157`)
+## The ReAct loop (`agent.js#agentLoop`)
 
 - **System prompt is built at the start of every cycle** with: portfolio, positions, state summary, lessons (3-tier cap — pinned / role / recent), performance summary, decision summary, optional signal weights summary (SCREENER only), `lessons_for_prompt`.
 - **Messages get pushed in OpenAI format** unless the provider rejects the `system` role — then we switch to `providerMode = "user_embedded"` and embed the system prompt inside a user message.
@@ -170,7 +187,7 @@ Some tools are explicitly **never** sent to GENERAL unless the goal matches an i
 
 ---
 
-## Cron & cycle architecture (`index.js`)
+## Cron & cycle architecture (`daemon/engine.js`)
 
 Cron tasks created by `startCronJobs()`:
 
@@ -183,10 +200,10 @@ Cron tasks created by `startCronJobs()`:
 | Briefing watchdog | `0 */6 * * *` (UTC) | `maybeRunMissedBriefing()` — fires on startup if missed |
 | **PnL poller** | every 30s (`setInterval`) | Trailing-TP detection between management cycles (below) |
 
-**Race condition guards** (all in `index.js`):
-- `_managementBusy` / `_screeningBusy` flags prevent overlap.
-- `_screeningLastTriggered` (epoch ms) prevents management from spamming screening.
-- `_pollTriggeredAt` cooldown equal to `managementIntervalMin` to avoid PnL-poller double-triggering.
+**Race condition guards** (state in `daemon/engine/engine-state.js`, wiring in `daemon/engine.js`):
+- `engineState.managementBusy` / `.screeningBusy` prevent overlap; read them via `isEngineBusy()`, never by importing the flags.
+- `engineState.screeningLastTriggered` (epoch ms) prevents management from spamming screening.
+- `_pnlPollBusy` (module-local in `daemon/engine.js`) keeps the 30s PnL poller from re-entering.
 - `deploy_position` safety check uses `force: true` on `getMyPositions()` for a fresh position count.
 
 ### The hybrid management cycle (deterministic + LLM)
@@ -200,8 +217,10 @@ The management cycle is **mostly deterministic in JS, LLM only for the hard case
    - `TRAILING_TP` if `trailing_active && (peak - current) >= trailingDropPct` (queued for 15s recheck)
    - `OUT_OF_RANGE` if `minutes_out_of_range >= outOfRangeWaitMinutes`
    - `LOW_YIELD` if `fee_per_tvl_24h < minFeePerTvl24h && age >= minAgeBeforeYieldCheck`
-4. For positions with no exit alert: `getDeterministicCloseRule(p, mgmtConfig)` applies the **5 hard rules** (`index.js:895`):
-   - Rule 1: stop loss, Rule 2: take profit, Rule 3: pumped far above range, Rule 4: OOR wait, Rule 5: low yield.
+4. For positions with no exit alert: `getDeterministicCloseRule(p, mgmtConfig)` applies the **8 hard rules** (`daemon/engine/close-rules.js`):
+   - Rule 0: max loss (emergency backstop), Rule 1: stop loss, Rule 2: take profit,
+     Rule 3: pumped far above range, Rule 4: OOR wait, Rule 5: low yield,
+     Rule 6: TGE max hold, Rule 7: IL-gap exit (opt-in, `ilGapCloseEnabled`).
 5. Positions needing `CLAIM` if `unclaimed_fees_usd >= minClaimAmount`.
 6. Positions with `instruction` set are marked `INSTRUCTION` and deferred to the LLM.
 7. **LLM is invoked only if any actionMap value is not `STAY`**, with a hard-coded goal that already lists positions + their assigned action. The LLM just executes (no re-evaluation). This saves tokens and prevents hallucinated rules.
@@ -220,7 +239,7 @@ The management cycle is **mostly deterministic in JS, LLM only for the hard case
 5. **If 0 pass**: write `no_deploy` decision with `rejected[]` and return `⛔ NO DEPLOY` report.
 6. **If 1 pass**: `getLoneCandidateSkipReason()` (smart-wallet absence, no narrative, PVP conflict, etc.) — if skipped, write `no_deploy` decision.
 7. **Stage signals** for Darwinian attribution.
-8. **Compact candidate blocks** built in `index.js:543`.
+8. **Compact candidate blocks** built in `daemon/engine/screening-cycle.js`.
 9. **LLM** gets the blocks + active strategy + balance + computed deploy amount + bins_below formula. The LLM is *forced* via `tool_choice: "required"` on step 0.
 10. **Post-deploy**: `appendDecision` with full context. Darwinian signals (if enabled) get consumed via `getAndClearStagedSignals`.
 
@@ -243,7 +262,7 @@ deployPosition()                   tools/dlmm.js
 manage cycle (every N min)
    ├─ recordPositionSnapshot per pool
    ├─ updatePnlAndCheckExits → STOP_LOSS / TRAILING_TP / OOR / LOW_YIELD
-   ├─ getDeterministicCloseRule → 5 hard rules
+   ├─ getDeterministicCloseRule → hard rules 0-7
    ├─ LLM invoked only for non-STAY actions (or INSTRUCTION)
    └─ on close: recordClose() → recordPerformance() in lessons.js
                  ├─ recordPoolDeploy (pool-memory.json)
@@ -251,7 +270,7 @@ manage cycle (every N min)
                  ├─ if performance.length % 5 == 0 → evolveThresholds + recalculateWeights
                  └─ push HiveMind event (fire-and-forget)
 
-auto-swap on close (executor.js:610)
+auto-swap on close (tools/executor.js, post-close side effect)
    ├─ only if !skip_swap && result.base_mint
    ├─ get wallet balance, find base token
    ├─ if usd >= 0.10 → swapToken back to SOL
@@ -260,7 +279,7 @@ auto-swap on close (executor.js:610)
 
 **OOR detection**: `getMyPositions` calls `markOutOfRange` / `markInRange` for every position every cycle. The first time we see OOR, `out_of_range_since` is set; `minutesOutOfRange` is the diff.
 
-**Position instruction** (`set_position_note`): `instruction` is sanitized (no newlines, max 280 chars, no `<>`) and shown in the system prompt + injected verbatim. The LLM must check `get_position_pnl` against the condition and execute immediately if met. The MANAGER prompt (line 144) says: "BIAS TO HOLD does NOT apply when an instruction condition is met."
+**Position instruction** (`set_position_note`): `instruction` is sanitized (no newlines, max 280 chars, no `<>`) and shown in the system prompt + injected verbatim. The LLM must check `get_position_pnl` against the condition and execute immediately if met. The MANAGER prompt says (`prompt.js`, INSTRUCTION CHECK block): "BIAS TO HOLD does NOT apply when an instruction condition is met."
 
 **Cooldown logic** (`pool-memory.js`):
 - Single `low yield` close → 4h pool cooldown.
@@ -314,11 +333,11 @@ All persistent files are loaded/saved on each call — no in-memory caching laye
 | `jupiter` | `apiKey`, `referralAccount`, `referralFeeBps` | env override, fixed referral, 50 bps |
 | `indicators` | `enabled`, `entryPreset`, `exitPreset`, `rsiLength`, `intervals`, `candles`, `rsiOversold`, `rsiOverbought`, `requireAllIntervals` | false, supertrend_break, supertrend_break, 2, ["5_MINUTE"], 298, 30, 80, false |
 
-`update_config` (executor.js:333) uses a flat-key `CONFIG_MAP` (50+ entries) that knows how to (a) coerce booleans/arrays/strings/numbers, (b) clamp `binsBelow*` to `MIN_SAFE_BINS_BELOW=35`, (c) restart cron if `managementIntervalMin` / `screeningIntervalMin` changed, (d) write a `[SELF-TUNED]` lesson.
+`update_config` (`tools/executor.js#CONFIG_MAP`) uses a flat-key `CONFIG_MAP` (50+ entries) that knows how to (a) coerce booleans/arrays/strings/numbers, (b) clamp `binsBelow*` to `MIN_SAFE_BINS_BELOW=35`, (c) restart cron if `managementIntervalMin` / `screeningIntervalMin` changed, (d) write a `[SELF-TUNED]` lesson.
 
 `computeDeployAmount(walletSol) = clamp((walletSol - gasReserve) × positionSizePct, [deployAmountSol, maxDeployAmount])` → 2-decimal SOL.
 
-`reloadScreeningThresholds()` (config.js:236) is called by `evolveThresholds` to re-apply changes to the in-memory `config` without process restart.
+`reloadScreeningThresholds()` (`config.js`) is called by `evolveThresholds` to re-apply changes to the in-memory `config` without process restart.
 
 ---
 
@@ -343,13 +362,13 @@ All persistent files are loaded/saved on each call — no in-memory caching laye
 | `DISCORD_USER_TOKEN` | no | Selfbot for `discord-listener/`. |
 | `DISCORD_GUILD_ID` / `DISCORD_CHANNEL_IDS` | no | Discord listener config. |
 | `DISCORD_MIN_FEES_SOL` | no | Default 5. |
-| `ENVRYPT_KEY` / `ENVCRYPT_KEY` | no | Key for `.env` XOR encryption (line-by-line marked with `# encrypted`). |
+| `ENVRYPT_KEY` / `ENVCRYPT_KEY` | no | Key for `.env` AES-256-GCM encryption (lines marked with `# encrypted`). |
 | `HIVE_MIND_URL` / `HIVE_MIND_API_KEY` | no | Override defaults. |
 
 Encrypted env flow (optional, see `scripts/envrypt.js`):
 1. Save plain values to `.env.raw`.
 2. `printf "long-local-key\n" > .envrypt`.
-3. `npm run env:encrypt` reads `.env.raw`, encrypts anything matching `*_KEY`/`*SECRET*`/`*TOKEN*`/`*MNEMONIC*`/etc., writes `.env`. Originals are XOR'd with a positional repeating key — **not** cryptographically secure, but obscures values in plaintext grep.
+3. `npm run env:encrypt` reads `.env.raw`, encrypts anything matching `*_KEY`/`*SECRET*`/`*TOKEN*`/`*MNEMONIC*`/etc., writes `.env`. Values use AES-256-GCM with a scrypt-derived key and auth tag (`v2:` prefix). The old positional-XOR scheme is legacy-decrypt only — never write new values with it.
 
 ---
 
@@ -410,9 +429,9 @@ Standalone process — `cd discord-listener && npm install && npm start`. Shares
 
 ## Known issues / tech debt (verified by reading the code)
 
-- **`lessons.js evolveThresholds()`** evolves `minOrganic` and `minFeeActiveTvlRatio` only.
+- **`lessons.js evolveThresholds()`** evolves `minFeeActiveTvlRatio`, `minOrganic`, and `stopLossPct` only.
 - **`get_wallet_positions` tool** is in `definitions.js` and wired in `executor.js`, but not in `MANAGER_TOOLS`/`SCREENER_TOOLS`. Only `INTENT_TOOLS.balance` / `INTENT_TOOLS.positions` expose it to GENERAL.
-- **Lazy SDK load** (`tools/dlmm.js:33`) — `@meteora-ag/dlmm` is dynamic-imported on first on-chain call to avoid CJS-import crash on Node 24 (the `postinstall` `patch-anchor.js` handles another piece of this). Don't `import` it eagerly at top of file.
+- **Lazy SDK load** (`tools/dlmm/sdk.js`) — `@meteora-ag/dlmm` is dynamic-imported on first on-chain call to avoid CJS-import crash on Node 24 (the `postinstall` `patch-anchor.js` handles another piece of this). Don't `import` it eagerly at top of file.
 - **Position cache** (`_positionsCache` 5min TTL) — in single-process mode it's a perf win, but the cache is invalidated by `_positionsCacheAt = 0` after every deploy/close, and the executor's `deploy_position` safety check uses `force: true` for a fresh count.
 - **PnL sanity check** (`pnlSanityMaxDiffPct`, default 5%) — if reported vs derived pnl_pct differ by more than this, the LLM is told not to trust that tick. Implemented in `dlmm.js` getMyPositions and `state.js` updatePnlAndCheckExits.
 - **DRY_RUN auto-skip SOL balance check** — `runSafetyChecks` for `deploy_position` only checks `balance.sol < amountY + gasReserve` if `DRY_RUN !== "true"`.
@@ -426,7 +445,7 @@ Standalone process — `cd discord-listener && npm install && npm start`. Shares
 
 ## Patterns to copy
 
-When adding a new tool that reads on-chain data, copy the **cache + inflight dedup + `force` flag** pattern from `getMyPositions` (`tools/dlmm.js:1154`). The `force: true` is what the deploy safety check relies on.
+When adding a new tool that reads on-chain data, copy the **cache + inflight dedup + `force` flag** pattern from `getMyPositions` (`tools/dlmm/positions.js`; cache in `tools/dlmm/positions-cache.js`). The `force: true` is what the deploy safety check relies on.
 
 When adding a new persistent JSON store, copy the load/save pattern from `state.js` or `pool-memory.js`. **Always** run text through `sanitizeStoredText` (or write a domain-specific sanitizer that strips `<>` and newlines) before persisting — those values get echoed into the LLM prompt later.
 
@@ -439,48 +458,19 @@ When scheduling work, follow the **`_busy` flag + cooldown** pattern. `_manageme
 ## What to read next
 
 - Adding a new tool → `tools/definitions.js` + `tools/executor.js` + `agent.js` (see "Adding a new tool" above).
-- Changing safety rules → `tools/executor.js#runSafetyChecks` and `index.js#getDeterministicCloseRule`.
-- Adding a new persistent state file → copy `state.js` or `pool-memory.js`. Add a getter to `index.js` system-prompt section if the LLM needs to see it.
+- Changing safety rules → `tools/executor.js#runSafetyChecks` and `daemon/engine/close-rules.js#getDeterministicCloseRule`.
+- Adding a new persistent state file → copy `state.js` or `pool-memory.js`. Add a getter to `prompt.js#buildSystemPrompt` if the LLM needs to see it.
 - Changing the LLM contract → `prompt.js` (buildSystemPrompt) and `agent.js` (INTENT_TOOLS + role sets + safety guards).
 - Changing deploy/close behavior → `tools/dlmm.js` (the SDK wrapper) and `tools/executor.js` (the post-tool side effects + Telegram notify + auto-swap).
 - Discord listener issues → `discord-listener/pre-checks.js`.
 - HiveMind protocol issues → `hivemind.js` (push side) and `lessons.js#getLessonsForPrompt` (pull side injection).
 
-<!-- code-review-graph MCP tools -->
-## MCP Tools: code-review-graph
+## Knowledge graph
 
-**IMPORTANT: This project has a knowledge graph. ALWAYS use the
-code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase.** The graph is faster, cheaper (fewer tokens), and gives
-you structural context (callers, dependents, test coverage) that file
-scanning cannot.
+This repo has a graphify knowledge graph at `graphify-out/graph.json`, refreshed
+automatically by a global PostToolUse hook on every Edit/Write. Use `/graphify
+<question>` for architecture, dependency, and "who calls this" questions before
+reaching for Grep/Read — it is cheaper and gives structural context.
 
-### When to use graph tools FIRST
-
-- **Exploring code**: `semantic_search_nodes_tool` or `query_graph_tool` instead of Grep
-- **Understanding impact**: `get_impact_radius_tool` instead of manually tracing imports
-- **Code review**: `detect_changes_tool` + `get_review_context_tool` instead of reading entire files
-- **Finding relationships**: `query_graph_tool` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview_tool` + `list_communities_tool`
-
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
-
-### Key Tools
-
-| Tool | Use when |
-| ------ | ---------- |
-| `detect_changes_tool` | Reviewing code changes — gives risk-scored analysis |
-| `get_review_context_tool` | Need source snippets for review — token-efficient |
-| `get_impact_radius_tool` | Understanding blast radius of a change |
-| `get_affected_flows_tool` | Finding which execution paths are impacted |
-| `query_graph_tool` | Tracing callers, callees, imports, tests, dependencies |
-| `semantic_search_nodes_tool` | Finding functions/classes by name or keyword |
-| `get_architecture_overview_tool` | Understanding high-level codebase structure |
-| `refactor_tool` | Planning renames, finding dead code |
-
-### Workflow
-
-1. The graph auto-updates on file changes (via hooks).
-2. Use `detect_changes_tool` for code review.
-3. Use `get_affected_flows_tool` to understand impact.
-4. Use `query_graph_tool` pattern="tests_for" to check coverage.
+There is **no MCP server configured for this repo**; check `claude mcp list`
+before assuming any MCP tool exists.
