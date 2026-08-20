@@ -218,13 +218,14 @@ export async function getGmgnTokenFees(mint) {
 }
 
 // --- GMGN call cache + daily budget (429/rate-limit hardening) ---
-// Free-tier GMGN quota (per day): security 20, holders 4 (see notes/GMGN_RATE_LIMITS.md).
-// Without caching, screening (~96 cycles/day) exhausts quota fast -> "IP temporarily banned".
+// GMGN quota: private key (~500-1000/day holders, ~500-1000/day security).
+// Caps set to 100/50 to avoid IP bans while using the VPS's real quota.
+// Bump if budget exhaustion still shows in logs.
 const _gmgnCache = new Map(); // mint -> { at, security, holders }
 const GMGN_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const _gmgnDaily = { security: 0, holders: 0, resetAt: Date.now() };
-const GMGN_DAILY_CAP = { security: 18, holders: 3 }; // buffer below 20/4
+const GMGN_DAILY_CAP = { security: 100, holders: 50 }; // buffer below real quota
 function gmgnDailyResetIfNeeded() {
   if (Date.now() - _gmgnDaily.resetAt > GMGN_CACHE_TTL_MS) {
     _gmgnDaily.security = 0;
