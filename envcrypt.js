@@ -99,9 +99,32 @@ function legacyXorDecrypt(value, key) {
   ).join("");
 }
 
-export function envryptDecrypt(value, key) {
+// Standard base64 alphabet — v1 ciphertext is always Buffer.toString("base64"),
+// so anything outside this (a raw `lpagent_…` key, say) was never encrypted.
+const BASE64_ONLY = /^[A-Za-z0-9+/]*={0,2}$/;
+
+export function envryptDecrypt(value, key, envKey = "value") {
   const raw = String(value);
-  if (!raw.startsWith(V2_PREFIX)) return legacyXorDecrypt(raw, key);
+  if (!raw.startsWith(V2_PREFIX)) {
+    // v1 XOR has no auth tag, so a value that was never encrypted at all —
+    // marked "# encrypted" in .env but pasted in plaintext — still "decrypts",
+    // into mojibake. Base64-decoding non-base64 text yields U+FFFD runs, and
+    // XORing those produces codepoints > 255, which then blow up undici's
+    // latin1 header encoder thousands of lines away ("Cannot convert argument
+    // to a ByteString because the character at index 0 has a value of 65452…",
+    // LPAGENT_API_KEY, 2026-08-06). Detect it here and hand back the plaintext
+    // we were actually given, loudly, instead of a poisoned string.
+    // ponytail: heuristic, not proof — v1 has no integrity check, so a short
+    // plaintext that happens to be pure base64 AND XORs to latin1 would still
+    // slip through. Upgrade path is re-encrypting v1 values as v2 (auth tag).
+    const decoded = BASE64_ONLY.test(raw) ? legacyXorDecrypt(raw, key) : null;
+    if (decoded !== null && !/[^\x00-\xff]/.test(decoded)) return decoded;
+    console.warn(
+      `[envcrypt] ${envKey} is marked "# encrypted" but is not valid ciphertext — ` +
+      "treating it as plaintext. Re-run `node scripts/envrypt.js encrypt` to encrypt it.",
+    );
+    return raw;
+  }
 
   const payload = Buffer.from(raw.slice(V2_PREFIX.length), "base64");
   if (payload.length < SALT_LEN + IV_LEN + TAG_LEN) {
@@ -141,7 +164,7 @@ export function loadEnv({ envPath = DEFAULT_ENV_PATH, keyPath = DEFAULT_KEY_PATH
   for (const envKey of encryptedKeys) {
     const value = process.env[envKey];
     if (value == null || value === "") continue;
-    process.env[envKey] = envryptDecrypt(value, key);
+    process.env[envKey] = envryptDecrypt(value, key, envKey);
   }
 
   return { encryptedKeys: [...encryptedKeys] };

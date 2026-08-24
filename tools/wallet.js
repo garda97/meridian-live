@@ -114,10 +114,41 @@ function getJupiterReferralParams() {
 }
 
 /**
+ * Paper-mode balance overlay.
+ *
+ * In DRY_RUN nothing is ever signed, but the agent still calls this, sees the
+ * real (empty) wallet, and correctly refuses to deploy — so a dry run of an
+ * unfunded wallet produces no decisions to learn from. Report a simulated
+ * balance instead, purely so paper cycles reach the deploy step.
+ *
+ * Gated on DRY_RUN === "true" and nothing else: with the flag off this is a
+ * straight pass-through, so a live run can never see an invented balance.
+ * Only tops up — a funded dry run keeps its real numbers.
+ */
+export async function getWalletBalances() {
+  const real = await getWalletBalancesReal();
+  if (process.env.DRY_RUN !== "true") return real;
+
+  const paperSol = Number(process.env.PAPER_BALANCE_SOL ?? 5);
+  if (!Number.isFinite(paperSol) || paperSol <= 0) return real;
+  if ((real?.sol ?? 0) >= paperSol) return real;
+
+  const price = real?.sol_price || 180;
+  return {
+    ...real,
+    sol: paperSol,
+    sol_price: price,
+    sol_usd: Math.round(paperSol * price * 100) / 100,
+    total_usd: Math.round(((real?.total_usd || 0) + paperSol * price) * 100) / 100,
+    paper_balance: true,
+  };
+}
+
+/**
  * Get current wallet balances: SOL, USDC, and all SPL tokens using Helius Wallet API.
  * Returns USD-denominated values provided by Helius.
  */
-export async function getWalletBalances() {
+async function getWalletBalancesReal() {
   let walletAddress;
   try {
     walletAddress = getWallet().publicKey.toString();

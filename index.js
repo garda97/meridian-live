@@ -7,7 +7,7 @@ import { log } from "./logger.js";
 import { getMyPositions } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates } from "./tools/screening.js";
-import { config, reloadScreeningThresholds } from "./config.js";
+import { config, dryRunSources, reloadScreeningThresholds } from "./config.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
 import {
   startPolling,
@@ -63,7 +63,12 @@ if (isMain) {
   if (path.resolve(process.cwd()) !== path.resolve(REPO_ROOT)) {
     log("startup_warn", `process.cwd() differs from repo root — use "npm run pm2:start" (not "pm2 start index.js" from another directory)`);
   }
-  log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
+  // Print both sources, not just the winner — the 2026-08-06 LIVE surprise was
+  // invisible in a log that only said "Mode: LIVE".
+  log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`
+    + ` (user-config.dryRun=${dryRunSources.userConfig ?? "unset"}`
+    + ` | env DRY_RUN pre=${dryRunSources.envPre ?? "unset"}`
+    + ` | effective=${process.env.DRY_RUN}; stricter source wins)`);
   log("startup", `Model: ${process.env.LLM_MODEL || "hermes-3-405b"}`);
   ensureAgentId();
   bootstrapHiveMind().catch((error) => log("hivemind_warn", `Bootstrap failed: ${error.message}`));

@@ -11,9 +11,24 @@ const DEFAULT_AGENT_MERIDIAN_API_URL = "https://api.agentmeridian.xyz/api";
 const DEFAULT_AGENT_MERIDIAN_PUBLIC_KEY = "bWVyaWRpYW4taXMtdGhlLWJlc3QtYWdlbnRz";
 const DEFAULT_HIVEMIND_API_KEY = DEFAULT_AGENT_MERIDIAN_PUBLIC_KEY;
 
-const u = fs.existsSync(USER_CONFIG_PATH)
-  ? JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"))
-  : {};
+/**
+ * user-config.json carries screening thresholds two ways: legacy flat top-level
+ * keys (minBinStep, maxBinStep, …) and a nested `screening: { … }` block written
+ * by newer presets. Only the flat keys were ever read, so a nested block did
+ * nothing at all (nested minBinStep 50 silently lost to the flat 10). Flatten
+ * nested onto the top level — the more specific spelling wins — so every reader
+ * below (and both reload paths) sees one shape.
+ */
+function flattenScreeningBlock(raw) {
+  if (raw?.screening && typeof raw.screening === "object") Object.assign(raw, raw.screening);
+  return raw;
+}
+
+const u = flattenScreeningBlock(
+  fs.existsSync(USER_CONFIG_PATH)
+    ? JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"))
+    : {},
+);
 export const MIN_SAFE_BINS_BELOW = 35;
 
 function numericConfig(value) {
@@ -66,10 +81,24 @@ if (u.walletKey) process.env.WALLET_PRIVATE_KEY ||= u.walletKey;
 if (u.llmModel)  process.env.LLM_MODEL          ||= u.llmModel;
 if (u.llmBaseUrl) process.env.LLM_BASE_URL      ||= u.llmBaseUrl;
 if (u.llmApiKey)  process.env.LLM_API_KEY       ||= u.llmApiKey;
-if (u.dryRun !== undefined) process.env.DRY_RUN ||= String(u.dryRun);
 if (u.publicApiKey) process.env.PUBLIC_API_KEY ||= u.publicApiKey;
 if (u.agentMeridianApiUrl) process.env.AGENT_MERIDIAN_API_URL ||= u.agentMeridianApiUrl;
 if (u.telegramChatId) process.env.TELEGRAM_CHAT_ID ||= String(u.telegramChatId);
+
+/**
+ * DRY_RUN is a safety gate, so the STRICTER of the two sources wins: if either
+ * `user-config.json` → dryRun or `.env` → DRY_RUN asks for dry-run, we run dry.
+ * The old `process.env.DRY_RUN ||= String(u.dryRun)` did the opposite — it only
+ * filled in an *unset* DRY_RUN, so `.env` DRY_RUN=false silently beat
+ * `dryRun: true` in user-config and ran LIVE against owner intent (2026-08-06).
+ * Same one-directional rule as envcrypt.loadEnv(): dry-run always wins, live
+ * never sneaks in. Both sources go through boolConfig so the *string* "false"
+ * can't read as truthy. Unset on both sides still means LIVE, as before.
+ */
+export const dryRunSources = { userConfig: u.dryRun, envPre: process.env.DRY_RUN };
+process.env.DRY_RUN = String(
+  boolConfig(dryRunSources.envPre, false) || boolConfig(dryRunSources.userConfig, false),
+);
 
 const indicatorUserConfig = u.chartIndicators ?? {};
 const copyTradeUserConfig = u.copyTrade ?? {};
@@ -134,6 +163,10 @@ export const config = {
     maxMcap:           u.maxMcap           ?? 10_000_000,
     minBinStep:        u.minBinStep        ?? 80,
     maxBinStep:        u.maxBinStep        ?? 125,
+    // Entry-timing guard consumed by runSafetyChecks: refuse deploys into a
+    // pool whose volatility is far above the norm (pump/dump leg → instant
+    // OOR). null = off.
+    maxVolatility:     u.maxVolatility     ?? null,
     // Volatility-aware bin-step screening (opt-in): volatile pools accept a
     // wider [minBinStep, maxBinStep] window than the static bounds alone.
     binStepVolatilityScalingEnabled: boolConfig(u.binStepVolatilityScalingEnabled, false),
@@ -173,6 +206,23 @@ export const config = {
       concentrationParadoxMinSmCount: Number(u.security?.concentrationParadoxMinSmCount ?? 8),
       concentrationParadoxMinSmInflowRatio: Number(u.security?.concentrationParadoxMinSmInflowRatio ?? 0.5),
     },
+    // Fan-out width for the screening I/O stages (utils/map-limit.js). Candidates
+    // carry no data between each other, so these cap parallelism for provider
+    // rate limits, not for correctness. enrichSpacingMs replaces the old hardcoded
+    // sleep(150) between candidates: concurrency caps in-flight requests, spacing
+    // caps requests per second, and the DataAPI limiter cares about the latter.
+    enrichConcurrency: Math.max(1, Number(u.enrichConcurrency ?? 5)),
+    enrichSpacingMs:   Math.max(0, Number(u.enrichSpacingMs ?? 50)),
+    rpcConcurrency:    Math.max(1, Number(u.rpcConcurrency ?? 6)),  // getActiveBin (Helius)
+    planConcurrency:   Math.max(1, Number(u.planConcurrency ?? 4)), // resolveDeployPlansForCandidates (chart indicators)
+    // Adversarial review (utils/adversarial-review.js): a second model argues
+    // against the SCREENER's pick just before deploy_position executes. Off by
+    // default — it adds an LLM round-trip to a time-sensitive path, so the
+    // active bin can move between the decision and the transaction. Measure the
+    // effect on win rate with `meridian performance` before leaving it on.
+    adversarialReviewEnabled: boolConfig(u.adversarialReviewEnabled, false),
+    adversarialReviewModel: u.adversarialReviewModel ?? null, // null = screening model
+    adversarialReviewTimeoutMs: Math.max(1000, Number(u.adversarialReviewTimeoutMs ?? 25_000)),
     solRegimeGateEnabled: boolConfig(u.solRegimeGateEnabled, true),
     solDump1hPctThreshold: Number(u.solDump1hPctThreshold ?? -3),
     // SOL/BTC relative strength (LP Army "Deep Winter" doctrine, notes/GETXAPI research
@@ -481,6 +531,13 @@ export const config = {
     // (METEORA_LP checklist points 10-11). null = off.
     maxFreshWalletHolderPct: gmgnUserConfig.maxFreshWalletHolderPct ?? u.maxFreshWalletHolderPct ?? null,
     maxBundledWalletHolderPct: gmgnUserConfig.maxBundledWalletHolderPct ?? u.maxBundledWalletHolderPct ?? null,
+    // How many of the daily holders calls screening must leave unspent for the
+    // pre-deploy holder gate (utils/holder-quality-gate.js). Screening enriches
+    // every surviving candidate each cycle and would otherwise consume the
+    // quota before the agent reaches a deploy decision.
+    holdersReserveForDeploy: Math.max(0, Number(
+      gmgnUserConfig.holdersReserveForDeploy ?? u.holdersReserveForDeploy ?? 2,
+    )),
   },
 
   jupiter: {
@@ -846,7 +903,7 @@ export function reloadUserConfigFromDisk() {
   reloadScreeningThresholds();
   try {
     if (!fs.existsSync(USER_CONFIG_PATH)) return;
-    const fresh = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+    const fresh = flattenScreeningBlock(JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8")));
     reloadAutoStrategyFromUserConfig(fresh);
     for (const key of [
       "maxPositions", "maxDeployAmount", "deployAmountSol", "strategyDeployAmountSol", "lossRedeployMinLossPct", "stopLossPct", "maxLossPct", "gasReserve", "minSolToOpen",
@@ -866,7 +923,7 @@ export function reloadUserConfigFromDisk() {
 export function reloadScreeningThresholds() {
   try {
     if (!fs.existsSync(USER_CONFIG_PATH)) return;
-    const fresh = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+    const fresh = flattenScreeningBlock(JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8")));
     const s = config.screening;
     if (fresh.minFeeActiveTvlRatio != null) s.minFeeActiveTvlRatio = fresh.minFeeActiveTvlRatio;
     if (fresh.minTokenFeesSol  != null) s.minTokenFeesSol  = fresh.minTokenFeesSol;
@@ -887,6 +944,7 @@ export function reloadScreeningThresholds() {
     if (fresh.minVolume      != null) s.minVolume      = fresh.minVolume;
     if (fresh.minBinStep     != null) s.minBinStep     = fresh.minBinStep;
     if (fresh.maxBinStep     != null) s.maxBinStep     = fresh.maxBinStep;
+    if (fresh.maxVolatility  !== undefined) s.maxVolatility = fresh.maxVolatility;
     if (fresh.timeframe         != null) s.timeframe         = fresh.timeframe;
     if (fresh.category          != null) s.category          = fresh.category;
     if (fresh.minTokenAgeHours  !== undefined) s.minTokenAgeHours = fresh.minTokenAgeHours;

@@ -2,22 +2,31 @@ import { randomUUID } from "crypto";
 import { setDefaultResultOrder } from "dns";
 import { config } from "../config.js";
 import { log } from "../logger.js";
+import { markBanned } from "../utils/gmgn-ban-state.js";
 
 // Force IPv4 — GMGN OpenAPI does not support IPv6
 setDefaultResultOrder("ipv4first");
 
-let lastGmgnRequestAt = 0;
+let gmgnNextRequestAt = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function paceGmgnRequest() {
+export async function paceGmgnRequest() {
   const delayMs = Math.max(0, Number(config.gmgn?.requestDelayMs ?? 2500));
   if (!delayMs) return;
-  const elapsed = Date.now() - lastGmgnRequestAt;
-  if (elapsed < delayMs) await sleep(delayMs - elapsed);
-  lastGmgnRequestAt = Date.now();
+  // Reserve this caller's slot synchronously, before any await. Reading a
+  // "last request" stamp, sleeping, then writing it afterwards let concurrent
+  // callers all observe the same value, sleep the same amount, and fire
+  // together — the pacer collapsed exactly when it was needed. Screening
+  // reaches GMGN through getTokenInfo, so enriching candidates in parallel
+  // now routes through here.
+  const now = Date.now();
+  const startAt = Math.max(now, gmgnNextRequestAt);
+  gmgnNextRequestAt = startAt + delayMs;
+  const wait = startAt - now;
+  if (wait > 0) await sleep(wait);
 }
 
 function getApiKey() {
@@ -87,6 +96,10 @@ async function gmgnFetch(pathname, { method = "GET", params = {}, body = null } 
     const message = payload?.message || payload?.error || payload?.raw || `GMGN ${pathname} ${res.status}`;
     const rateLimited = res.status === 429 || /rate limit|temporarily banned/i.test(String(message));
     if (res.ok) return payload;
+    // Record the ban so the watcher knows to start probing for recovery. It
+    // stays idle otherwise, because its probe spends the same daily quota this
+    // request just exhausted.
+    if (/temporarily banned/i.test(String(message))) markBanned();
     if (rateLimited && attempt < maxRetries) {
       const retryAfter = Number(res.headers.get("retry-after"));
       const backoffMs = Number.isFinite(retryAfter)
@@ -205,13 +218,14 @@ export async function getGmgnTokenFees(mint) {
 }
 
 // --- GMGN call cache + daily budget (429/rate-limit hardening) ---
-// Free-tier GMGN quota (per day): security 20, holders 4 (see notes/GMGN_RATE_LIMITS.md).
-// Without caching, screening (~96 cycles/day) exhausts quota fast -> "IP temporarily banned".
+// GMGN quota: private key (~500-1000/day holders, ~500-1000/day security).
+// Caps set to 100/50 to avoid IP bans while using the VPS's real quota.
+// Bump if budget exhaustion still shows in logs.
 const _gmgnCache = new Map(); // mint -> { at, security, holders }
 const GMGN_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const _gmgnDaily = { security: 0, holders: 0, resetAt: Date.now() };
-const GMGN_DAILY_CAP = { security: 18, holders: 3 }; // buffer below 20/4
+const GMGN_DAILY_CAP = { security: 100, holders: 50 }; // buffer below real quota
 function gmgnDailyResetIfNeeded() {
   if (Date.now() - _gmgnDaily.resetAt > GMGN_CACHE_TTL_MS) {
     _gmgnDaily.security = 0;
@@ -219,9 +233,23 @@ function gmgnDailyResetIfNeeded() {
     _gmgnDaily.resetAt = Date.now();
   }
 }
-function gmgnBudgetAllows(type) {
+/**
+ * `reserve` holds back the last N calls of the day for a higher-value caller.
+ * Screening enriches every surviving candidate each cycle and would otherwise
+ * consume the whole holders budget on pools that mostly never get deployed
+ * into, leaving the pre-deploy holder gate with nothing. Screening passes a
+ * reserve; the deploy gate passes none.
+ */
+function gmgnBudgetAllows(type, { reserve = 0 } = {}) {
   gmgnDailyResetIfNeeded();
-  return _gmgnDaily[type] < (GMGN_DAILY_CAP[type] ?? 0);
+  const cap = (GMGN_DAILY_CAP[type] ?? 0) - Math.max(0, Number(reserve) || 0);
+  return _gmgnDaily[type] < cap;
+}
+
+/** Remaining calls today, ignoring any reserve. Diagnostics only. */
+export function gmgnBudgetRemaining(type) {
+  gmgnDailyResetIfNeeded();
+  return Math.max(0, (GMGN_DAILY_CAP[type] ?? 0) - (_gmgnDaily[type] ?? 0));
 }
 function gmgnBudgetConsume(type) {
   gmgnDailyResetIfNeeded();
@@ -272,7 +300,7 @@ export async function getGmgnTokenSecurity(mint) {
   }
 }
 
-export async function getGmgnTokenTopHolders(mint, { limit = 100 } = {}) {
+export async function getGmgnTokenTopHolders(mint, { limit = 100, reserve = 0 } = {}) {
   if (!mint || !hasGmgnApiKey()) return null;
   // Cache hit (same day) -> no quota cost. Note: limit only affects how many we keep,
   // but we cache the full top-100 list so any limit can be served from cache.
@@ -282,9 +310,9 @@ export async function getGmgnTokenTopHolders(mint, { limit = 100 } = {}) {
     return { ...cached.holders, holders: list.slice(0, Math.min(Math.max(limit, 1), 100)) };
   }
   // Budget exhausted -> return stale cache if any, else null (CPO fails closed safely)
-  if (!gmgnBudgetAllows("holders")) {
+  if (!gmgnBudgetAllows("holders", { reserve })) {
     if (cached?.holders) return cached.holders;
-    log("gmgn", `daily holders budget exhausted; skipping ${String(mint).slice(0, 8)}`);
+    log("gmgn", `daily holders budget exhausted${reserve ? ` (reserve ${reserve} held for deploy gate)` : ""}; skipping ${String(mint).slice(0, 8)}`);
     return null;
   }
   try {

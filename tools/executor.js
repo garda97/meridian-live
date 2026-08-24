@@ -47,6 +47,53 @@ const TIMEFRAME_MINUTES = {
   "24h": 1440,
 };
 import { log, logAction } from "../logger.js";
+import { getGmgnTokenTopHolders } from "./gmgn.js";
+import { checkHolderQuality } from "../utils/holder-quality-gate.js";
+import { buildReviewPrompt, parseReviewVerdict } from "../utils/adversarial-review.js";
+
+/**
+ * Second opinion on a deploy, with the opposite job to the SCREENER's.
+ * Fails open on every infrastructure fault — a timeout or a bad key says
+ * nothing about the trade, and blocking on one would halt trading. Each such
+ * case is logged, because passing without a verdict is not passing on one.
+ */
+async function runAdversarialReview({ args, plan }) {
+  const timeoutMs = Math.max(1000, Number(config.screening?.adversarialReviewTimeoutMs ?? 25_000));
+  try {
+    // completeOnce, not agentLoop: the reviewer has no tools, and agentLoop
+    // forces a tool call whenever the prompt contains an action word like
+    // "open" — which this prompt necessarily does.
+    const { completeOnce } = await import("../agent.js");
+    const { getPendingCandidateBlock } = await import("./strategy-router.js");
+    const prompt = buildReviewPrompt({
+      candidateBlock: getPendingCandidateBlock(args?.pool_address),
+      plan,
+      args,
+    });
+    const run = completeOnce(prompt, {
+      model: config.screening?.adversarialReviewModel || config.llm.screeningModel,
+      maxTokens: 512,
+      timeoutMs,
+    });
+    const timer = new Promise((resolve) =>
+      setTimeout(() => resolve({ _timedOut: true }), timeoutMs));
+    const result = await Promise.race([run, timer]);
+    if (result && typeof result === "object" && result._timedOut) {
+      log("safety_block", `adversarial review timed out after ${timeoutMs}ms — deploy allowed`);
+      return { block: false, reason: "review timed out" };
+    }
+    const verdict = parseReviewVerdict(result);
+    if (!verdict.parsed) {
+      log("safety_block", `adversarial review unparseable — deploy allowed: ${verdict.reason}`);
+    } else {
+      log("safety_block", `adversarial review ${verdict.block ? "BLOCK" : "PASS"}: ${verdict.reason}`);
+    }
+    return verdict;
+  } catch (error) {
+    log("safety_block", `adversarial review failed — deploy allowed: ${error.message}`);
+    return { block: false, reason: `review error: ${error.message}` };
+  }
+}
 import { notifyDeploy, notifyClose, notifySwap, sendMessage as sendTelegramMessage } from "../telegram.js";
 import { atomicWriteFileSync } from "../utils/atomic-write.js";
 
@@ -158,7 +205,7 @@ async function validateDeployPoolThresholds(args) {
   // FIX (Hermes): entry-timing guard — reject extreme volatility spikes. A pool whose
   // volatility is far above the historical norm (avg ~2.34 across closed outcomes) is
   // usually in a pump/dump leg; deploying then -> immediate OOR. maxVolatility caps entry.
-  const maxVol = numberOrNull(config.screening?.maxVolatility ?? config.maxVolatility);
+  const maxVol = numberOrNull(config.screening.maxVolatility);
   if (maxVol != null && volatility > maxVol) {
     return {
       pass: false,
@@ -964,6 +1011,37 @@ async function runSafetyChecks(name, args, context = {}) {
         if (!gate.pass) return gate;
       }
 
+      // Holder quality is checked here, not in the screening fan-out: the GMGN
+      // holders budget is 3/day and screening burned it on candidates that
+      // mostly never reach a deploy. reserve=0 so this call may use the slots
+      // screening held back.
+      {
+        // CLI (`cli.js deploy --pool`) and recovery_manager auto-deploys pass
+        // only pool_address — no plan, no base_mint — so resolve the base mint
+        // from pool detail to keep the holder gate covering those paths too,
+        // not just the autonomous-agent deploy.
+        let mint = autoPlan?.base_mint ?? args.base_mint ?? null;
+        if (!mint && args.pool_address) {
+          const pd = await getPoolDetail({ pool_address: args.pool_address }).catch(() => null);
+          mint = pd?.token_x?.address ?? pd?.base?.mint ?? null;
+        }
+        if (!mint) {
+          // Never fail silently here: without a mint the gate is a no-op, and a
+          // no-op risk control that looks installed is worse than none.
+          log("gmgn", `deploy holder gate skipped for ${String(args.pool_address ?? "?").slice(0, 8)}: base mint unresolved from args, plan, or pool detail`);
+        } else {
+          const stats = await getGmgnTokenTopHolders(mint, { limit: 100, reserve: 0 }).catch(() => null);
+          const holderCount = Number(
+            autoPlan?.base_token_holders ?? args.base_token_holders ?? args.holders,
+          ) || null;
+          const verdict = checkHolderQuality(stats, holderCount, config.gmgn ?? {});
+          if (!verdict.pass) return { pass: false, reason: verdict.reason };
+          if (!verdict.checked) {
+            log("gmgn", `deploy holder gate ran blind for ${String(mint).slice(0, 8)}: ${verdict.reason}`);
+          }
+        }
+      }
+
       const poolThresholds = await validateDeployPoolThresholds(args);
       if (!poolThresholds.pass) return poolThresholds;
       if (poolThresholds.entryMarketData) Object.assign(args, poolThresholds.entryMarketData);
@@ -1142,6 +1220,23 @@ async function runSafetyChecks(name, args, context = {}) {
             pass: false,
             reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
           };
+        }
+      }
+
+      // Last gate on purpose: every check above is cheaper and more reliable,
+      // so the extra LLM round-trip is only spent on a candidate that already
+      // survived all of them.
+      if (config.screening?.adversarialReviewEnabled) {
+        const verdict = await runAdversarialReview({ args, plan: autoPlan });
+        if (verdict.block) {
+          appendDecision({
+            type: "no_deploy",
+            actor: "REVIEWER",
+            summary: "Adversarial review blocked the deploy",
+            reason: verdict.reason,
+            pool: args.pool_address,
+          });
+          return { pass: false, reason: `Adversarial review: ${verdict.reason}` };
         }
       }
 

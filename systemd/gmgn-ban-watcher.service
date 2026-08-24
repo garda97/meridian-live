@@ -1,0 +1,16 @@
+[Unit]
+Description=GMGN ban watcher — probe for ban recovery and clear the ban state
+Documentation=file:/opt/meridian/scripts/gmgn_ban_watcher.mjs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root: /opt/meridian/.env is root:root 0600, and the GMGN key inside it
+# is envrypt-encrypted, so the script needs the daemon's own loader to read it.
+User=root
+WorkingDirectory=/opt/meridian
+ExecStart=/usr/bin/node scripts/gmgn_ban_watcher.mjs
+StandardOutput=append:/opt/meridian/logs/gmgn-ban-watcher.log
+StandardError=append:/opt/meridian/logs/gmgn-ban-watcher.log
+TimeoutStartSec=120

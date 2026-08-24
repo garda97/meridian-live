@@ -118,21 +118,47 @@ function testStrategyMatrix() {
 
 // ── Vladimir-style bid_ask wide range ─────────────────────────
 function testBidAskWideRange() {
-  const saved = config.autoStrategy.bidAskWideRangeEnabled;
+  // Pin the values this test asserts against instead of trusting the live
+  // config's tuned numbers — the owner tunes bidAskDownsidePct* in
+  // user-config.json (that is what a config value is for), and hardcoding the
+  // code defaults here made the test fail the moment they did. Assert the
+  // young/mature/pump *branching*, not specific percentages.
+  const saved = {
+    enabled: config.autoStrategy.bidAskWideRangeEnabled,
+    young: config.autoStrategy.bidAskDownsidePctYoung,
+    mature: config.autoStrategy.bidAskDownsidePctMature,
+    youngAge: config.autoStrategy.bidAskYoungMaxAgeHours,
+    youngPump: config.autoStrategy.bidAskYoungPumpPct1h,
+  };
+  const YOUNG = 88, MATURE = 62;
   config.autoStrategy.bidAskWideRangeEnabled = true;
+  config.autoStrategy.bidAskDownsidePctYoung = YOUNG;
+  config.autoStrategy.bidAskDownsidePctMature = MATURE;
+  config.autoStrategy.bidAskYoungMaxAgeHours = 48;
+  config.autoStrategy.bidAskYoungPumpPct1h = 80;
   try {
+    // Young by age (12h < 48h) → young downside.
     const young = applyBidAskWideRange(
       { strategy: "bid_ask", deposit_side: "sol_below", bins_below: 100, bins_above: 0, notes: [] },
       { pool: { token_age_hours: 12, price_change_1h: 5 }, priceChange1h: 5 },
     );
-    assert(young.downside_pct === 90, `young token should get 90% downside, got ${young.downside_pct}`);
+    assert(young.downside_pct === YOUNG, `young-by-age should get ${YOUNG}%, got ${young.downside_pct}`);
     assert(young.bins_below === undefined, "wide range should clear bins_below");
 
+    // Mature by age (200h) with a calm 1h → mature downside.
     const mature = applyBidAskWideRange(
       { strategy: "bid_ask", deposit_side: "sol_below", bins_below: 100, bins_above: 0, notes: [] },
       { pool: { token_age_hours: 200, price_change_1h: 2 }, priceChange1h: 2 },
     );
-    assert(mature.downside_pct === 65, `mature token should get 65%, got ${mature.downside_pct}`);
+    assert(mature.downside_pct === MATURE, `mature should get ${MATURE}%, got ${mature.downside_pct}`);
+
+    // Old token but a wild 1h pump (≥80%) is treated as young — the branch the
+    // tier logic exists for.
+    const pump = applyBidAskWideRange(
+      { strategy: "bid_ask", deposit_side: "sol_below", bins_below: 100, bins_above: 0, notes: [] },
+      { pool: { token_age_hours: 200, price_change_1h: 120 }, priceChange1h: 120 },
+    );
+    assert(pump.downside_pct === YOUNG, `wild-pump mature token should get young ${YOUNG}%, got ${pump.downside_pct}`);
 
     const spotUntouched = applyBidAskWideRange(
       { strategy: "spot", bins_below: 50, bins_above: 50, notes: [] },
@@ -140,9 +166,13 @@ function testBidAskWideRange() {
     );
     assert(spotUntouched.downside_pct == null, "spot must not get wide range");
 
-    console.log("  bid_ask wide range: young=90% mature=65% spot=untouched OK");
+    console.log("  bid_ask wide range: young/mature/wild-pump branching + spot-untouched OK");
   } finally {
-    config.autoStrategy.bidAskWideRangeEnabled = saved;
+    config.autoStrategy.bidAskWideRangeEnabled = saved.enabled;
+    config.autoStrategy.bidAskDownsidePctYoung = saved.young;
+    config.autoStrategy.bidAskDownsidePctMature = saved.mature;
+    config.autoStrategy.bidAskYoungMaxAgeHours = saved.youngAge;
+    config.autoStrategy.bidAskYoungPumpPct1h = saved.youngPump;
   }
 }
 

@@ -23,13 +23,14 @@ import { checkSmartWalletsOnPool } from "../../smart-wallets.js";
 import { getTokenInfo, getTokenNarrative } from "../../tools/token.js";
 import { recallForPool } from "../../pool-memory.js";
 import { computeHolderRatios, getGmgnTokenTopHolders } from "../../tools/gmgn.js";
-import { formatDeployPlanBlock, resolveDeployPlansForCandidates } from "../../tools/strategy-router.js";
+import { formatDeployPlanBlock, resolveDeployPlansForCandidates, setPendingCandidateBlock, clearPendingCandidateBlocks } from "../../tools/strategy-router.js";
 import { stageSignals } from "../../signal-tracker.js";
 import { getWeightsSummary } from "../../signal-weights.js";
 import { agentLoop } from "../../agent.js";
 import { recordScreeningOutcome } from "../../filter-autotune.js";
 import { formatWalletSignalNote } from "../../utils/wallet-signal-enrich.js";
 import { getBlockedThemeRejectReason } from "../../utils/blocked-theme.js";
+import { mapLimit, settledValues } from "../../utils/map-limit.js";
 
 export async function runScreeningCycle({ silent = false } = {}) {
   if (engineState.screeningBusy) {
@@ -187,23 +188,31 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const candidates = (topCandidates?.candidates || topCandidates?.pools || []).slice(0, 15);
     const earlyFilteredExamples = topCandidates?.filtered_examples || [];
 
-    const allCandidates = [];
-    for (const pool of candidates) {
-      const mint = pool.base?.mint;
-      const [smartWallets, narrative, tokenInfo] = await Promise.allSettled([
-        checkSmartWalletsOnPool({ pool_address: pool.pool }),
-        mint ? getTokenNarrative({ mint }) : Promise.resolve(null),
-        mint ? getTokenInfo({ query: mint }) : Promise.resolve(null),
-      ]);
-      allCandidates.push({
-        pool,
-        sw: smartWallets.status === "fulfilled" ? smartWallets.value : null,
-        n: narrative.status === "fulfilled" ? narrative.value : null,
-        ti: tokenInfo.status === "fulfilled" ? tokenInfo.value?.results?.[0] : null,
-        mem: recallForPool(pool.pool),
-      });
-      await new Promise(r => setTimeout(r, 150)); // avoid 429s
-    }
+    // One candidate's recon feeds nothing into the next, so the old serial loop
+    // billed 15x the slowest API call for work with no ordering dependency; its
+    // sleep(150) was rate limiting, which mapLimit keeps as spacingMs. GMGN is
+    // reached underneath getTokenInfo and stays serialised by its own pacer.
+    const enriched = await mapLimit(
+      candidates,
+      config.screening.enrichConcurrency,
+      async (pool) => {
+        const mint = pool.base?.mint;
+        const [smartWallets, narrative, tokenInfo] = await Promise.allSettled([
+          checkSmartWalletsOnPool({ pool_address: pool.pool }),
+          mint ? getTokenNarrative({ mint }) : Promise.resolve(null),
+          mint ? getTokenInfo({ query: mint }) : Promise.resolve(null),
+        ]);
+        return {
+          pool,
+          sw: smartWallets.status === "fulfilled" ? smartWallets.value : null,
+          n: narrative.status === "fulfilled" ? narrative.value : null,
+          ti: tokenInfo.status === "fulfilled" ? tokenInfo.value?.results?.[0] : null,
+          mem: recallForPool(pool.pool),
+        };
+      },
+      { spacingMs: config.screening.enrichSpacingMs },
+    );
+    const allCandidates = settledValues(enriched).filter(Boolean);
 
     // Hard filters after token recon — block launchpads and excessive Jupiter bot holders
     const filteredOut = [];
@@ -257,7 +266,14 @@ export async function runScreeningCycle({ silent = false } = {}) {
     for (const { pool, ti } of passing) {
       const mint = pool.base?.mint || ti?.mint;
       if (!mint) continue;
-      const stats = await getGmgnTokenTopHolders(mint, { limit: 100 }).catch(() => null);
+      // reserve holds back the tail of the daily holders budget for the
+      // pre-deploy holder gate (utils/holder-quality-gate.js), which spends it
+      // on a pool the agent is actually entering rather than on a candidate
+      // that usually gets filtered out anyway.
+      const stats = await getGmgnTokenTopHolders(mint, {
+        limit: 100,
+        reserve: config.gmgn.holdersReserveForDeploy,
+      }).catch(() => null);
       if (stats) gmgnHolderStatsByMint.set(mint, stats);
     }
 
@@ -359,16 +375,21 @@ export async function runScreeningCycle({ silent = false } = {}) {
       }
     }
 
-    // Pre-fetch active_bin for all passing candidates in parallel
-    const activeBinResults = await Promise.allSettled(
-      finalPassing.map(({ pool }) => getActiveBin({ pool_address: pool.pool }))
+    // Pre-fetch active_bin for all passing candidates in parallel, bounded so a
+    // wide candidate set can't burst the RPC provider in one shot.
+    const activeBinResults = await mapLimit(
+      finalPassing,
+      config.screening.rpcConcurrency,
+      ({ pool }) => getActiveBin({ pool_address: pool.pool }),
     );
 
     const deployPlanResults = config.autoStrategy?.enabled
       ? await resolveDeployPlansForCandidates(finalPassing)
       : finalPassing.map((entry) => ({ entry, plan: null }));
 
-    // Build compact candidate blocks
+    // Build compact candidate blocks. Drop last cycle's blocks first so the map
+    // holds only this cycle's candidates, not every pool ever screened.
+    clearPendingCandidateBlocks();
     const candidateBlocks = finalPassing.map(({ pool, sw, n, ti, mem }, i) => {
       const plan = deployPlanResults[i]?.plan ?? null;
       const mint = pool.base?.mint || ti?.mint;
@@ -413,6 +434,11 @@ export async function runScreeningCycle({ silent = false } = {}) {
         plan ? formatDeployPlanBlock(plan) : null,
         `  deploy_amount_sol: ${candDeployAmount} SOL (for strategy ${plan?.strategy ?? config.strategy.strategy}) — USE THIS EXACT AMOUNT`,
       ].filter(Boolean).join("\n");
+
+      // Stash the block so the pre-deploy adversarial reviewer argues against
+      // the same evidence the SCREENER saw. Kept out of the plan itself: the
+      // plan is copied into deploy args and logged verbatim.
+      setPendingCandidateBlock(pool.pool, block);
 
       // Stage signals — Darwinian weighting + holder-audit snapshot for the
       // deploy decision log. Always staged (not just darwin) so the deploy

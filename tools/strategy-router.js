@@ -8,8 +8,31 @@ import { config } from "../config.js";
 import { log } from "../logger.js";
 import { fetchChartIndicatorsForMint, buildSignalSummary, evaluateAthEntryGate } from "./chart-indicators.js";
 import { hasRecentVolatileOorClose } from "../pool-memory.js";
+import { mapLimit, settledValues } from "../utils/map-limit.js";
 
 const pendingPlans = new Map();
+
+// Candidate evidence for the pre-deploy adversarial reviewer, kept beside the
+// plan rather than on it: applyPendingPlanToDeployArgs copies the plan into
+// deploy args, and executeTool logs args verbatim — a block of candidate text
+// riding along would bloat every entry in actions-*.jsonl.
+const pendingCandidateBlocks = new Map();
+
+export function setPendingCandidateBlock(poolAddress, block) {
+  if (poolAddress && block) pendingCandidateBlocks.set(poolAddress, block);
+}
+
+export function getPendingCandidateBlock(poolAddress) {
+  return pendingCandidateBlocks.get(poolAddress) ?? null;
+}
+
+// Blocks live a single screening cycle. Unlike pendingPlans (deliberately kept
+// until a deploy consumes them), these are only read by the pre-deploy
+// adversarial reviewer, so the screening cycle drops the whole set each pass
+// rather than letting one entry per pool accumulate for the daemon's lifetime.
+export function clearPendingCandidateBlocks() {
+  pendingCandidateBlocks.clear();
+}
 
 export function clearPendingDeployPlans() {
   pendingPlans.clear();
@@ -792,22 +815,56 @@ export async function resolveDeployStrategyForCandidate({ pool, tokenInfo } = {}
   return plan;
 }
 
+/**
+ * Copy the candidate identity the pre-deploy holder gate needs onto its plan.
+ *
+ * base_token_holders is carried so the gate can compute tagged-wallet ratios
+ * without re-fetching token info: GMGN's holder payload reports only how many
+ * holders it fetched (<=100), never the token's total holder count. Without it
+ * the fresh-wallet and bundled-wallet rules silently disable themselves.
+ *
+ * Extracted from resolveDeployPlansForCandidates so it can be tested without a
+ * chart-indicator fetch.
+ */
+export function attachCandidateIdentity(plan, entry) {
+  if (!plan) return plan;
+  plan.base_mint = plan.base_mint
+    || entry?.pool?.base?.mint
+    || entry?.pool?.base_mint
+    || null;
+  plan.base_token_holders = plan.base_token_holders
+    ?? entry?.ti?.holders
+    ?? entry?.pool?.base_token_holders
+    ?? null;
+  return plan;
+}
+
 export async function resolveDeployPlansForCandidates(candidates) {
 //  clearPendingDeployPlans(); // Hermes: Removed - plans should persist until consumed by deploy_position
-  const plans = await Promise.all(
-    candidates.map(async (entry) => {
+  // Bounded rather than an unbounded Promise.all: each plan pulls chart
+  // indicators, so a wide candidate set used to burst that provider at once.
+  const settled = await mapLimit(
+    candidates,
+    config.screening?.planConcurrency ?? 4,
+    async (entry) => {
       const plan = await resolveDeployStrategyForCandidate({
         pool: entry.pool,
         tokenInfo: entry.ti,
       });
       if (entry.pool?.pool) {
-        plan.base_mint = plan.base_mint || entry.pool.base?.mint || entry.pool.base_mint || null;
+        attachCandidateIdentity(plan, entry);
         setPendingDeployPlan(entry.pool.pool, plan);
       }
       return { entry, plan };
-    }),
+    },
   );
-  return plans;
+  // Keep Promise.all's all-or-nothing contract. A rejected plan aborted the
+  // screening cycle before; degrading it to a null plan would instead hand the
+  // SCREENER a candidate with no deploy_plan block while the prompt still says
+  // to follow that block exactly.
+  const failed = settled.find((r) => r.status === "rejected");
+  if (failed) throw failed.reason;
+  return settledValues(settled);
 }
 
 export function formatDeployPlanBlock(plan) {

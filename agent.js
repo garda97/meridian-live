@@ -110,6 +110,19 @@ function resolveFallbackModel(primary) {
   return FALLBACK_MODEL_ALT;
 }
 
+/**
+ * A free-tier quota 429 (9router's `FreeUsageLimitError`, seen on Hermes-free
+ * 2026-08-06) is not a per-minute throttle — it does not clear in 30s, so the
+ * old "sleep 30s and continue" retried the same exhausted model once per step
+ * until maxSteps, stalling the cycle and hammering the free tier for nothing.
+ * Ordinary 429s stay on the backoff path.
+ */
+export function isFreeQuotaError(error) {
+  const status = error?.status ?? error?.response?.status;
+  return status === 429
+    && /freeusagelimit|free usage|free tier|free-tier|quota/i.test(String(error?.message || ""));
+}
+
 function isMissingProviderError(error) {
   const msg = String(error?.message || error || "").toLowerCase();
   const status = error?.status ?? error?.response?.status;
@@ -213,6 +226,58 @@ function isThinkingModeToolChoiceError(error) {
 }
 
 /**
+ * One-shot completion with no tools, for callers that need the model to reason
+ * over supplied data rather than act on it.
+ *
+ * agentLoop is the wrong vehicle for that: its ACTION_INTENTS heuristic forces
+ * tool_choice="required" on step 0 whenever the goal text contains an action
+ * word, so a prompt that merely *discusses* opening a position gets a forced
+ * tool call instead of a text answer, and returns "Max steps reached".
+ *
+ * Returns the assistant text, including providers that leave `content` empty
+ * and put the answer under reasoning.
+ */
+export async function completeOnce(prompt, {
+  model = null,
+  maxTokens = 512,
+  timeoutMs = null,
+  retries = 2,
+  temperature = null,
+} = {}) {
+  const primary = model || DEFAULT_MODEL;
+  const fallback = resolveFallbackModel(primary);
+  let text = "";
+
+  // These router combos intermittently return an empty message with no error —
+  // measured at roughly a third of calls. agentLoop handles that with a retry
+  // ladder plus a fallback model; a single-shot caller needs the same, or a
+  // silent empty reply reads as a real (and wrong) answer.
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const usedModel = attempt > 0 && attempt === retries ? fallback : primary;
+    try {
+      const response = await client.chat.completions.create(
+        {
+          model: usedModel,
+          messages: [{ role: "user", content: prompt }],
+          temperature: temperature ?? config.llm.temperature,
+          max_tokens: maxTokens,
+          stream: false,
+        },
+        timeoutMs ? { timeout: timeoutMs } : undefined,
+      );
+      text = getAssistantText(response?.choices?.[0]?.message);
+    } catch (error) {
+      if (attempt === retries) throw error;
+      log("agent", `completeOnce attempt ${attempt + 1} failed: ${error.message}`);
+      continue;
+    }
+    if (String(text || "").trim()) return text;
+    log("agent", `completeOnce returned empty (attempt ${attempt + 1}/${retries + 1})`);
+  }
+  return text;
+}
+
+/**
  * Core ReAct agent loop.
  *
  * @param {string} goal - The task description for the agent
@@ -257,6 +322,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
   // After repeated empty responses, swap to the fallback model for the rest of the run
   let emptyFallbackActive = false;
   let fallbackModel = null;
+  const MAX_RATE_LIMIT_RETRIES = 3;
+  let rateLimitRetries = 0;
   for (let step = 0; step < maxSteps; step++) {
     log("agent", `Step ${step + 1}/${maxSteps}`);
 
@@ -312,6 +379,16 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             usedModel = fallbackModel;
             emptyFallbackActive = true;
             log("agent", `Provider unavailable for ${activeModel} — switching to fallback ${fallbackModel}`);
+            attempt -= 1;
+            continue;
+          }
+          // Quota exhaustion is "this model is unavailable to us right now" —
+          // same remedy as a missing provider: try the fallback once. Retrying
+          // the exhausted model instead would just 429 again.
+          if (isFreeQuotaError(error) && usedModel !== fallbackModel) {
+            log("agent", `Free-tier quota exhausted on ${usedModel} — switching to fallback ${fallbackModel}`);
+            usedModel = fallbackModel;
+            emptyFallbackActive = true;
             attempt -= 1;
             continue;
           }
@@ -540,10 +617,36 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
     } catch (error) {
       log("error", `Agent loop error at step ${step}: ${error.message}`);
 
-      // If it's a rate limit, wait and retry
+      // Free-tier quota is exhausted on both primary and fallback (the inner
+      // loop already tried the switch). Waiting won't help and every extra step
+      // is another request against a limit that's already blown — soft-fail the
+      // cycle so screening/management continues without a decision, instead of
+      // grinding through maxSteps × 30s. Same return shape as "max steps".
+      if (isFreeQuotaError(error)) {
+        log("error", "LLM free-tier quota exhausted on primary and fallback — ending agent loop for this cycle. "
+          + "Point LLM_MODEL / LLM_FALLBACK_MODEL at a paid route to restore agent decisions.");
+        return {
+          content: "LLM free-tier quota exhausted — no agent decision made this cycle.",
+          userMessage: goal,
+          softFailed: true,
+        };
+      }
+
+      // Ordinary rate limit: bounded backoff, then give up rather than spending
+      // every remaining step asleep.
       if (error.status === 429) {
-        log("agent", "Rate limited, waiting 30s...");
-        await sleep(30000);
+        rateLimitRetries += 1;
+        if (rateLimitRetries > MAX_RATE_LIMIT_RETRIES) {
+          log("error", `Rate limited ${rateLimitRetries} times — ending agent loop for this cycle.`);
+          return {
+            content: "LLM rate limited repeatedly — no agent decision made this cycle.",
+            userMessage: goal,
+            softFailed: true,
+          };
+        }
+        const wait = 30000 * rateLimitRetries;
+        log("agent", `Rate limited, waiting ${wait / 1000}s (${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})...`);
+        await sleep(wait);
         continue;
       }
 
